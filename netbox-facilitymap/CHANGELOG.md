@@ -3,6 +3,17 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.3.1 — Fix import preview; resizable thumbnails
+- **Import.** Version → `1.3.1`:
+  - **Preview fix.** The map-step preview embedded the raw PDF in an `<iframe>`, which went
+    blank and instead downloaded the file when the browser is set to download PDFs (or under
+    `X-Frame-Options`). `_lightbox` now shows the rendered page **image** (the high-res
+    thumbnail PNG), which always renders inline and is sharp enough to read floor labels.
+  - **Resizable thumbnails.** A size slider (`_sizer`/`_applyThumbSize`, global `thumbWidth`)
+    enlarges every card at once via CSS vars, so labels can be read without opening each
+    drawing. Both this and the per-card framing are client-only viewing aids, never sent to the
+    build or the manifest.
+
 ## 1.3.0 — Smoother facility-import upload flow
 - **Import.** The wizard's upload and map steps were streamlined and gained three
   conveniences, version → `1.3.0`:
@@ -14,14 +25,10 @@ All notable changes to `netbox-facilitymap`. Versions are git tags; keep
     only in the render subprocess; it is bounded by new `max_zip_mb` /
     `max_zip_uncompressed_mb` caps plus the existing `max_pdf_mb` / `max_pdfs`, with
     symlink-member refusal and per-member `safe_path` confinement.
-  - **In-app preview.** Clicking a drawing card opens a full-window lightbox (`_lightbox`) of
-    the rendered page **image** (the high-res thumbnail PNG, not a PDF iframe — the latter went
-    blank / forced a download under browser PDF handling and `X-Frame-Options`); dismiss via
-    backdrop / ✕ / Esc.
-  - **Resizable thumbnails.** A size slider (`_sizer`/`_applyThumbSize`) enlarges every card at
-    once via CSS vars, so floor labels can be read without opening each drawing. Plus per-card
-    scroll-to-zoom / drag-to-pan framing (`_framing`). Both are client-only viewing aids (per-PDF
-    `frame` state, global `thumbWidth`), never sent to the build or the manifest.
+  - **In-app preview.** Clicking a drawing card opens a full-window lightbox (`_lightbox`)
+    instead of a new browser tab. (Superseded by the 1.3.1 image-based preview.)
+  - **Framable thumbnails.** Per-card scroll-to-zoom / drag-to-pan framing (`_framing`,
+    per-PDF `frame` state) to frame the floor label — a client-only viewing aid.
   - **Less chrome.** Trimmed the instructional prose on both steps.
 
 ## 1.2.2 — Recognize a loose top-level PDF as the site map on import
