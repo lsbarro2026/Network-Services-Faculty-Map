@@ -14,11 +14,14 @@ All notable changes to `netbox-facilitymap`. Versions are git tags; keep
     only in the render subprocess; it is bounded by new `max_zip_mb` /
     `max_zip_uncompressed_mb` caps plus the existing `max_pdf_mb` / `max_pdfs`, with
     symlink-member refusal and per-member `safe_path` confinement.
-  - **In-app preview.** Clicking a drawing card now opens a full-window lightbox iframe of the
-    actual PDF (`_lightbox`) instead of a new browser tab; dismiss via backdrop / ✕ / Esc.
-  - **Framable thumbnails.** Scroll-to-zoom and drag-to-pan a card (`_framing`) to frame the
-    part of the sheet that names the floor. Framing is a client-only viewing aid (per-PDF
-    `frame` state), never sent to the build or the manifest.
+  - **In-app preview.** Clicking a drawing card opens a full-window lightbox (`_lightbox`) of
+    the rendered page **image** (the high-res thumbnail PNG, not a PDF iframe — the latter went
+    blank / forced a download under browser PDF handling and `X-Frame-Options`); dismiss via
+    backdrop / ✕ / Esc.
+  - **Resizable thumbnails.** A size slider (`_sizer`/`_applyThumbSize`) enlarges every card at
+    once via CSS vars, so floor labels can be read without opening each drawing. Plus per-card
+    scroll-to-zoom / drag-to-pan framing (`_framing`). Both are client-only viewing aids (per-PDF
+    `frame` state, global `thumbWidth`), never sent to the build or the manifest.
   - **Less chrome.** Trimmed the instructional prose on both steps.
 
 ## 1.2.2 — Recognize a loose top-level PDF as the site map on import

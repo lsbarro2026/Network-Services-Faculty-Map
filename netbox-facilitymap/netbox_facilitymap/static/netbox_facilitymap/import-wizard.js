@@ -18,6 +18,7 @@ class ImportWizard {
     this.inv = null;        // scan inventory { folders:[{folder, pdfs:[...]}] }
     this.buildings = [];    // per-folder editable model (see _modelFromInventory)
     this.site = { folder: '', file: '' };  // chosen siteplan PDF (or empty = none)
+    this.thumbWidth = 170;  // map-step card width (px); the size slider drives it
   }
 
   // ---- helpers ----
@@ -204,10 +205,13 @@ class ImportWizard {
 
   _stepMap() {
     const view = this._stage('Map drawings to floors');
+    this._mapView = view;
     view.append(Dom.el('p', { class: 'hint' },
-      'Name each building and assign every drawing to a floor. Click a card to preview; '
-      + 'scroll or drag it to frame the floor label.'));
+      'Name each building and assign every drawing to a floor. Click a card for a full '
+      + 'preview, or drag the size slider to enlarge every thumbnail at once.'));
 
+    view.append(this._sizer());
+    this._applyThumbSize();
     view.append(this._siteplanRow());
     for (const b of this.buildings) view.append(this._buildingSection(b));
 
@@ -217,6 +221,24 @@ class ImportWizard {
       buildBtn,
       Dom.el('button', { onclick: () => this._reset() }, 'Start over'),
     ]));
+  }
+
+  /** Global thumbnail-size slider — resizes every card at once (the alternative to opening
+   *  each one). Lives on the wizard so the choice survives step re-renders. */
+  _sizer() {
+    return Dom.el('div', { class: 'imp-sizer' }, [
+      Dom.el('span', {}, 'Thumbnail size'),
+      Dom.el('input', { type: 'range', min: '150', max: '480', step: '10',
+        value: String(this.thumbWidth),
+        oninput: (e) => { this.thumbWidth = parseInt(e.target.value, 10); this._applyThumbSize(); } }),
+    ]);
+  }
+
+  /** Push the current size onto the map view as CSS vars the grid/cards read. */
+  _applyThumbSize() {
+    if (!this._mapView) return;
+    this._mapView.style.setProperty('--imp-card-w', this.thumbWidth + 'px');
+    this._mapView.style.setProperty('--imp-thumb-h', Math.round(this.thumbWidth * 110 / 150) + 'px');
   }
 
   _siteplanRow() {
@@ -273,7 +295,7 @@ class ImportWizard {
     if (p.thumb) {
       const img = Dom.el('img', { src: ImportWizard._media(p.thumb), loading: 'lazy' });
       thumb = Dom.el('div', { class: 'imp-thumb' }, [img]);
-      this._framing(thumb, img, b.frame[p.stem], () => this._lightbox(p.pdf, p.file));
+      this._framing(thumb, img, b.frame[p.stem], () => this._lightbox(p.thumb, p.file));
     } else {
       thumb = Dom.el('div', { class: 'imp-thumb imp-nothumb' }, p.file);
     }
@@ -324,9 +346,11 @@ class ImportWizard {
     });
   }
 
-  /** Full-window preview of a drawing: the actual PDF in an iframe (native zoom), dismissed
-   *  by the backdrop, the ✕, or Esc. */
-  _lightbox(pdfRel, title) {
+  /** Full-window preview of a drawing. Shows the rendered page image (`p.thumb`), not the raw
+   *  PDF in an iframe — the PNG always renders inline (no browser "download PDFs" detour or
+   *  X-Frame-Options blank) and the thumbnails are high-res enough to read floor labels.
+   *  Dismissed by the backdrop, the ✕, or Esc. */
+  _lightbox(imgRel, title) {
     const onKey = (e) => { if (e.key === 'Escape') close(); };
     const close = () => { document.removeEventListener('keydown', onKey); box.remove(); };
     const panel = Dom.el('div', { class: 'imp-lightbox-panel' }, [
@@ -334,7 +358,9 @@ class ImportWizard {
         Dom.el('span', {}, title),
         Dom.el('button', { class: 'imp-lightbox-x', title: 'Close', onclick: close }, '✕'),
       ]),
-      Dom.el('iframe', { class: 'imp-lightbox-frame', src: ImportWizard._media(pdfRel) }),
+      Dom.el('div', { class: 'imp-lightbox-body' }, [
+        Dom.el('img', { class: 'imp-lightbox-img', src: ImportWizard._media(imgRel) }),
+      ]),
     ]);
     const box = Dom.el('div', { class: 'imp-lightbox' }, [panel]);
     box.addEventListener('click', (e) => { if (e.target === box) close(); });

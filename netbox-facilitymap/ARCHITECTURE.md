@@ -516,11 +516,14 @@ any wrapper folder (see `UploadZipView`/`_zip_targets` below). **Map** (`_scanAn
 (name/slug/abbr defaults via `slugify`/`prettyName`/`initials`; a folder matching
 `/site\s*plan/i` — including the `Site Plan` bucket a loose top-level map lands in — seeds the
 siteplan and contributes no floors, the rest default to Level 1..N; it also seeds a per-PDF
-`frame` `{scale,x,y}`). Each PDF gets a thumbnail (its `src` rebased onto `window.MAP.media`)
-wired by `_framing` for scroll-to-zoom / drag-to-pan so the floor label can be framed — a
-viewing aid kept in the model (survives step switches), never sent to the build; a click
-(press that doesn't cross a small drag threshold) opens `_lightbox`, a full-window iframe
-preview of the actual PDF (dismiss: backdrop / ✕ / Esc). Plus a floor control
+`frame` `{scale,x,y}`). A global **size slider** (`_sizer`/`_applyThumbSize`, backed by
+`thumbWidth`) resizes every card at once by setting `--imp-card-w`/`--imp-thumb-h` CSS vars on
+the map view. Each PDF gets a thumbnail (its `src` rebased onto `window.MAP.media`) wired by
+`_framing` for scroll-to-zoom / drag-to-pan so the floor label can be framed — a viewing aid
+kept in the model (survives step switches), never sent to the build; a click (press that
+doesn't cross a small drag threshold) opens `_lightbox`, a full-window preview of the rendered
+page **image** (the thumbnail PNG, not a PDF iframe — see §10; dismiss: backdrop / ✕ / Esc).
+Plus a floor control
 (Basement/Ground/Level/Roof/`same floor`); `_resolveFloors` turns the controls into the
 `{stem: token}` table (a `same`-floor entry reuses the previous token → multi-page).
 **Build** (`_build`): assembles `{siteplan, buildings}`, POSTs `/api/import/build`, then
@@ -1081,11 +1084,15 @@ point at the deep treatment.
   worker now bears the zip-bomb risk, so the caps (`max_zip_mb`, per-member `max_pdf_mb`,
   cumulative `max_zip_uncompressed_mb`, `max_pdfs` members) are enforced **as it streams**,
   never from `ZipInfo.file_size`, and symlink/special members are refused before `safe_path`.
-- **Thumbnail framing is client-only.** The per-PDF `frame` `{scale,x,y}` (zoom/pan to make a
-  floor legible) lives in the wizard model and the card's CSS transform; it is **never** sent
-  to `api/import/build` and never reaches `manifest.json`. A rescan resets it. Don't wire it
-  into the import map. A card press under the drag threshold opens the `_lightbox` PDF preview,
-  so don't lower that threshold or panning will swallow clicks.
+- **Thumbnail framing + size are client-only.** The per-PDF `frame` `{scale,x,y}` (zoom/pan to
+  make a floor legible) and the global `thumbWidth` (the size slider) live only in the wizard
+  model + CSS; neither is **ever** sent to `api/import/build` or reaches `manifest.json`, and a
+  rescan resets them. Don't wire them into the import map. A card press under the drag threshold
+  opens the `_lightbox` preview, so don't lower that threshold or panning will swallow clicks.
+- **The `_lightbox` shows the rendered PNG, not the PDF.** An earlier version framed the raw PDF
+  in an `<iframe>`, which went blank / triggered a download when the browser is set to download
+  PDFs (or under `X-Frame-Options`). The thumbnail PNG (`uploads/.thumbs/...`) always renders
+  inline and is high-res enough to read labels — keep the preview image-based.
 
 ### Multi-sheet floors
 
