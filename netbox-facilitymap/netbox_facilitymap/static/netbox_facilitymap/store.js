@@ -20,8 +20,9 @@ class Store {
   }
 
   async load() {
-    // manifest.json is a build artifact served as a static asset (not an API route).
-    this.manifest = await Api.get((window.MAP ? window.MAP.static : '/') + 'manifest.json');
+    // The manifest is a render artifact served by an authenticated endpoint (it lives in
+    // the working dir under MEDIA_ROOT, not the public static tree).
+    this.manifest = await Api.get((window.MAP ? window.MAP.api + 'manifest' : '/manifest.json'));
     this.annotations = await Api.get('/api/annotations');
     this.siteHotspots = (await Api.get('/api/siteplan')).hotspots || [];
     this.placements = await Api.get('/api/rackplacements');
@@ -29,6 +30,12 @@ class Store {
   }
 
   building(dir) { return this.manifest.buildings.find(b => b.dir === dir); }
+
+  /** True once a facility has been imported (the manifest has a siteplan or buildings).
+   *  Drives the boot default: an empty install lands on the import wizard. */
+  hasContent() {
+    return !!(this.manifest && (this.manifest.buildings.length || this.manifest.siteplan));
+  }
 
   /** Resolve a floor's sheets + saved arrangement into geometry. The single place
    *  that knows how sheets tile the combined canvas: each sheet sits in one cell of

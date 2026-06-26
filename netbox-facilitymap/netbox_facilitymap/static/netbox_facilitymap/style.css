@@ -417,3 +417,48 @@ button.wide { width: 100%; margin-bottom: 6px; justify-content: center; }
 .badge .ico { stroke: var(--success); }
 .badge.dirty { color: var(--warn); }
 .hidden { display: none !important; }
+
+/* ---- Import wizard ---- */
+.import-view { max-width: 960px; margin: 22px auto; padding: 0 20px 40px; }
+.import-view h2 { font-size: 18px; margin: 0 0 6px; }
+.imp-drop { margin: 16px 0; padding: 34px; text-align: center;
+  border: 2px dashed var(--border-strong); border-radius: var(--radius-lg);
+  background: var(--panel2); }
+.imp-drop.over { border-color: var(--accent); background: var(--accent-tint); }
+.imp-drop-big { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+.imp-pick { display: inline-block; margin-top: 10px; }
+.imp-pick span { display: inline-block; padding: 0 14px; height: 34px; line-height: 34px;
+  background: var(--accent); color: #fff; border-radius: var(--radius); cursor: pointer; font-size: 13px; }
+.imp-pick input { display: none; }
+.imp-progress { font-family: var(--mono); font-size: 12px; margin: 10px 0; color: var(--text2); }
+.imp-siteplan { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 12px 14px; margin-bottom: 14px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); }
+.imp-siteplan > label { font-weight: 600; font-size: 13px; }
+.imp-siteplan select, .imp-cardrow select, .imp-num {
+  height: 30px; padding: 0 7px; background: var(--panel); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  font-family: inherit; font-size: 12.5px; }
+.imp-building { background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); padding: 14px; margin-bottom: 16px; box-shadow: var(--shadow); }
+.imp-bhead { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.imp-field { display: flex; flex-direction: column; gap: 4px; }
+.imp-field span { color: var(--muted); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .05em; }
+.imp-field input { height: 30px; padding: 0 8px; background: var(--panel); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius); font-family: inherit; font-size: 13px; }
+.imp-auto { margin-left: auto; }
+.imp-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.imp-card { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+  background: var(--panel2); }
+.imp-thumb { display: block; height: 110px; background: #fff; border-bottom: 1px solid var(--line2); }
+.imp-thumb img { width: 100%; height: 110px; object-fit: contain; display: block; }
+.imp-nothumb { display: flex; align-items: center; justify-content: center; height: 110px;
+  color: var(--faint); font-size: 11px; padding: 6px; text-align: center; }
+.imp-cardfile { font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+  padding: 5px 7px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imp-cardrow { display: flex; gap: 5px; padding: 6px 7px 8px; }
+.imp-cardrow select { flex: 1; min-width: 0; }
+.imp-num { width: 46px; }
+.imp-actions { display: flex; gap: 10px; margin-top: 8px; }
+.imp-spinner { padding: 30px; text-align: center; color: var(--text2); font-size: 14px; }

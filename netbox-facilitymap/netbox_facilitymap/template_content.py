@@ -14,26 +14,21 @@ they show sheet 1 with a note — a documented minimal-scope limitation.
 """
 
 import json
-from functools import lru_cache
-from pathlib import Path
-
-from django.templatetags.static import static
 
 from netbox.plugins import PluginTemplateExtension
 
 from .models import FacilityMapBlob, Room
+from .storage import MANIFEST_NAME, media_url, work_dir
 
-_MANIFEST = Path(__file__).parent / 'static' / 'netbox_facilitymap' / 'manifest.json'
 
-
-@lru_cache(maxsize=1)
 def _page_counts():
-    """floor_key -> number of drawing sheets, from the static manifest (best-effort).
+    """floor_key -> number of drawing sheets, from the rendered manifest (best-effort).
 
     Used only to flag multi-sheet floors in the panel; absence/parse-failure just means
-    no note (the manifest ships as a build artifact alongside the package)."""
+    no note. Read fresh (no cache) since the manifest is now a runtime render artifact in
+    the working dir, not a packaged static file."""
     try:
-        manifest = json.loads(_MANIFEST.read_text())
+        manifest = json.loads((work_dir() / MANIFEST_NAME).read_text())
     except (OSError, ValueError):
         return {}
     counts = {}
@@ -82,7 +77,7 @@ class FloorRooms(PluginTemplateExtension):
         return self.render('netbox_facilitymap/floor_rooms.html', extra_context={
             'vw': w,
             'vh': h,
-            'image_url': static('netbox_facilitymap/' + image) if image else '',
+            'image_url': media_url(image),
             'shapes': shapes,
             'multisheet': _page_counts().get(floor_key, 0) > 1,
         })

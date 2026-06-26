@@ -4,15 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netbox-facilitymap"
-version = "1.1.0"
+version = "1.2.0"
 description = "Facility map plugin for NetBox — siteplan → building → floor → room, linked to Locations"
 requires-python = ">=3.10"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Facility Map" }]
-# No runtime pip dependencies: NetBox supplies Django/DRF. preprocess.py's optional
-# pypdfium2/Pillow are a developer build tool, never a plugin runtime dep.
-dependencies = []
+# PDF import runs in-plugin: PDFs are rasterized to floor images by `preprocess.py`.
+# pypdfium2 embeds Google's PDFium (the renderer Chrome uses) as a self-contained wheel
+# — no system Ghostscript/poppler. It is invoked as a *subprocess* (see imports.py), so
+# this native code never loads into a long-lived NetBox worker; these are still declared
+# runtime deps because the subprocess shares the NetBox virtualenv.
+dependencies = [
+    "pypdfium2",
+    "Pillow",
+]
 
 [tool.setuptools.packages.find]
 include = ["netbox_facilitymap*"]

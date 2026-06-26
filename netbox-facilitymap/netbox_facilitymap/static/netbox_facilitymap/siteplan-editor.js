@@ -66,7 +66,7 @@ class SiteplanEditor extends Editor {
     if (!sp) { this.app.setToolbar([]); stage.append(Dom.el('div', { class: 'empty' }, 'No siteplan image')); return; }
     this.app.setToolbar(this._toolbar());
 
-    const img = Dom.el('img', { src: (window.MAP ? window.MAP.static : '/') + sp.image, alt: 'siteplan' });
+    const img = Dom.el('img', { src: (window.MAP ? window.MAP.media : '/') + sp.image, alt: 'siteplan' });
     const s = Dom.svg('svg', { preserveAspectRatio: 'none' });
     const wrap = Dom.el('div', { class: 'map-wrap' }, [img, s]);
     const viewport = Dom.el('div', { class: 'map-viewport' }, wrap);

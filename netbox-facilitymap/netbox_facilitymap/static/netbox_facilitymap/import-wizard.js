@@ -6,7 +6,11 @@
                   building's name/slug/abbr and assigns each PDF a floor.
      3. Build   — the assembled import map is sent to the server, which renders the
                   images + manifest; the app then reloads onto the new facility.
-   The PDFs carry no text layer, so floor identity is assigned here, not inferred. */
+   The PDFs carry no text layer, so floor identity is assigned here, not inferred.
+
+   Mount-aware: file uploads and thumbnail/PDF previews resolve against window.MAP
+   (api/media), and uploads carry the session CSRF token; scan/build/reset ride the
+   shared Api.post wrapper (which rebases /api/* and adds CSRF). */
 
 class ImportWizard {
   constructor(app) {
@@ -30,6 +34,12 @@ class ImportWizard {
       .replace(/[^a-z0-9]/g, '');
   }
 
+  /** Resolve a working-dir-relative asset path (thumbnail / PDF) to its authenticated
+   *  media URL. */
+  static _media(rel) {
+    return (window.MAP ? window.MAP.media : '/') + encodeURI(rel);
+  }
+
   _stage(title) {
     this.app.current = null;
     this.app.crumbs([{ label: 'Siteplan', hash: '/' }, { label: 'Import' }]);
@@ -46,9 +56,8 @@ class ImportWizard {
   _stepUpload() {
     const view = this._stage('Import a facility');
     view.append(Dom.el('p', { class: 'hint' },
-      'Select the folder of building drawings you downloaded — one sub-folder per '
-      + 'building, each holding its floor PDFs. Everything is rendered locally; nothing '
-      + 'leaves this machine.'));
+      'Select the folder of building drawings — one sub-folder per building, each holding '
+      + 'its floor PDFs. The PDFs are uploaded to NetBox and rendered there.'));
 
     const input = Dom.el('input', {
       type: 'file', class: 'imp-file', multiple: 'multiple', accept: '.pdf',
@@ -106,13 +115,20 @@ class ImportWizard {
   async _upload(items) {
     if (!items.length) { Toast.show('No PDFs found in that selection', true); return; }
     this._progress.classList.remove('hidden');
+    const apiBase = window.MAP ? window.MAP.api : '/api/';
     let done = 0;
     for (const it of items) {
       const { folder, file } = ImportWizard._split(it.path);
       this._progress.textContent = `Uploading ${++done} / ${items.length}…`;
       try {
-        const r = await fetch('/api/import/upload?path=' + encodeURIComponent(folder + '/' + file),
-          { method: 'POST', body: it.file });
+        // Multipart so the server streams to disk (no in-memory body cap); CSRF header so
+        // the session-auth POST isn't rejected.
+        const fd = new FormData();
+        fd.append('file', it.file, file);
+        const headers = {};
+        if (window.MAP && window.MAP.csrf) headers['X-CSRFToken'] = window.MAP.csrf;
+        const r = await fetch(apiBase + 'import/upload?path=' + encodeURIComponent(folder + '/' + file),
+          { method: 'POST', headers, body: fd });
         if (!r.ok) throw new Error('HTTP ' + r.status);
       } catch (e) { Toast.show('Upload failed: ' + e.message, true); return; }
     }
@@ -222,10 +238,10 @@ class ImportWizard {
       const o = Dom.el('option', { value: v }, lbl); if (a.type === v) o.selected = true; sel.append(o);
     }
     showNum();
-    const href = '/' + encodeURI(p.pdf);
+    const href = ImportWizard._media(p.pdf);
     return Dom.el('div', { class: 'imp-card' }, [
       Dom.el('a', { href, target: '_blank', rel: 'noopener', class: 'imp-thumb' },
-        p.thumb ? Dom.el('img', { src: '/' + encodeURI(p.thumb), loading: 'lazy' })
+        p.thumb ? Dom.el('img', { src: ImportWizard._media(p.thumb), loading: 'lazy' })
           : Dom.el('div', { class: 'imp-nothumb' }, p.file)),
       Dom.el('div', { class: 'imp-cardfile' }, p.file),
       Dom.el('div', { class: 'imp-cardrow' }, [sel, num]),

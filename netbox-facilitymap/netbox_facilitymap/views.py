@@ -1,5 +1,4 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.templatetags.static import static
 from django.views.generic import TemplateView
 
 from netbox.views import generic
@@ -7,6 +6,7 @@ from netbox.views import generic
 from .filtersets import RoomFilterSet
 from .forms import RoomBulkEditForm, RoomFilterForm, RoomForm
 from .models import FacilityMapBlob, Room
+from .storage import media_url as _media_url
 from .tables import RoomTable
 
 
@@ -50,7 +50,7 @@ class RoomView(generic.ObjectView):
         return {
             'vw': w,
             'vh': h,
-            'image_url': static('netbox_facilitymap/' + image) if image else '',
+            'image_url': _media_url(image),
             'points': points,
         }
 

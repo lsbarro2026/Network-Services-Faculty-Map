@@ -1,74 +1,118 @@
 # Architecture Reference
 
-Exhaustive technical reference for the facility-map annotation tool. Read
-this once to orient; you should not need to read source files to understand *what*
-exists or *where* it lives. Pair with `CLAUDE.md` (standards + maintenance rules)
-and `README.md` (user-facing usage).
+Exhaustive technical reference for the **framework-free frontend** of the
+`netbox-facilitymap` plugin and the Django backend that serves it. Read this once to
+orient; you should not need to read source files to understand *what* exists or *where*
+it lives. Pair with `DESIGN.md` (plugin design, storage model, packaging, import
+pipeline) and `README.md` (install + operate).
 
-> **Keep this file current.** Any change to a class, method signature, data model,
-> route, file location, or coordinate convention MUST be reflected here in the
-> same change. See `CLAUDE.md` § "Documentation maintenance".
+> **Keep this file current.** Any change to a frontend class, backend view, method
+> signature, data model, route, file location, or coordinate convention MUST be
+> reflected here in the same change. See `DESIGN.md` and the repository's
+> documentation-maintenance rules.
+
+This reference grew up alongside a standalone drawing tool; that tool has been **merged
+into this plugin** so the project ships as one installable NetBox app. The
+**framework-free frontend is reused unchanged** (same classes, same coordinate systems,
+same JSON shapes on the wire) — only the standalone `server.py`/`config.json` backend was
+replaced by Django views, and an isolated PDF-render subprocess. Where this document says
+"the editor" or "the frontend" it means that reused JS; where it says "the plugin
+backend" it means the Django side under `netbox_facilitymap/`.
 
 ---
 
-## 1. What the tool is
+## 1. What this is
 
-A local web app to (a) navigate **siteplan → building → floor → room** and (b) annotate
-floor-plan images by drawing **room polygons** and binding each to a **NetBox Location**.
-Output JSON is the durable artifact that drives the NetBox plugin in
-`../netbox-facilitymap/` (built — ORM reads + live racks/devices + a relational `Room`
-model rendered natively on NetBox Location pages; see `../netbox-facilitymap/DESIGN.md`).
-This standalone tool keeps running unchanged alongside the plugin.
+The navigable **siteplan → building → floor → room** map of a facility, rendered by a
+**framework-free** (vanilla JS + SVG, no build step) frontend and served by Django as a
+NetBox 4.x plugin. The frontend lets an operator (a) navigate the map and (b) annotate
+floor-plan images by drawing **room polygons** and binding each to a NetBox **Location**.
 
-The tool is **generic and ships with no facility content**. A facility is imported from
-inside the app: the user uploads one folder of floor-plan PDFs per building, the server
-renders them (via a `preprocess.py` subprocess), and the result is `images/` +
-`manifest.json` (§4 import). Because the PDFs have no text layer, each PDF's floor is
-**assigned by the user** in the import wizard, not inferred.
+It is **not standalone**: there is no `server.py`, no `config.json`, and no localhost
+trust model. The page is a Django view — `views.MapView` (login-gated `TemplateView`) —
+that renders `templates/netbox_facilitymap/index.html`. That template injects a
+mount-aware config object the frontend reads:
+
+```js
+window.MAP = {
+  api:    "/plugins/facilitymap/api/",        // logical /api/* rebased onto the plugin mount
+  media:  "/plugins/facilitymap/api/media/",  // authenticated floor images / thumbnails / PDFs
+  static: "/static/netbox_facilitymap/",      // framework-free JS/CSS/fonts (collectstatic)
+  csrf:   "<session csrf token>"               // threaded into Api.post's X-CSRFToken header
+};
+```
+
+The frontend files live under `netbox_facilitymap/static/netbox_facilitymap/` and are
+loaded in dependency order by `index.html`; `App` (`app.js`) is the entry point,
+instantiated on `DOMContentLoaded`. Every JS class is a global (no modules, no bundler).
+
+The plugin **ships with no facility content**. A facility is imported from inside the
+app: the operator uploads one folder of floor-plan PDFs per building, the **import
+endpoints** (`imports.py`) render them in an isolated `preprocess.py` **subprocess**, and
+the result is `images/` + `manifest.json` written under NetBox's `MEDIA_ROOT` and served
+back through authenticated views (§4). Because the PDFs have no text layer, each PDF's
+floor is **assigned by the operator** in the import wizard, not inferred.
+
+Security posture (replacing the old "nothing leaves this machine" model): the app runs
+inside NetBox, so reads are **login-gated**, writes/imports require the
+`netbox_facilitymap.change_facilitymapblob` **object permission**, browser writes carry a
+**CSRF** token, and NetBox data is read through the **ORM** (object-permission scoped),
+never a token-holding proxy. Untrusted PDFs are parsed **only** in the short-lived,
+resource-limited render subprocess — never in the NetBox worker.
 
 ---
 
 ## 2. Directory map
 
+The frontend (`static/netbox_facilitymap/`) is the reused tool UI; the Python package is
+a standard Django/NetBox plugin.
+
 ```
-tool/
-  preprocess.py          # Preprocessor: render imported PDFs -> images + manifest (scan|build)
-  server.py              # Config/NetBoxProxy/JsonStore/Handler/ToolServer (the server)
-  start.sh               # Convenience launcher: checks config, runs server.py
-  requirements.txt       # render deps (pypdfium2, Pillow) — required for the import
-  config.json            # NetBox url + token + port (gitignored; contains a secret)
-  config.example.json    # Safe template — copy to config.json and fill in values
-  uploads/               # GITIGNORED: PDFs uploaded by the import wizard, + .thumbs/
-  import-map.json        # GITIGNORED: import wizard's building/floor mapping
-  import-map.stub.json   # GITIGNORED: drawings left unmapped by the last build
-  manifest.json          # GITIGNORED/GENERATED: buildings, floors, siteplan
-  annotations.json       # GITIGNORED/EDITED: room polygons -> NetBox Location
-  siteplan.json          # GITIGNORED/EDITED: user-drawn building hotspots
-  rackcache.json         # GITIGNORED/GENERATED: synced NetBox racks/devices per location
-  rackplacements.json    # GITIGNORED/EDITED: rack/device marker positions inside rooms
-  pagelayouts.json       # GITIGNORED/EDITED: per-floor sheet arrangement grid
-  images/<slug>/<floor>.png # GITIGNORED/GENERATED: rendered floor + siteplan images
-  web/
-    index.html           # shell; loads the scripts below in dependency order
-    style.css            # all styling — light "CAD" theme; tokens in :root; @font-face
-    fonts/               # bundled WOFF2 (Public Sans + IBM Plex Mono, SIL OFL); offline
-    lib.js               # Util, Dom, Geom, Toast, Api, Icons + consts (SVGNS, *_PX)
-    device-shapes.js     # DeviceShapes (per-type rack/device marker glyphs)
-    netbox.js            # NetBoxClient
-    store.js             # Store (data + persistence + dirty tracking)
-    grid.js              # GridController (shared snapping grid)
-    panzoom.js           # PanZoom (map viewport: pan + zoom transform)
-    editor.js            # Editor (abstract base: the shared polygon engine)
-    floor-editor.js      # FloorEditor extends Editor (rooms + NetBox binding)
-    siteplan-editor.js   # SiteplanEditor extends Editor (building hotspots)
-    import-wizard.js     # ImportWizard (in-app PDF import: upload -> map -> build)
-    app.js               # App (orchestrator + router + boot). Loaded LAST.
-  README.md  ARCHITECTURE.md  CLAUDE.md
+netbox-facilitymap/
+  pyproject.toml            # packaging + version (lockstep with PluginConfig.version)
+  README.md  DESIGN.md  CHANGELOG.md  ARCHITECTURE.md
+  netbox_facilitymap/
+    __init__.py             # FacilityMapConfig(PluginConfig): version, base_url, default_settings
+    urls.py                 # all routes: page mount, Room UI, api/*, api/import/*, media
+    views.py                # MapView (the SPA shell) + Room list/detail/edit/delete views
+    api.py                  # frontend JSON views: AnnotationsView, BlobView, NbRooms/Locations/Racks/Devices
+    imports.py              # NEW: PDF import pipeline (Upload/Scan/Build/Reset) + Manifest/Media serving
+    preprocess.py           # NEW here: render engine (Preprocessor; scan|build) — run as a SUBPROCESS
+    storage.py              # NEW: work_dir() / safe_path() / media_url() (working-dir + traversal guard)
+    models.py               # FacilityMapBlob (editor JSON) + Room (NetBoxModel: room polygon → Location)
+    template_content.py     # FloorRooms PluginTemplateExtension: rooms panel on the Location page
+    navigation.py           # plugin menu items (Facility Map, Rooms)
+    forms.py tables.py filtersets.py search.py   # Room NetBox-native UI plumbing
+    api/                    # DRF REST API for Room (serializers.py / views.py / urls.py)
+    management/commands/
+      facilitymap_import.py # one-shot: import the old tool's JSON files into the stores
+    migrations/             # FacilityMapBlob + Room schema
+    templates/netbox_facilitymap/
+      index.html            # the SPA shell; injects window.MAP; loads the JS in dependency order
+      floor_rooms.html      # the Location-page room-overlay panel (server-rendered)
+      room.html             # Room detail page extra content
+    static/netbox_facilitymap/
+      style.css             # all styling — light "CAD" theme; tokens in :root; @font-face
+      fonts/                # bundled WOFF2 (Public Sans + IBM Plex Mono, SIL OFL); offline
+      lib.js                # Util, Dom, Geom, Toast, Api, Icons + consts (SVGNS, *_PX)
+      device-shapes.js      # DeviceShapes (per-type rack/device marker glyphs)
+      netbox.js             # NetBoxClient
+      store.js              # Store (data + persistence + dirty tracking)
+      grid.js               # GridController (shared snapping grid)
+      panzoom.js            # PanZoom (map viewport: pan + zoom transform)
+      editor.js             # Editor (abstract base: the shared polygon engine)
+      floor-editor.js       # FloorEditor extends Editor (rooms + NetBox binding)
+      siteplan-editor.js    # SiteplanEditor extends Editor (building hotspots)
+      import-wizard.js      # ImportWizard (in-app PDF import: upload -> map -> build)
+      app.js                # App (orchestrator + router + boot). Loaded LAST.
+      manifest.json         # stub: {"siteplan":null,"buildings":[]} (real manifest is a render artifact)
 ```
 
-The tool ships with **no facility content** — everything above the `web/` line that is
-marked GITIGNORED is created by importing a facility (see §4 import) and is absent on a
-fresh checkout.
+The **rendered facility content** (`uploads/`, `images/`, the real `manifest.json`,
+`import-map.json`) is **not** in the package — it is a runtime artifact written under the
+**working dir** (`<MEDIA_ROOT>/netbox_facilitymap/` by default; see `storage.py`) and
+served by authenticated endpoints, not from the public `static/` tree. The stub
+`static/.../manifest.json` exists only so a fresh install resolves without a render.
 
 Script load order is dependency order; every class is a global (no build step,
 no modules). `App` is instantiated on `DOMContentLoaded` (in `app.js`).
@@ -77,7 +121,9 @@ no modules). `App` is instantiated on `DOMContentLoaded` (in `app.js`).
 
 ## 3. Frontend class reference
 
-All UI coordinates are **normalized 0..1** relative to the image unless noted.
+All UI coordinates are **normalized 0..1** relative to the image unless noted. This is the
+reused tool frontend; only its data/asset URLs are rebased through `window.MAP` (a no-op
+when `window.MAP` is absent).
 
 ### lib.js (foundations — pure static classes)
 - **`Util`** — `uid()`, `floorKey(dir,fid)`, `isNumbered(dir)` (`/^\d\d-/`), `code(dir)` (2-digit code or full dir for trailers).
@@ -85,7 +131,7 @@ All UI coordinates are **normalized 0..1** relative to the image unless noted.
 - **`Geom`** — `centroid(poly)`, `bounds(poly)` → `{minX,minY,maxX,maxY,w,h,cx,cy}` axis-aligned bbox + center (used to size/place siteplan labels), `projSeg(px,py,ax,ay,bx,by)` → `{x,y,d}` nearest point on a segment (displayed px), `pointInPoly(nx,ny,poly)` (ray-cast), `clampToPoly(nx,ny,poly)` (inside → unchanged, else nearest edge point — used to keep rack markers inside a room).
 - **`Toast`** — `show(msg,err?)` transient notification.
 - **`Icons`** — inline 13×13 SVG glyphs (`edit, draw, undo, snap, grid, move, dup, check, rack, settings, rightangle`) using `currentColor`, for icon buttons + chrome. Build buttons via `Dom.el('button',{html:Icons.x+'<span>Label</span>'})`.
-- **`Api`** — `get(path)`, `post(path,body)`; throw on non-2xx.
+- **`Api`** — `get(path)`, `post(path,body)`; throw on non-2xx. **Mount-aware:** `_url(path)` rebases a logical `/api/<rest>` onto `window.MAP.api` (so `/api/annotations` → `/plugins/facilitymap/api/annotations`); `post` adds the `X-CSRFToken` header from `window.MAP.csrf` so Django's CSRF middleware accepts the write. With `window.MAP` absent both are passthroughs.
 - Consts: `SVGNS`, `CLOSE_PX` (12), `SNAP_PX` (11), `ORTHO_PX` (9) — displayed-px
   thresholds. `ANGLE_STEP` (15) — label-rotation snap increment (°). `LABEL_SIZE_MIN`
   (6) / `LABEL_SIZE_MAX` (120) — label font-size clamp (px). `LABEL_FONTS` — the label
@@ -108,26 +154,35 @@ All UI coordinates are **normalized 0..1** relative to the image unless noted.
 
 ### netbox.js
 - **`NetBoxClient`** — `rooms(siteSlug,floorSlug)`, `locations(siteSlug,q)`,
-  `syncRoom(locationId,name)` (POST `/api/netbox/sync-room`, merges one room's racks
-  + devices into the cache), `racks(locationId)`, `devices(locationId)`. Thin
-  wrappers over the server proxy (the browser never calls NetBox directly).
+  `racks(locationId)`, `devices(locationId)`. Thin wrappers over the plugin's
+  `/api/netbox/*` Django views, which run **direct ORM queries scoped to the requester's
+  object permissions** (replacing the standalone token-holding proxy). The browser never
+  calls NetBox's REST API directly. Racks/devices are fetched **live** per room — there is
+  no persisted rack cache and no "sync-room" write; `Store` memoizes the responses
+  in-memory for the session (see `Store.ensureRacks`).
 
 ### store.js
 - **`Store`** — single source of truth. Fields: `manifest`, `annotations`
   (`"dir/fid"→record`), `siteHotspots[]`, `dirty`, `siteDirty`, `placementsDirty`,
-  `layoutDirty`, `nbRoomsByFloor` (cache), `rackCache` (`{locations:{<locId>:{name,racks,devices}},
-  syncedAt}`), `placements` (`"dir/fid"→{placements:[…]}`), `layouts`
-  (`"dir/fid"→{grid:[[col,row]…]}`, sheet arrangement), `onDirty` (optional
-  callback `'floor'|'site'|'racks'`). Methods: `load()` (manifest + annotations +
-  siteplan + rackcache + rackplacements + pagelayouts), `building(dir)`,
-  `floorLayout(dir,fid)` (**the** sheet-tiling resolver → `{cells:[{page,col,row,image,
-  w,h,caption}],cellW,cellH,cols,rows,W,H}`; default = vertical stack), `floorData(dir,fid)`
-  (create-on-miss; seeds combined `w/h` from `floorLayout`), `placementData(dir,fid)`
-  (create-on-miss), `setLayout(dir,fid,grid)` (+`markLayoutDirty`),
-  `racksForLocation(locId)`, `markDirty()`, `markSiteDirty()`,
-  `markPlacementsDirty()`, `markLayoutDirty()`, `hasUnsaved()`, `saveAnnotations()`
-  (prunes empty floors), `saveSiteplan()`, `savePlacements()` (prunes empty floors),
-  `saveLayouts()` (prunes default/vertical-stack grids), `reloadRackCache()`.
+  `layoutDirty`, `nbRoomsByFloor` (cache), `rackCache` (`{locations:{<locId>:{racks,devices}}}`,
+  **in-memory only** — fetched live per Location, never persisted), `placements`
+  (`"dir/fid"→{placements:[…]}`), `layouts` (`"dir/fid"→{grid:[[col,row]…]}`, sheet
+  arrangement), `onDirty` (optional callback `'floor'|'site'|'racks'`). Methods: `load()`
+  (manifest — via `window.MAP.api + 'manifest'`, the authenticated endpoint — + annotations
+  + siteplan + rackplacements + pagelayouts; **no rackcache fetch**), `building(dir)`,
+  `hasContent()` (true once the manifest has a siteplan or buildings — drives the
+  empty-install boot to the import wizard), `floorLayout(dir,fid)` (**the** sheet-tiling
+  resolver → `{cells:[{page,col,row,image,w,h,caption}],cellW,cellH,cols,rows,W,H}`;
+  default = vertical stack), `floorData(dir,fid)` (create-on-miss; seeds combined `w/h`
+  from `floorLayout`), `placementData(dir,fid)` (create-on-miss), `setLayout(dir,fid,grid)`
+  (+`markLayoutDirty`), `racksForLocation(locId)` (the cached entry, else empty),
+  `ensureRacks(nb,locId,force?)` (load a Location's racks + unracked devices **live** via
+  the `NetBoxClient`, memoize them, `force` re-pulls — the Refresh-racks path), `markDirty()`,
+  `markSiteDirty()`, `markPlacementsDirty()`, `markLayoutDirty()`, `hasUnsaved()`,
+  `saveAnnotations()` (prunes empty floors), `saveSiteplan()`, `savePlacements()` (prunes
+  empty floors), `saveLayouts()` (prunes default/vertical-stack grids). Image paths from the
+  manifest are rebased onto `window.MAP.media` at render time (see `app.js`/`floor-editor.js`/
+  `siteplan-editor.js`), so the floor plans load from the authenticated media route.
 
 ### grid.js
 - **`GridController`** — one instance on `App`, so the toggle/origin persist across
@@ -304,14 +359,14 @@ else `null` → full `fit()`).
   The stage holds a `.map-viewport` (pan/zoom clip box) wrapping the `.map-wrap`. A
   floor is one or more **sheets tiled into a grid** (`store.floorLayout`): the wrap is
   sized to the combined `W×H` and each sheet `<img.sheet>` is positioned absolutely at
-  its cell; the single overlay `<svg>` spans the whole canvas, and `attach` is handed
-  the combined intrinsic dims `[W,H]`. While **arranging** the canvas is padded one
-  extra column + row (`this.layout` = padded display geometry; `this.baseLayout` = the
-  true geometry) so a sheet can be dragged into a not-yet-used cell. On the **first**
-  mount of a multi-sheet floor `show()` sets `initialFocus` to `_peekRegion(cell0)` so
-  it opens framed on sheet 1 + ~10%; later mounts full-fit (`_peeked`). `_drawCaptions`
-  labels each sheet at its cell's top-left with inert `.page-caption` text.
-  `_sheetMark()` adds a decorative drawing-sheet stamp
+  its cell (its `src` rebased onto `window.MAP.media`); the single overlay `<svg>` spans
+  the whole canvas, and `attach` is handed the combined intrinsic dims `[W,H]`. While
+  **arranging** the canvas is padded one extra column + row (`this.layout` = padded
+  display geometry; `this.baseLayout` = the true geometry) so a sheet can be dragged into
+  a not-yet-used cell. On the **first** mount of a multi-sheet floor `show()` sets
+  `initialFocus` to `_peekRegion(cell0)` so it opens framed on sheet 1 + ~10%; later
+  mounts full-fit (`_peeked`). `_drawCaptions` labels each sheet at its cell's top-left
+  with inert `.page-caption` text. `_sheetMark()` adds a decorative drawing-sheet stamp
   (`Util.code`+floor id, `.sheet-mark`) pinned to the viewport corner — it lives in
   the viewport, not the wrap, so it stays put while the map pans/zooms.
 - `_toolbar()` — edit: mode toggle + Draw/Undo/Snap/Right angle/Grid/Size/Move +
@@ -385,9 +440,10 @@ else `null` → full `fit()`).
   overrides, and a moved label (custom `x/y`) drops `.inside` so it regains the halo. `openPlacementPanel(p,room)` (opened on marker
   pointerdown) shows the device + **Edit label** (`editLabel` → set `editingLabel=p.uid`,
   `openLabelPanel`) + Delete + Back-to-list. `_cacheItem(p)` resolves a placement to its
-  `rackCache` entry (null = stale); `openRackPanel(room)` has a **Refresh racks** button
-  (→ `netbox.syncRoom` + `store.reloadRackCache` + re-render) and lists the room's synced
-  racks + unracked devices (click a row to place / remove); `placeItem(room,kind,item)`
+  in-memory `rackCache` entry (null = stale); `openRackPanel(room)` has a **Refresh racks**
+  button (→ `store.ensureRacks(netbox, locId, true)` re-pulls the Location's racks +
+  unracked devices **live** from NetBox + re-render) and lists the room's racks + unracked
+  devices (click a row to place / remove); `placeItem(room,kind,item)`
   (drop at clamped centroid, assigns a `uid`, selects it), `removePlacement(p,room)`;
   `handleKey` deletes the selected marker (Delete/Backspace) / exits label-edit then
   deselects (Escape) in racks mode; `onPanelClosed` clears the marker/label selection.
@@ -396,13 +452,13 @@ else `null` → full `fit()`).
 Shapes are **building hotspots**. `editing()`=`app.siteEdit`.
 - `effectiveHotspots()` — PDF hotspots (from manifest) overridden by any user
   hotspot for the same `dir`, plus all user hotspots (`store.siteHotspots`).
-- `show()` builds the map (`.map-viewport` → `.map-wrap`) + building **index**
-  (`_legend(s)`) as a flex row, so the index stays put while the map pans/zooms
-  beside it. The index has a live **search box** (`.legend-search`) above
-  re-renderable rows (`renderRows(q)` filters numbered + trailer groups on
-  name/code/dir; empty groups are dropped; `◌` = not placed on map). `_toolbar()`
-  — Edit toggle; in edit: Add area/Undo/Right angle/Grid/Size/Move/Save (no Snap
-  button — the siteplan editor always vertex/edge-snaps).
+- `show()` builds the map (`.map-viewport` → `.map-wrap`, the siteplan `<img>` `src`
+  rebased onto `window.MAP.media`) + building **index** (`_legend(s)`) as a flex row, so
+  the index stays put while the map pans/zooms beside it. The index has a live **search
+  box** (`.legend-search`) above re-renderable rows (`renderRows(q)` filters numbered +
+  trailer groups on name/code/dir; empty groups are dropped; `◌` = not placed on map).
+  `_toolbar()` — Edit toggle; in edit: Add area/Undo/Right angle/Grid/Size/Move/Save (no
+  Snap button — the siteplan editor always vertex/edge-snaps).
 - `render()` draws hotspots. In **view mode** they get the `.view` class (invisible
   at rest, neutral grey fill on hover or when the index row is hovered); in **edit
   mode** PDF hotspots are dashed `.ref`, user hotspots `.user`. View click →
@@ -445,17 +501,21 @@ Shapes are **building hotspots**. `editing()`=`app.siteEdit`.
 ### import-wizard.js — `ImportWizard` (not an Editor; a stage-takeover view)
 The in-app PDF import, in three steps rendered into `#stage`. **Upload** (`_stepUpload`):
 a `webkitdirectory` folder picker + a drag-drop zone (`_fromInput`/`_fromDrop` walk the
-selection — `_fromDrop` uses `webkitGetAsEntry` recursion); each `.pdf` is POSTed raw to
-`/api/import/upload?path=<building>/<file>` (folder = the file's parent dir). **Map**
-(`_scanAndMap`/`_stepMap`): POSTs `/api/import/scan`, then `_modelFromInventory` builds an
-editable per-folder model (name/slug/abbr defaults via `slugify`/`prettyName`/`initials`;
-a folder matching `/site\s*plan/i` seeds the siteplan and contributes no floors, the rest
-default to Level 1..N). Each PDF gets a thumbnail (click opens the full PDF) + a floor
-control (Basement/Ground/Level/Roof/`same floor`); `_resolveFloors` turns the controls
-into the `{stem: token}` table (a `same`-floor entry reuses the previous token → multi-page).
+selection — `_fromDrop` uses `webkitGetAsEntry` recursion); each `.pdf` is POSTed as a
+**multipart form** (`file` field) to `/api/import/upload?path=<building>/<file>` (folder =
+the file's parent dir). **Map** (`_scanAndMap`/`_stepMap`): POSTs `/api/import/scan`, then
+`_modelFromInventory` builds an editable per-folder model (name/slug/abbr defaults via
+`slugify`/`prettyName`/`initials`; a folder matching `/site\s*plan/i` seeds the siteplan and
+contributes no floors, the rest default to Level 1..N). Each PDF gets a thumbnail (its
+`src` rebased onto `window.MAP.media`; click opens the full PDF) + a floor control
+(Basement/Ground/Level/Roof/`same floor`); `_resolveFloors` turns the controls into the
+`{stem: token}` table (a `same`-floor entry reuses the previous token → multi-page).
 **Build** (`_build`): assembles `{siteplan, buildings}`, POSTs `/api/import/build`, then
 `store.load()` + `router()` to land on the new map. `_reset` clears via `/api/import/reset`.
-No modal helper exists, so each step replaces `#stage`. See §10 *In-app import*.
+No modal helper exists, so each step replaces `#stage`. See §10 *In-app import*. (This
+file is identical to the tool's wizard except for the multipart upload and the
+`window.MAP.media` thumbnail rebasing — the plugin's upload endpoint streams the file off a
+multipart form rather than the raw body.)
 
 ### app.js — `App` (orchestrator + entry)
 Owns singletons `store`, `netbox`, `grid`, and cross-view state `mode`
@@ -467,7 +527,8 @@ Editor or null).
   `#/` → `showSiteplan()`. **With no facility imported (`!store.hasContent()`) the home
   default is `showImport()`** instead of the siteplan.
 - `showImport()` = the `ImportWizard` (no editor; `current=null`).
-- `renderBuilding(dir)` = floor-card grid (no editor; `current=null`).
+- `renderBuilding(dir)` = floor-card grid (no editor; `current=null`). Building floor-card
+  thumbnails rebase their `src` onto `window.MAP.media`.
 - `showSettings()` = settings view (no editor): an **Import a facility from PDFs** button
   (→ `#/import`) plus a note. Rack inventory syncs per room from the floor's Place-racks
   panel, so nothing rack-related is here.
@@ -487,14 +548,117 @@ Editor or null).
 
 ---
 
-## 4. Backend class reference
+## 4. Backend reference (Django)
 
-### preprocess.py — `Preprocessor` (the import render engine)
-Renders uploaded PDFs into `images/` + `manifest.json`. Stdlib + `pypdfium2`/`Pillow`;
-the **server spawns it as a subprocess**, so those deps never load into the server.
-`__init__(script_dir)` resolves `source` (= `uploads/`), `images_dir`, `manifest_path`,
-`import_map_path`, `stub_path`. Class data: `RENDER_SCALE` (2.0, full plans),
-`THUMB_SCALE` (0.6, wizard thumbnails), `THUMBS_DIRNAME` (`.thumbs`).
+The standalone `server.py` (Config/NetBoxProxy/JsonStore/Handler/ToolServer) is gone. Its
+responsibilities are split across four small modules, all mounted under the plugin's page
+URL (`/plugins/facilitymap/`, set by `base_url='facilitymap'` in `__init__.py`):
+
+- **`api.py`** — the frontend's JSON read/write endpoints (replacing `JsonStore` + the
+  `NetBoxProxy`).
+- **`imports.py`** — the in-app PDF import pipeline + authenticated serving of the
+  rendered result (replacing `Handler`'s `/api/import/*` + static `images/`/`manifest`).
+- **`preprocess.py`** — the render engine, **run as a subprocess** (unchanged in spirit
+  from the tool, now working-dir aware).
+- **`storage.py`** — working-dir + path-safety helpers shared by the above.
+
+`models.py` holds `FacilityMapBlob` (editor JSON documents) and `Room` (room polygons as a
+relational `NetBoxModel`); `views.py` is `MapView` (the SPA shell) plus the Room
+list/detail/edit views; `template_content.py` overlays rooms on the NetBox Location page.
+See `DESIGN.md` for the storage model and packaging.
+
+### api.py — frontend JSON endpoints
+Plain Django `View`s (not DRF) mounted under `/plugins/facilitymap/api/`, so they ride
+NetBox session auth + Django CSRF directly (`Api.post` sends the session token in
+`X-CSRFToken`). Request/response shapes are **identical** to the old server, so the
+frontend is reused unchanged. Reads are `LoginRequiredMixin`; **writes require the
+`EDIT_PERM` = `netbox_facilitymap.change_facilitymapblob` object permission** (an
+admin-grantable model permission, stricter than login-only) — a POST without it returns
+403.
+
+- **`BlobView(LoginRequiredMixin, View)`** — generic whole-document persistence for one
+  `kind` (instantiated per route via `.as_view(kind=…)`): GET returns the stored
+  `FacilityMapBlob` row's `data` (or the kind's default from `BLOB_DEFAULTS` —
+  `siteplan` → `{'hotspots':[]}`, `placements`/`layouts` → `{}`); POST checks `EDIT_PERM`,
+  parses the body, and `update_or_create`s the `(kind, key='')` row. Used for `siteplan`,
+  `placements` (route `api/rackplacements`), `layouts` (route `api/pagelayouts`).
+- **`AnnotationsView(LoginRequiredMixin, View)`** — the annotations document is **split**
+  across the relational `Room` model and the `annotations` blob. GET `compose_annotations`
+  (blob floors with each floor's `Room` rows — `restrict(user,'view')` — merged back under
+  `rooms`); POST checks `EDIT_PERM`, `_split_annotations` (rooms → `rooms_by_floor`, the
+  rest — `image`/`w`/`h`/`arrows` — → the blob), then in one transaction
+  `sync_rooms(rooms_by_floor, request.user)` + upsert the blob. `sync_rooms` upserts each
+  posted room (`update_or_create` on `(floor_key, room_id)`, validating the bound
+  `location_id` exists) and **deletes the rest** — but scoped via
+  `Room.objects.restrict(user, 'delete')`, so a save never silently removes rooms the
+  caller has no delete permission over (`user=None`, the trusted import command, keeps the
+  unrestricted behaviour). `_serialize_room`/`_trim` re-derive the room/Location shape from
+  the FK, so name/slug/url are always current (no stale snapshot); `url` is made absolute
+  via `request.build_absolute_uri`.
+- **NetBox reads** (`LoginRequiredMixin`, all object-permission scoped via
+  `.restrict(request.user,'view')` — the ORM equivalents of `NetBoxProxy`):
+  `NbRoomsView` (`api/netbox/rooms?site=&floor=` — child Locations of the floor Location,
+  falling back to all site Locations when the floor slug has no Location),
+  `NbLocationsView` (`api/netbox/locations?site=&q=` — free-text Location search, capped at
+  200), `NbRacksView` (`api/netbox/racks?location=` — racks in a Location), `NbDevicesView`
+  (`api/netbox/devices?location=` — Location devices **not** in a rack). `_trim_rack`/
+  `_trim_device` mirror the old proxy shapes (the marker glyph keys off `role.slug`/`name`).
+  **There is no persisted `rackcache` and no sync-room write** — racks/devices are fetched
+  live per room and memoized only in the browser session.
+
+### imports.py — in-app PDF import + authenticated serving
+The whole reason import was once kept *out* of NetBox is the untrusted-PDF attack surface;
+that posture is enforced here. **Every import endpoint requires `EDIT_PERM` via
+`PermissionRequiredMixin`** (the `_ImportView` base: unauthenticated → login redirect;
+authenticated-but-unpermitted → 403). Manifest/media reads require only a login (same
+access as the map).
+
+- **`UploadView`** (POST `api/import/upload?path=<folder>/<file>.pdf`) — stores one PDF
+  under `<workdir>/uploads/<folder>/<file>`. The file rides a **multipart form** (`file`
+  field) so Django streams it to disk. Validation: the `path` must end `.pdf` and resolve
+  (via `safe_path`) **inside** `uploads/` (traversal-guarded); the upload must be within
+  `max_pdf_mb` (413 otherwise) and start with the `%PDF-` magic bytes. Writes go to a
+  `.part` temp then `os.replace` (atomic).
+- **`ScanView`** (POST `api/import/scan`) / **`BuildView`** (POST `api/import/build`) /
+  **`ResetView`** (POST `api/import/reset`) — drive the render. `ScanView` runs
+  `preprocess.py scan` (thumbnails + inventory). `BuildView` writes the posted import map
+  to `<workdir>/import-map.json` (after a `max_pdfs` cap check) then runs `preprocess.py
+  build` (images + manifest). `ResetView` wipes `uploads/`, `images/`, `manifest.json`,
+  `import-map.json`/`.stub.json`, and the lockfile.
+- **Render invocation** — `_run_preprocess(mode)` spawns `python3 preprocess.py <mode>
+  --base <workdir>` **by file path** (not `-m`), so the package `__init__` (which imports
+  Django/NetBox) is never loaded into the child — the child stays stdlib + pypdfium2/Pillow
+  only. It runs with `capture_output`, a `render_timeout_s` timeout, and (POSIX) a
+  `preexec_fn` setting `RLIMIT_CPU` + `RLIMIT_AS` (`_rlimits`), so a runaway/malicious
+  render is bounded. `scan` returns the child's stdout JSON inventory; `build` returns its
+  stderr log. `_run_locked(mode)` wraps a render in a **working-dir lockfile**
+  (`.import.lock`, `_acquire_lock`/`O_CREAT|O_EXCL` with stale-lock recovery) so concurrent
+  imports across **worker processes** (a thread lock could not) return 409 instead of
+  colliding.
+- **`ManifestView`** (GET `api/manifest`, `LoginRequiredMixin`) — streams the rendered
+  `manifest.json` from the working dir, or `EMPTY_MANIFEST` (`{'siteplan':None,
+  'buildings':[]}`) before any import. The frontend fetches the manifest from here (not a
+  static file), so it is **login-gated**, not public.
+- **`MediaView`** (GET `api/media/<path>`, `LoginRequiredMixin`) — streams a rendered image
+  / thumbnail / uploaded PDF from the working dir via `FileResponse`. `safe_path` +
+  confinement to the `SERVE_ROOTS` (`images`, `uploads`) subtrees means floor plans are
+  **not** at a guessable public static URL. This is what `window.MAP.media` points at.
+
+Security rationale (carried over from the standalone design): untrusted PDFs are parsed
+**only** in the isolated, resource-limited subprocess — never in the long-lived NetBox
+worker — and the rendered output is served through login-gated, traversal-guarded views.
+
+### preprocess.py — `Preprocessor` (the render engine, run as a subprocess)
+Renders uploaded PDFs into `images/` + `manifest.json`. Stdlib + `pypdfium2`/`Pillow`; it
+is **invoked as a standalone subprocess by `imports.py`** (by file path — never imported as
+`netbox_facilitymap.preprocess`), so it must **never import Django/NetBox** and the deps
+never load into the worker. `__init__(base_dir)` resolves everything relative to the
+**working dir** (`source` = `<base>/uploads/`, `images_dir`, `manifest_path`,
+`import_map_path`, `stub_path`) — so the data lives under `MEDIA_ROOT` while the script
+lives in the package. The working dir arrives via `--base <dir>` (else
+`$FACILITYMAP_WORKDIR`, else the script's own dir); `_parse_args` is an argparse-free
+mode+`--base` parser to keep the child minimal. Class data: `RENDER_SCALE` (2.0, full
+plans), `THUMB_SCALE` (0.6, wizard thumbnails), `THUMBS_DIRNAME` (`.thumbs`).
 
 The floor PDFs have **no text layer** (every label is vectorized), so a PDF's floor is
 **data, not inferred** — it comes from `import-map.json`, which the wizard writes.
@@ -503,7 +667,7 @@ The floor PDFs have **no text layer** (every label is vectorized), so a PDF's fl
   (page rotation honored; no target size — it is the *source* of the image).
   `render_pdf_thumb(pdf, out)` writes a small PNG at `THUMB_SCALE` for the wizard grid.
   `write_image(rel_dir, id, raw)` saves under `images/<rel_dir>/<id>.png` and returns the
-  manifest-relative path.
+  working-dir-relative path.
 - **Labels:** `floor_label(token)` maps a floor token to a label (`b3`→"Basement 3",
   `g`→"Ground", `gl1`→"Ground / Level 1", `l1`→"Level 1", `r`→"Roof").
 - **Discovery:** `dwg_sort_key(stem)` orders drawings by number, keeping a `-N`
@@ -516,70 +680,67 @@ The floor PDFs have **no text layer** (every label is vectorized), so a PDF's fl
   in the entry's `floors` table, **groups PDFs sharing a token into one multi-page floor**
   (ordered by drawing number; floor id = `abbr`+token, label via `floor_label`, pages
   written `<id>.png`/`<id>-2.png`/…), and returns `(building, unmapped_stems)`.
-  `build_siteplan_from_pdf(imap)` renders the map's `siteplan.pdf` as the background with
+  `build_siteplan_from_pdf(imap)` renders the map's siteplan PDF as the background with
   **`hotspots: []`** (drawn in the tool). `write_stub(unmapped)` emits
   `import-map.stub.json` (drawings with no token, blank, to fill in).
-- **Modes (`__main__` dispatch on `argv[1]`):**
+- **Modes (`__main__` dispatch on the parsed mode):**
   - `scan` — render a thumbnail per PDF and **print a JSON inventory** to stdout
     (`{folders:[{folder, pdfs:[{file,stem,thumb,pdf}]}]}`); progress on stderr. Drives the
     wizard's mapping step.
   - `build` (default) — read `import-map.json`, render every mapped PDF, write
     `manifest.json` (buildings with zero floors are dropped); summary on stderr.
 
-### server.py
-- **`Config`** — loads `config.json` (`netbox_url`, `token`, `port`, `ssl_ctx`).
-- **`NetBoxProxy`** — `_get(path,params)` (sends `Authorization: Token …`),
-  `_trim(loc)` (→`{id,name,slug,url(=display_url),depth}`),
-  `_trim_rack(r)` (→`{id,name,url,u_height}`), `_trim_device(d)`
-  (→`{id,name,url,role:{slug,name}|null,device_type:{model,u_height}|null}` — `role` is
-  NetBox 4.x / `device_role` 3.x; the marker glyph keys off it),
-  `site_id(slug)` (cached), `rooms(site,floor)` (floor Location's children, else all
-  site Locations), `locations(site,q)`, `racks(location_id)`
-  (`/api/dcim/racks/?location_id=`), `unracked_devices(location_id)`
-  (`/api/dcim/devices/?location_id=&rack_id=null`).
-- **`JsonStore`** — `load()` / `save(data)` (atomic temp-replace, prior kept as
-  `.bak`). Six instances: annotations, siteplan, rackcache (regenerable),
-  placements, pagelayouts, importmap.
-- **`Handler(BaseHTTPRequestHandler)`** — deps injected as class attrs
-  (`root, proxy, annotations, siteplan, rackcache, placements, pagelayouts, importmap`).
-  `_sync_room(data)` merges one Location's racks/devices into `rackcache.json`.
-  **In-app import** (rendering via a `preprocess.py` subprocess, so the server stays
-  stdlib-only): `_save_upload(rel)` writes one uploaded PDF's raw body into `uploads/<rel>`
-  (`_safe_join` rejects traversal; `.pdf` only); `_run_preprocess(mode)` spawns
-  `python3 preprocess.py <mode>` under the module-level `IMPORT_LOCK` (scan returns its
-  stdout inventory, build returns its stderr log); `_import_build(data)` saves the posted
-  import map then runs build; `_import_reset()` deletes `uploads/`, `images/`,
-  `manifest.json`, and the map. `GET /manifest.json` returns an empty manifest when none
-  is built yet. Routes below.
-- **`ToolServer`** — wires deps onto `Handler`, runs `ThreadingHTTPServer`.
+### storage.py — working dir + path safety
+The import pipeline needs a **writable** directory (the package `static/` tree is
+read-only at runtime), so it lives under NetBox's `MEDIA_ROOT`.
+- **`work_dir()`** — the absolute working-dir path: `<MEDIA_ROOT>/netbox_facilitymap/` by
+  default, overridable via the `work_dir` plugin setting. `uploads/`, `images/`,
+  `manifest.json`, `import-map.json` all live under it.
+- **`safe_path(rel)`** — the single traversal guard every file-serving/writing caller goes
+  through: resolves `rel` (symlinks included, via `resolve()`) inside the working dir and
+  raises `ValueError` if it escapes. Returns an absolute `Path` (which may not exist yet).
+- **`media_url(image)`** — reverse the authenticated `api-media` route for a working-dir
+  relative image path (`images/<slug>/<id>.png`). Used by the **server-rendered** Location
+  pages (`template_content.py`, `views.RoomView`); the SPA builds the same URL from
+  `window.MAP.media`.
+- Constants: `MANIFEST_NAME` (`manifest.json`), `EMPTY_MANIFEST`, `SERVE_ROOTS`
+  (`('images','uploads')` — the only subtrees `MediaView` will serve).
 
-### Routes
-| Method | Path | Handler |
-|---|---|---|
-| GET | `/` | `web/index.html` |
-| GET | `/web/*`, `/images/*`, `/uploads/*` | static (each confined to its subdir; `Handler.CONTENT_TYPES` maps `.html/.js/.css/.png/.json/.woff2/.pdf`; uploads paths are URL-unquoted) |
-| GET | `/manifest.json` | the built manifest, or `{"siteplan":null,"buildings":[]}` when none exists yet |
-| GET | `/api/annotations` · POST | `JsonStore` load / save |
-| GET | `/api/siteplan` · POST | `JsonStore` load / save |
-| GET | `/api/rackcache` | `JsonStore` load (written by sync) |
-| GET | `/api/rackplacements` · POST | `JsonStore` load / save |
-| GET | `/api/pagelayouts` · POST | `JsonStore` load / save |
-| GET | `/api/netbox/rooms?site=&floor=` | `NetBoxProxy.rooms` |
-| GET | `/api/netbox/locations?site=&q=` | `NetBoxProxy.locations` |
-| GET | `/api/netbox/racks?location=` | `NetBoxProxy.racks` |
-| GET | `/api/netbox/devices?location=` | `NetBoxProxy.unracked_devices` |
-| POST | `/api/netbox/sync-room` | `Handler._sync_room` |
-| POST | `/api/import/upload?path=<rel>` | `_save_upload` (raw PDF body → `uploads/<rel>`) |
-| POST | `/api/import/scan` | `_run_preprocess('scan')` → thumbnails + inventory |
-| POST | `/api/import/build` | `_import_build` (save map, render images + manifest) |
-| POST | `/api/import/reset` | `_import_reset` (clear uploads/images/manifest/map) |
+### Routes (`urls.py`, mounted at `/plugins/facilitymap/`)
+| Method | Path | View | Auth |
+|---|---|---|---|
+| GET | `` (page mount) | `views.MapView` (the SPA shell) | login |
+| GET | `rooms/`, `rooms/<pk>/`, `rooms/add/`, `rooms/<pk>/edit/`, `rooms/<pk>/delete/`, `rooms/edit/`, `rooms/delete/`, `rooms/<pk>/changelog/` | Room list/detail/edit/delete/bulk (NetBox generic views) | object perms |
+| GET | `api/manifest` | `imports.ManifestView` (rendered or empty manifest) | login |
+| GET · POST | `api/annotations` | `api.AnnotationsView` (compose / decompose) | login · **EDIT_PERM** |
+| GET · POST | `api/siteplan` | `api.BlobView(kind='siteplan')` | login · **EDIT_PERM** |
+| GET · POST | `api/rackplacements` | `api.BlobView(kind='placements')` | login · **EDIT_PERM** |
+| GET · POST | `api/pagelayouts` | `api.BlobView(kind='layouts')` | login · **EDIT_PERM** |
+| GET | `api/netbox/rooms?site=&floor=` | `api.NbRoomsView` | login (object-scoped) |
+| GET | `api/netbox/locations?site=&q=` | `api.NbLocationsView` | login (object-scoped) |
+| GET | `api/netbox/racks?location=` | `api.NbRacksView` | login (object-scoped) |
+| GET | `api/netbox/devices?location=` | `api.NbDevicesView` | login (object-scoped) |
+| POST | `api/import/upload?path=<rel>` | `imports.UploadView` (multipart PDF → `uploads/`) | **EDIT_PERM** |
+| POST | `api/import/scan` | `imports.ScanView` (thumbnails + inventory) | **EDIT_PERM** |
+| POST | `api/import/build` | `imports.BuildView` (save map, render images + manifest) | **EDIT_PERM** |
+| POST | `api/import/reset` | `imports.ResetView` (clear the import) | **EDIT_PERM** |
+| GET | `api/media/<path>` | `imports.MediaView` (stream from the working dir) | login |
+
+A separate **DRF REST API** for `Room` (browsable/programmatic) lives under
+`netbox_facilitymap/api/` (`serializers.py`/`views.py`/`urls.py`), wired at NetBox's
+`/api/plugins/facilitymap/`. The `facilitymap_import` management command
+(`management/commands/`) is the one-shot importer of the old tool's JSON files into the
+blob/Room stores (reuses `api._split_annotations`/`sync_rooms`, the latter with
+`user=None`).
 
 ---
 
 ## 5. Data models
 
-**manifest.json** (generated by `preprocess.py build`; absent until a facility is
-imported, when the server serves `{"siteplan":null,"buildings":[]}`):
+**manifest.json** (a render artifact written by `preprocess.py build` into the working
+dir; served by `ManifestView` as `{"siteplan":null,"buildings":[]}` until a facility is
+imported). Image paths are working-dir-relative (`images/…`) and the frontend rebases them
+onto `window.MAP.media`:
 ```jsonc
 { "siteplan": null |                                        // null when no siteplan PDF chosen
     { "image","w","h","siteSlug":"00-site", "hotspots":[] },  // import always emits hotspots:[]
@@ -587,32 +748,36 @@ imported, when the server serves `{"siteplan":null,"buildings":[]}`):
     "floors":[ {"id","label","floorSlug","image","w","h",   // floorSlug == id; image/w/h == pages[0]
       "pages":[ {"image","w","h","caption":null} ]} ]} ] }  // 1+ sheets sharing a floor token
 ```
-**import-map.json** (written by the import wizard / `_import_build`; the floor mapping):
+**import-map.json** (written by the import wizard / `BuildView`; the floor mapping):
 ```jsonc
 { "siteplan": null | {"folder","pdf","slug":"00-site"},       // which uploaded PDF is the site map
   "buildings": { "<upload-folder>": {                        // key = uploads/ sub-folder name
     "slug","name","abbr",                                    // slug = NetBox site slug; abbr = floor-id prefix
     "floors": { "<drawing-stem>": "<token>" } } } }          // token: b3 / g / l1 / r / gl1 …
 ```
-**annotations.json** (edited):
+**annotations** (the on-the-wire document; persisted split between the `annotations`
+`FacilityMapBlob` and the relational `Room` model — `AnnotationsView` composes/decomposes
+it so the frontend round-trips byte-for-byte):
 ```jsonc
 { "<dir>/<floorId>": { "image","w","h",
-    "rooms":[ {"id","label","polygon":[[nx,ny]...],
+    "rooms":[ {"id","label","polygon":[[nx,ny]...],         // each room == a Room row
       "location":{"id","name","slug","url"}, "datacenter":bool } ],
     "arrows":[ {"id","points":[[nx,ny]...],   // open polyline (≥2), wayfinding route
       "room":"<roomId|null>",                 // destination room under the arrowhead (auto)
       "label":"", "color":"#066fd1",          // note shown at the start; route colour
       "labelStyle":{…}? } ] } }               // optional note-label override (x/y/rot/size/font/color/text)
 ```
-Rooms are not labelled (the floor images already print room names/numbers); a
-`labelStyle` left on an old room record is ignored. An **arrow**, however, may carry an
-optional `labelStyle` (same shape as a siteplan hotspot's) overriding its note label —
-absent → auto-placed just above the start. `arrows` is optional and
-back-filled to `[]` on load (`Store.floorData`); a floor with arrows but no rooms is
-still persisted (`saveAnnotations` prunes only when **both** are empty). Arrow points
-share the rooms' combined-normalized coordinate space (§6).
+The room `location` is re-derived from the `Room.location` FK on every GET, so its
+name/slug/url are always current; `url` is absolute. Rooms are not labelled (the floor
+images already print room names/numbers); a `labelStyle` left on an old room record is
+ignored. An **arrow** may carry an optional `labelStyle` (same shape as a siteplan
+hotspot's) overriding its note label — absent → auto-placed just above the start. `arrows`
+is optional and back-filled to `[]` on load (`Store.floorData`); a floor with arrows but no
+rooms is still persisted (`Store.saveAnnotations` prunes only when **both** are empty).
+Arrow points share the rooms' combined-normalized coordinate space (§6). Server-side,
+arrows live in the `annotations` blob (room polygons are the `Room` rows).
 
-**siteplan.json** (edited):
+**siteplan** (the `siteplan` blob — same document shape as the old `siteplan.json`):
 `{ "hotspots":[ {"id","dir","name","poly":[[nx,ny]...],"labelStyle":{…}?} ] }`
 
 `labelStyle` (optional, on a siteplan hotspot) overrides the auto-placed building label:
@@ -622,16 +787,18 @@ CSS family (from `LABEL_FONTS`), `color` = `#rrggbb`, `text` = **display-only** 
 absent field falls back to the auto behavior; absent `labelStyle` = fully automatic
 (back-compat — guard reads with `?.`).
 
-**rackcache.json** (generated by sync; regenerable):
+**Rack/device inventory** — there is **no persisted rack cache** in the plugin (the
+standalone `rackcache.json` is retired). The frontend fetches a room's racks + unracked
+devices **live** from `api/netbox/racks` + `api/netbox/devices` (`Store.ensureRacks`) and
+memoizes them in-memory for the session only. The shapes returned are:
 ```jsonc
-{ "syncedAt": "<iso8601>|null",
-  "locations": { "<locationId>": { "name",
-    "racks":[ {"id","name","url","u_height"} ],
-    "devices":[ {"id","name","url",                         // devices = unracked in that location
-      "role":{"slug","name"}|null,                          // NetBox role → marker glyph type
-      "device_type":{"model","u_height"}|null} ] } } }       // (both null when NetBox omits them)
+{ "racks":   [ {"id","name","url","u_height"} ],
+  "devices": [ {"id","name","url",                         // unracked devices in that Location
+    "role":{"slug","name"}|null,                           // NetBox role → marker glyph type
+    "device_type":{"model","u_height"}|null} ] }            // (both null when NetBox omits them)
 ```
-**rackplacements.json** (edited; floors with no placements pruned on save):
+**placements** (the `placements` blob — old `rackplacements.json`; floors with no
+placements pruned on save):
 ```jsonc
 { "<dir>/<floorId>": { "placements":[
     {"id":<rackOrDeviceId>,"kind":"rack"|"device","room":"<roomId>",
@@ -643,7 +810,8 @@ stable per-placement key (the label engine keys off it; the NetBox `id` collides
 racks/devices) — lazily back-filled on old records. `labelStyle` (optional, same shape as a
 siteplan hotspot's) overrides the auto-placed name label (x/y/rot/size/font/color/text).
 
-**pagelayouts.json** (edited; a default vertical-stack grid is pruned on save):
+**layouts** (the `layouts` blob — old `pagelayouts.json`; a default vertical-stack grid is
+pruned on save):
 ```jsonc
 { "<dir>/<floorId>": { "grid": [ [col,row], ... ] } }   // one [col,row] per sheet, in page order
 ```
@@ -651,6 +819,10 @@ Each entry places a multi-sheet floor's sheets into a uniform grid (cell = max s
 w×h). Absent (or pruned) = the default vertical stack (`col 0, row = page index`).
 `Store.floorLayout` resolves this into the combined canvas (§3); rearranging remaps room
 + placement coords so each shape follows its sheet (§6).
+
+Each editor document above (siteplan / placements / layouts / the residual annotations) is
+one `FacilityMapBlob` row keyed `(kind, key='')`; `Room` rows hold room polygons. See
+`models.py` / `DESIGN.md`.
 
 ---
 
@@ -697,29 +869,43 @@ Nested Locations: **Site (building) → Location (floor) → Location (room)**.
   site `00-site`.
 - Floor id (prefix + token, e.g. `a1b3`) **==** floor Location slug where one exists;
   rooms are that floor Location's children. When a floor slug has no Location (e.g. a
-  combined `gl1` floor), the proxy returns all site Locations and the
+  combined `gl1` floor), the read view returns all site Locations and the
   UI shows a warning. A **multi-sheet floor** is still one floor: all its sheets
   share the single `floorSlug` (= the file id), so either sheet resolves the same
   NetBox floor Location; only the page ids differ (`<id>` / `<id>-2`).
-- REST auth header is **`Token …`**, not `Bearer`. The web link is `display_url`.
-- **Racks/devices** (`/api/dcim/racks/`, `/api/dcim/devices/`) attach to a Location
-  by `location_id` (the room Location id stored in `room.location.id`). A rack's
-  racked devices are excluded from "unracked" by the `rack_id=null` filter.
+- Reads go through the **ORM** (`dcim.Site`/`Location`/`Rack`/`Device`), object-permission
+  scoped via `.restrict(user, 'view')` — replacing the standalone token proxy. There is no
+  REST token in the plugin. The Location web link comes from `get_absolute_url()`, made
+  absolute with `request.build_absolute_uri`.
+- The `annotations` document key is `"<dir>/<floorId>"` == `"<site.slug>/<floorLocation.slug>"`;
+  `Room.floor_key` stores exactly that, and `Room.location` is the bound **room** Location
+  (a child of the floor Location). `template_content.FloorRooms` keys off the same string to
+  render rooms on a floor Location's page.
+- **Racks/devices** (`dcim.Rack`/`Device`) attach to a Location by `location_id` (the room
+  Location id stored in `room.location.id`). Racked devices are excluded from "unracked" by
+  the `rack__isnull=True` filter. The marker glyph keys off the device `role` — keep it
+  populated; a device without a role degrades to the name heuristic.
 
 ---
 
 ## 8. Common runtime flows
 
-- **Boot:** `App.init` → `Store.load` (manifest/annotations/siteplan/rackcache/
-  rackplacements/pagelayouts) → `router`.
+- **Boot:** `App.init` → `Store.load` (manifest via `api/manifest` / annotations / siteplan
+  / rackplacements / pagelayouts) → `router`. An empty install (`!hasContent()`) lands on
+  the import wizard.
+- **Import a facility:** wizard **Upload** (multipart POST per PDF → `api/import/upload`) →
+  **Map** (POST `api/import/scan` → thumbnails + inventory; assign floors) → **Build** (POST
+  `api/import/build` → render subprocess writes `images/` + `manifest.json` under the
+  working dir) → `store.load()` + `router()` lands on the new map. See §10 *In-app import*.
 - **Arrange sheets (multi-sheet floor):** edit mode → **Arrange sheets** → drag a
   `.sheet-tile` to a grid cell (drop on another to swap) → `_commitSheetMove` updates
   `Store.layouts` + `_remapLayout`s rooms/racks → **Save** → `Store.saveLayouts` → POST
   `/api/pagelayouts`. First view of such a floor opens framed on sheet 1 (`fitRegion`).
 - **Draw a room:** `FloorEditor.beginDraw` → clicks add snapped points
   (`Editor.snapPoint`) → close → `finish()` pushes a room and opens
-  `openRoomPanel` → pick a NetBox Location → `Store.markDirty` → **Save** →
-  `Store.saveAnnotations` → POST.
+  `openRoomPanel` → pick a NetBox Location (`api/netbox/locations`) → `Store.markDirty` →
+  **Save** → `Store.saveAnnotations` → POST `/api/annotations` (rooms decompose into `Room`
+  rows). Requires the change permission.
 - **Draw a route arrow (wayfinding):** Edit mode → **Draw arrow** → click points along
   the path, ending inside the destination room → Enter/double-click → `_finishArrow`
   pushes an arrow, auto-binds its destination, opens `openArrowPanel` (note + colour) →
@@ -728,78 +914,96 @@ Nested Locations: **Site (building) → Location (floor) → Location (room)**.
 - **Place a building hotspot:** `SiteplanEditor` (Edit areas) → draw → assign
   building in `openHotspotPanel` → Save siteplan → POST `/api/siteplan`.
 - **Navigate (view):** siteplan hotspot / index → building floor grid → floor; in
-  view mode a room click opens `location.url`.
+  view mode a room click opens `location.url` (the NetBox Location page).
 - **Place racks:** Edit mode → **Place racks** toggle → click a datacenter room →
-  `openRackPanel` → **Refresh racks** → POST `/api/netbox/sync-room` → server fetches
-  that Location's racks + unracked devices and merges them into `rackcache.json` →
-  `Store.reloadRackCache` → the panel lists its racks/devices → click a row → `placeItem` drops a
-  per-type `DeviceShapes` glyph at the room centroid → drag to move (**grid-snapped**, Alt
-  frees, then `Geom.clampToPoly`); on the selected marker the top handle **rotates**
-  (snaps to `ANGLE_STEP`°) and the corner **resizes** (grid-snapped), and its **Edit
-  label** panel restyles the name via the shared label engine → **Save** →
-  `Store.savePlacements` → POST `/api/rackplacements`. The grid (toggle/size/move) is
-  available in racks mode via `gridActive()`. In view mode the markers render with their
-  stored glyph/rotation/size + styled label as read-only NetBox links.
+  `openRackPanel` → **Refresh racks** → `Store.ensureRacks(netbox, locId, true)` fetches
+  that Location's racks (`api/netbox/racks`) + unracked devices (`api/netbox/devices`)
+  **live** → the panel lists them → click a row → `placeItem` drops a per-type
+  `DeviceShapes` glyph at the room centroid → drag to move (**grid-snapped**, Alt frees,
+  then `Geom.clampToPoly`); on the selected marker the top handle **rotates** (snaps to
+  `ANGLE_STEP`°) and the corner **resizes** (grid-snapped), and its **Edit label** panel
+  restyles the name via the shared label engine → **Save** → `Store.savePlacements` → POST
+  `/api/rackplacements`. The grid (toggle/size/move) is available in racks mode via
+  `gridActive()`. In view mode the markers render with their stored glyph/rotation/size +
+  styled label as read-only NetBox links.
 
 ---
 
-## 9. Extending the tool (recipes)
+## 9. Extending the plugin (recipes)
 
 - **New shared drawing behaviour** → `Editor` (both editors inherit).
 - **New room field** → add in `FloorEditor.finish`/`openRoomPanel`, render in
-  `FloorEditor.render`, document the schema in §5. Old records lack it → guard
+  `FloorEditor.render`, document the schema in §5. Server-side a *relational* field belongs
+  on the `Room` model (+ a migration + `sync_rooms`/`_serialize_room`); a purely editor-side
+  field can ride the floor record in the `annotations` blob. Old records lack it → guard
   with `!!room.field`.
 - **New per-floor annotation entity** (like `arrows`) → store it as a sibling array on
   the floor record, back-fill it in `Store.floorData`, keep it on save in
   `Store.saveAnnotations` (loosen the empty-floor prune), draw it in `FloorEditor.render`,
-  and remap it in `_remapLayout` if its coords are in the combined space. No server change
-  (`JsonStore` round-trips arbitrary JSON).
+  and remap it in `_remapLayout` if its coords are in the combined space. If it stays in the
+  blob no backend change is needed (`AnnotationsView` keeps everything but `rooms` in the
+  blob verbatim); update `_split_annotations`/`compose_annotations` only if you relationalize
+  it.
 - **New draft shape that isn't a closed polygon** → pass a `kind` to `beginDraw`, branch
   `finish()`, and edit nodes with `drawVertices(...,{closed:false,minPts})` (arrows are the
   worked example).
-- **New API/persistence** → add a `JsonStore` (or `NetBoxProxy` method) + a route
-  in `Handler`; expose via `Store`/`NetBoxClient`; never put the token in the
-  browser.
+- **New API/persistence** → add a Django `View` (a `BlobView(kind=…)` for a whole-document
+  store, or an ORM read view) + a route in `urls.py`; gate writes on `EDIT_PERM` and reads
+  on login; expose via `Store`/`NetBoxClient`. Never reintroduce a token-holding proxy — go
+  through the ORM, object-permission scoped.
 - **New view** → add a branch in `App.router` and a `show*`/`render*` method.
 
-After any such change, update §2–§8 here and the relevant `CLAUDE.md`/`README.md`.
+After any such change, update §2–§8 here and `DESIGN.md`/`README.md`.
 
 ---
 
 ## 10. Invariants / gotchas
 
-This is the **single source of truth** for the project's gotchas (the local
-`CLAUDE.md` points here rather than restating them). Section references below point
-at the deep treatment.
+This is the **single source of truth** for the project's gotchas. Section references below
+point at the deep treatment.
 
 ### Foundations
 
-- Frontend is **vanilla JS, no dependencies, no build**; backend is **stdlib-only
-  Python 3**. The one approved exception is `preprocess.py`'s `pypdfium2` + `Pillow`
-  (PDF rendering, §4) — the **server stays stdlib-only** by invoking `preprocess.py` as a
-  **subprocess** (`Handler._run_preprocess`), never importing it. Keep it that way: do not
-  `import preprocess` (or pypdfium2/Pillow) from `server.py`.
-- The tool **ships with no facility content** — no committed drawings, images, manifest,
-  or import map; everything is created by an in-app import and is gitignored. Don't
-  reintroduce facility data or facility-specific names into the code.
-- `config.json` holds a live API token — never commit it, log it, return it to the
-  browser, or paste it into chat. The browser reaches NetBox **only** through the
-  server proxy.
-- NetBox REST auth is `Authorization: Token …`, **not** `Bearer` (§4, §7).
-- Generated files (`images/`, `manifest.json`, `rackcache.json`) are reproducible
-  (`rackcache.json` per room from Place racks → Refresh racks); edited files
-  (`annotations.json`, `siteplan.json`, `rackplacements.json`, `pagelayouts.json`)
-  are user data — never clobber them blind; saves already keep a `.bak`. A floor
-  with arrows but no rooms must still persist (`annotations.json` holds both, §5).
+- Frontend is **vanilla JS, no dependencies, no build**. The plugin backend is **Django +
+  DRF supplied by NetBox** — add **no runtime pip deps**. The one approved exception is the
+  render path's `pypdfium2` + `Pillow` (PDF rendering, §4) — kept out of the NetBox worker
+  by running `preprocess.py` as a **subprocess** (`imports._run_preprocess`, invoked by file
+  path), never importing it. Keep it that way: do not `import preprocess` (or
+  pypdfium2/Pillow) anywhere in the package's importable modules.
+- The plugin **ships with no facility content** — no committed drawings, images, or real
+  manifest; the only static `manifest.json` is the empty stub. Everything is created by an
+  in-app import and written under the **working dir** (`<MEDIA_ROOT>/netbox_facilitymap/`),
+  not the package. Don't reintroduce facility data or facility-specific names into the code.
+- There is **no `config.json` and no API token** in the plugin. The browser reaches NetBox
+  **only** through the ORM-backed `/api/netbox/*` views, which are object-permission scoped.
+  Reads require a login; **writes/imports require the `change_facilitymapblob` permission**
+  (`EDIT_PERM`); browser writes carry the session CSRF token in `X-CSRFToken`. Don't relax
+  these to "logged-in is enough" for a write.
+- Untrusted PDFs are parsed **only** in the isolated, timeout + rlimit-bounded render
+  subprocess — never in the NetBox worker. The rendered output (`images/`, `manifest.json`,
+  thumbnails, the uploaded PDFs) is served **only** through the login-gated, traversal-
+  guarded `ManifestView`/`MediaView` from the working dir — **not** a public static URL.
+  `window.MAP.media` is that authenticated route; keep image paths flowing through it.
+- Editor JSON persists as `FacilityMapBlob` rows (siteplan/placements/layouts + the residual
+  annotations) and room polygons as the relational `Room` model. The on-the-wire shapes are
+  **unchanged** from the standalone tool (`AnnotationsView` composes/decomposes), so the
+  frontend is reused byte-for-byte — keep it so. A floor with arrows but no rooms must still
+  persist (the blob holds the arrows; §5).
+- A `sync_rooms` POST is **authoritative for the whole document**: rooms absent from a floor
+  (and floors absent entirely) are deleted — but **scoped to `restrict(user,'delete')`**, so
+  a save can't silently remove rooms the caller lacks delete permission over. Don't drop that
+  scope on the editor path (the trusted import command passes `user=None` deliberately).
 - Coordinates are stored **normalized 0..1** to the image — keep them
   resolution-independent (§6).
 - `App.mode` has **three** values (`'edit' | 'view' | 'racks'`); anything reading it
   must tolerate all three (`editing()` is strictly `'edit'`; `gridActive()` is edit
   **or** racks — relax gates through that hook, not ad-hoc `mode==='racks'` checks).
-- Restart `server.py` after editing it (static files and JSON are read per-request,
-  but Python classes load once).
-- Web fonts are **bundled** under `web/fonts/` (no CDN) so the tool works offline;
-  keep it that way. SIL OFL — licence in `web/fonts/OFL.txt`.
+- After editing the Python backend you must **reload the NetBox workers** (e.g. restart the
+  service / touch the WSGI app) — Python modules load once per worker, even though the JSON
+  documents and rendered media are read per-request. The frontend JS/CSS is served via
+  `collectstatic`, so re-run that (or load with cache-busting) after editing it.
+- Web fonts are **bundled** under `static/.../fonts/` (no CDN) so the map works offline;
+  keep it that way. SIL OFL — licence in `fonts/OFL.txt`.
 
 ### Coordinates & slugs
 
@@ -807,7 +1011,9 @@ at the deep treatment.
   import never imports hotspots (`hotspots: []`). No screen-px/pt conversion exists.
 - A building's NetBox **site slug** is the `slug` the user set in the wizard (stored in
   `import-map.json`); floor ids = floor-id prefix (`abbr`) + token and equal floor
-  **Location slugs** where they exist (§7). Load-bearing for room→Location binding.
+  **Location slugs** where they exist (§7). The `annotations` key and `Room.floor_key` are
+  `"<site.slug>/<floorLocation.slug>"` — load-bearing for room→Location binding and for the
+  Location-page rooms panel.
 
 ### In-app import (wizard + preprocess subprocess)
 
@@ -818,14 +1024,18 @@ at the deep treatment.
 - **Two drawings sharing a floor token = one multi-page floor** (ordered by drawing
   number) — that is how stacked sheets of one floor group. In the wizard the *“same floor
   (extra sheet)”* control reuses the previous token; in the map it's just the same token.
-- Rendering is a **subprocess**: `Handler._run_preprocess` spawns `preprocess.py scan|build`
-  under `IMPORT_LOCK` (serialized). `scan` prints its inventory JSON to **stdout** (so keep
-  progress on **stderr**, or the server's JSON parse breaks); `build` reads `import-map.json`
-  and writes `manifest.json` (buildings with zero floors are dropped).
-- Uploads land in `uploads/<building>/<file>.pdf` via raw-body POST (no multipart);
-  `_save_upload`/`_safe_join` confine writes to `uploads/` and accept `.pdf` only.
-  `RENDER_SCALE`/`THUMB_SCALE` set pixel size only — coords are normalized, so changing
-  them is safe. After a build the client must `store.load()` (manifest is cache-busted).
+- Rendering is a **subprocess**: `imports._run_preprocess` spawns `preprocess.py scan|build
+  --base <workdir>` **by file path** so Django/NetBox never load into the child, with a
+  timeout + POSIX rlimits, under a **working-dir lockfile** (`_run_locked`, cross-worker —
+  a thread lock could not serialize separate worker processes). `scan` prints its inventory
+  JSON to **stdout** (keep progress on **stderr**, or the parse breaks); `build` reads
+  `import-map.json` and writes `manifest.json` (buildings with zero floors are dropped).
+- Uploads ride a **multipart form** (`file` field, so Django streams to disk) to
+  `api/import/upload?path=<building>/<file>.pdf`; the endpoint enforces `.pdf`, the `%PDF-`
+  magic bytes, a size cap (`max_pdf_mb`), and `safe_path` confinement to `uploads/`. Build
+  enforces a `max_pdfs` cap. `RENDER_SCALE`/`THUMB_SCALE` set pixel size only — coords are
+  normalized, so changing them is safe. After a build the client must `store.load()` (the
+  manifest is re-fetched from `api/manifest`).
 
 ### Multi-sheet floors
 
@@ -835,10 +1045,14 @@ at the deep treatment.
   stack). They render as one floor view in a **single normalized coordinate space**
   spanning the whole canvas — so `Editor.dispSize` reads the `.map-wrap`, never a lone
   `<img>`. All sheets share one `floorSlug`; only page image ids differ (`<id>`/`<id>-2`).
-- **Arrange sheets** mode drags sheets between cells; the arrangement persists in
-  `pagelayouts.json` and `FloorEditor._remapLayout` re-projects existing rooms/racks so
-  each shape follows its sheet. First view of a multi-sheet floor opens framed on sheet 1
+- **Arrange sheets** mode drags sheets between cells; the arrangement persists in the
+  `layouts` blob and `FloorEditor._remapLayout` re-projects existing rooms/racks so each
+  shape follows its sheet. First view of a multi-sheet floor opens framed on sheet 1
   (`PanZoom.fitRegion`, via `initialFocus`). See §3 `floor-editor.js`.
+- The **Location-page rooms panel** (`template_content.FloorRooms`) is a static overlay: it
+  scales room polygons by the floor's stored `w×h` over the page-1 image, so for a
+  multi-sheet floor it shows sheet 1 with a note (a documented minimal-scope limitation — it
+  does not reproduce the runtime tiling). Single-sheet floors are pixel-exact.
 
 ### Node editing (`Editor.drawVertices`)
 
@@ -888,9 +1102,10 @@ at the deep treatment.
 - **Place racks is not a bare screen:** the grid (toggle/size/move) works there via
   `gridActive()`. Marker move grid-snaps then clamps to the room; the rotate handle snaps
   to `ANGLE_STEP`°; the resize handle grid-snaps — all with **Alt** to bypass. Marker
-  **glyphs** come from `DeviceShapes` (`web/device-shapes.js`), keyed off the device's
-  NetBox `role` (with a device-name keyword fallback) — re-run **Refresh racks** after
-  touching `server.py._trim_device` to repopulate roles in `rackcache.json`.
+  **glyphs** come from `DeviceShapes` (`static/.../device-shapes.js`), keyed off the
+  device's NetBox `role` (with a device-name keyword fallback). Racks/devices are fetched
+  **live** per Location (no persisted cache) — after touching `api._trim_device`, just
+  **Refresh racks** to re-pull the live shapes; there is no `rackcache.json` to regenerate.
 
 ### Pan / zoom
 
@@ -902,16 +1117,17 @@ at the deep treatment.
 
 ### Theming
 
-- UI is a light "CAD" theme driven by `:root` tokens in `web/style.css`; reskin via those
-  tokens, never rename the JS-load-bearing class names (§11).
+- UI is a light "CAD" theme driven by `:root` tokens in `static/.../style.css`; reskin via
+  those tokens, never rename the JS-load-bearing class names (§11).
 
 ---
 
 ## 11. UI design system (light theme)
 
-Adopted from the `tool/Template` mockup. Single hand-written `style.css`, no
-framework. All colours/spacing are CSS custom properties on `:root`; reskinning is
-mostly a matter of editing those tokens.
+Single hand-written `style.css`, no framework. All colours/spacing are CSS custom
+properties on `:root`; reskinning is mostly a matter of editing those tokens. The template
+(`index.html`) deliberately does **not** extend NetBox's `base/layout.html` — the SVG
+canvas gets the whole viewport, matching the standalone tool.
 
 - **Palette:** `--bg #f4f5f7` canvas, `--panel #fff` surfaces, `--accent #066fd1`
   (blue) primary, `--success #2fa84f` green, `--warn`/`--danger` for selected/error.
@@ -972,4 +1188,4 @@ mostly a matter of editing those tokens.
   the wrap by `PanZoom.apply()`. Cursors: `.map-wrap`
   is `grab`, `svg.panning` is `grabbing`, `svg.draw-active` is `crosshair`.
 - Class names are load-bearing (the JS builds DOM with them) — restyle freely but
-  do not rename. See `CLAUDE.md` for the full list.
+  do not rename.

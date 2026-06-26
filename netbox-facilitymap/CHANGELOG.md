@@ -3,14 +3,30 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
-## Unreleased
-- **Ships with no facility content.** Removed the bundled demo floor images and replaced
-  `static/netbox_facilitymap/manifest.json` with an empty stub
-  (`{"siteplan":null,"buildings":[]}`); an operator now supplies `manifest.json` + `images/`
-  by building them in the standalone tool and copying them in (see README *Build artifacts*).
-- De-branded the plugin to be facility-agnostic (`verbose_name` → "Facility Map"; generic
-  descriptions; `GRID_STEP_PREFIX` → `facilitymap:`). `import-wizard.js` from the tool is
-  intentionally **not** vendored (PDF import is tool-only). (Bump the version on release.)
+## 1.2.0 — In-app PDF import; one self-contained plugin
+The standalone tool is retired: its PDF-import pipeline moves into the plugin, so the plugin
+now imports a facility from PDFs in-app with no external build step. (Supersedes the prior
+unreleased "ships empty / copy from the tool / import-wizard is tool-only" notes.)
+- **In-app import.** Vendored `import-wizard.js`; new `imports.py` adds the
+  `api/import/upload|scan|build|reset` endpoints plus authenticated `api/manifest` and
+  `api/media/<path>` serving. `app.js` routes `#/import` and defaults an empty install to the
+  wizard; a **Settings → Import a facility from PDFs** button was added. `preprocess.py` (the
+  render engine) and `storage.py` (working-dir helpers) are new package modules.
+- **Render engine.** `preprocess.py` is invoked as an isolated **subprocess** (by file path,
+  so Django is never imported into the child) with a timeout + POSIX rlimits; it reads/writes
+  a working dir under `MEDIA_ROOT` (`work_dir` setting). Runtime deps `pypdfium2` + `Pillow`
+  are now declared in `pyproject.toml`.
+- **Storage/serving.** `manifest.json` + `images/` move from the public static tree to the
+  authenticated working dir; the frontend resolves them via `window.MAP.media`/`api`.
+  `template_content.py` and `views.py` build image URLs through the new `media_url()` route.
+- **Security hardening.** Import endpoints and all map **writes** now require the
+  `netbox_facilitymap.change_facilitymapblob` permission (was login-only):
+  `BlobView.post`/`AnnotationsView.post` are gated, and `sync_rooms(rooms_by_floor, user)`
+  scopes deletes via `restrict(user, 'delete')`. Uploads enforce `%PDF-` magic bytes, a size
+  cap, a PDF-count cap, and a traversal-guarded path; a working-dir lockfile serializes
+  concurrent renders. New `default_settings`: `work_dir`, `max_pdf_mb`, `max_pdfs`,
+  `render_timeout_s`, `render_mem_mb`.
+- No schema change (no new migration; `makemigrations` reports nothing). Version → `1.2.0`.
 
 ## 1.1.0 — Phase 5: Room UI + REST
 - `Room` becomes a full NetBox-native model surface (no schema change — the existing

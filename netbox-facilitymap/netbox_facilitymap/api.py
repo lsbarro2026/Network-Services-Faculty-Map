@@ -25,12 +25,17 @@ import json
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.http import HttpResponseBadRequest, JsonResponse
+from django.http import HttpResponseBadRequest, HttpResponseForbidden, JsonResponse
 from django.views import View
 
 from dcim.models import Device, Location, Rack, Site
 
 from .models import FacilityMapBlob, Room
+
+# Saving any editor document mutates the shared facility map, so the write endpoints are
+# gated on this model permission (admin-grantable) rather than merely "is logged in" —
+# reads stay login-only so any authenticated user can view the map.
+EDIT_PERM = 'netbox_facilitymap.change_facilitymapblob'
 
 # kind -> the default document the standalone server returned when a file was absent.
 # (`annotations` is served by AnnotationsView, not BlobView, so it isn't listed here.)
@@ -50,6 +55,8 @@ class BlobView(LoginRequiredMixin, View):
         return JsonResponse(row.data if row else BLOB_DEFAULTS[self.kind](), safe=False)
 
     def post(self, request):
+        if not request.user.has_perm(EDIT_PERM):
+            return HttpResponseForbidden('permission denied')
         try:
             data = json.loads(request.body or b'{}')
         except json.JSONDecodeError:
@@ -115,10 +122,16 @@ def compose_annotations(blob_data, user, request):
     return doc
 
 
-def sync_rooms(rooms_by_floor):
+def sync_rooms(rooms_by_floor, user=None):
     """Upsert `Room` rows from a decomposed annotations document and delete the rest.
     The POST is authoritative for the whole document, so rooms absent from a floor — and
-    rooms of floors absent entirely — are removed."""
+    rooms of floors absent entirely — are removed.
+
+    When `user` is given (the editor POST), deletes are scoped to rooms that user may
+    delete (`restrict(user, 'delete')`), so a save never silently removes rooms the caller
+    has no permission over. `user=None` (the trusted `facilitymap_import` command) keeps
+    the unrestricted behaviour."""
+    del_qs = Room.objects.restrict(user, 'delete') if user is not None else Room.objects.all()
     for fkey, rooms in rooms_by_floor.items():
         seen = []
         for room in rooms:
@@ -138,8 +151,8 @@ def sync_rooms(rooms_by_floor):
                     'datacenter': bool(room.get('datacenter')),
                     'location_id': loc_id,
                 })
-        Room.objects.filter(floor_key=fkey).exclude(room_id__in=seen).delete()
-    Room.objects.exclude(floor_key__in=list(rooms_by_floor.keys())).delete()
+        del_qs.filter(floor_key=fkey).exclude(room_id__in=seen).delete()
+    del_qs.exclude(floor_key__in=list(rooms_by_floor.keys())).delete()
 
 
 class AnnotationsView(LoginRequiredMixin, View):
@@ -153,13 +166,15 @@ class AnnotationsView(LoginRequiredMixin, View):
             compose_annotations(row.data if row else {}, request.user, request), safe=False)
 
     def post(self, request):
+        if not request.user.has_perm(EDIT_PERM):
+            return HttpResponseForbidden('permission denied')
         try:
             doc = json.loads(request.body or b'{}')
         except json.JSONDecodeError:
             return HttpResponseBadRequest('invalid JSON')
         blob, rooms_by_floor = _split_annotations(doc)
         with transaction.atomic():
-            sync_rooms(rooms_by_floor)
+            sync_rooms(rooms_by_floor, request.user)
             FacilityMapBlob.objects.update_or_create(
                 kind='annotations', key='', defaults={'data': blob})
         return JsonResponse({'ok': True})

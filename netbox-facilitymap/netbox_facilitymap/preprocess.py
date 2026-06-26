@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """
-preprocess.py — render a facility's floor-plan PDFs into the assets the annotation
-tool serves (images/ + manifest.json). It is the rendering engine behind the tool's
-in-app import wizard, and also runnable on its own.
+preprocess.py — render a facility's floor-plan PDFs into the assets the map serves
+(images/ + manifest.json). It is the rendering engine behind the in-app import wizard.
 
-The source PDFs live under `uploads/` (one folder per building, uploaded through the
-tool). Facility drawings carry no text layer — every label is a vectorized path — so
-the floor a PDF belongs to cannot be read from the file. That mapping is supplied by
-`import-map.json`: per building a `slug`/`name`/`abbr` and a `{drawing-stem: floor-
-token}` table. Floor labels are derived from the token (`b3` -> "Basement 3",
+IMPORTANT — isolation: this module is **invoked as a standalone subprocess** by
+`imports.py` (run by file path, never imported as `netbox_facilitymap.preprocess`), so it
+must stay **stdlib + pypdfium2/Pillow only** and never import Django/NetBox. Keeping the
+PDF parser (untrusted input) out of the long-lived NetBox worker is the whole point: a
+PDFium exploit is contained in a short-lived, resource-limited child process.
+
+The source PDFs live under `<work-dir>/uploads/` (one folder per building, uploaded
+through the wizard). Facility drawings carry no text layer — every label is a vectorized
+path — so the floor a PDF belongs to cannot be read from the file. That mapping is
+supplied by `import-map.json`: per building a `slug`/`name`/`abbr` and a `{drawing-stem:
+floor-token}` table. Floor labels are derived from the token (`b3` -> "Basement 3",
 `g` -> "Ground", `l1` -> "Level 1", `r` -> "Roof"); two drawings sharing a token become
 one multi-page floor (ordered by drawing number).
 
@@ -18,13 +23,11 @@ Two modes:
   build  read import-map.json, render every mapped PDF to images/<slug>/<id>[-N].png,
          and write manifest.json (the default mode).
 
-Rendering needs `pypdfium2` + `Pillow` (see requirements.txt). NetBox is never
-contacted here; the running server resolves site/floor/room ids live. The server
-itself stays stdlib-only and shells out to this script for rendering.
+Rendering needs `pypdfium2` + `Pillow`. The working directory is passed explicitly so the
+data can live under NetBox's MEDIA_ROOT while this script lives in the package:
 
-Run:  pip install -r requirements.txt
-      python3 preprocess.py scan      # inventory + thumbnails for the wizard
-      python3 preprocess.py build     # render images + manifest from import-map.json
+  python3 preprocess.py scan  --base /path/to/workdir
+  python3 preprocess.py build --base /path/to/workdir
 """
 
 import io
@@ -40,19 +43,20 @@ except ImportError:
 
 
 class Preprocessor:
-    """Renders uploads/ + import-map.json into images/ and manifest.json."""
+    """Renders uploads/ + import-map.json into images/ and manifest.json, all relative
+    to a single working directory (``base_dir``)."""
 
     RENDER_SCALE = 2.0   # full floor-plan render scale; coords are normalized 0..1
     THUMB_SCALE = 0.6    # wizard thumbnail scale (legible enough to identify a plan)
     THUMBS_DIRNAME = ".thumbs"
 
-    def __init__(self, script_dir):
-        self.script_dir = script_dir
-        self.source = os.path.join(script_dir, "uploads")
-        self.images_dir = os.path.join(script_dir, "images")
-        self.manifest_path = os.path.join(script_dir, "manifest.json")
-        self.import_map_path = os.path.join(script_dir, "import-map.json")
-        self.stub_path = os.path.join(script_dir, "import-map.stub.json")
+    def __init__(self, base_dir):
+        self.base_dir = base_dir
+        self.source = os.path.join(base_dir, "uploads")
+        self.images_dir = os.path.join(base_dir, "images")
+        self.manifest_path = os.path.join(base_dir, "manifest.json")
+        self.import_map_path = os.path.join(base_dir, "import-map.json")
+        self.stub_path = os.path.join(base_dir, "import-map.stub.json")
 
     # ---- PDF rendering ----
     @classmethod
@@ -92,7 +96,7 @@ class Preprocessor:
         path = os.path.join(out_dir, floor_id + ".png")
         with open(path, "wb") as f:
             f.write(raw)
-        return os.path.relpath(path, self.script_dir).replace(os.sep, "/")
+        return os.path.relpath(path, self.base_dir).replace(os.sep, "/")
 
     # ---- floor labels ----
     @staticmethod
@@ -229,7 +233,7 @@ class Preprocessor:
         with open(self.stub_path, "w", encoding="utf-8") as f:
             json.dump({"buildings": stub}, f, indent=2, ensure_ascii=False)
         print("WROTE %s — fill in the floor tokens and merge into import-map.json"
-              % os.path.relpath(self.stub_path, self.script_dir), file=sys.stderr)
+              % os.path.relpath(self.stub_path, self.base_dir), file=sys.stderr)
 
     # ---- modes ----
     def scan(self):
@@ -243,7 +247,7 @@ class Preprocessor:
                                          stem + ".png")
                 ok = self.render_pdf_thumb(
                     os.path.join(self.source, folder, fname),
-                    os.path.join(self.script_dir, thumb_rel))
+                    os.path.join(self.base_dir, thumb_rel))
                 pdfs.append({"file": fname, "stem": stem,
                              "thumb": thumb_rel.replace(os.sep, "/") if ok else None,
                              "pdf": ("uploads/%s/%s" % (folder, fname))})
@@ -277,12 +281,31 @@ class Preprocessor:
                  sum(len(b["floors"]) for b in buildings)), file=sys.stderr)
 
 
+def _parse_args(argv):
+    """Tiny argv parser (argparse-free to keep the child minimal): a bare `scan`/`build`
+    mode plus an optional `--base <dir>` (falls back to $FACILITYMAP_WORKDIR, then the
+    script's own directory)."""
+    mode = "build"
+    base = os.environ.get("FACILITYMAP_WORKDIR")
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--base" and i + 1 < len(argv):
+            base = argv[i + 1]
+            i += 2
+        else:
+            mode = argv[i]
+            i += 1
+    if not base:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return mode, base
+
+
 if __name__ == "__main__":
-    mode = sys.argv[1] if len(sys.argv) > 1 else "build"
-    pre = Preprocessor(os.path.dirname(os.path.abspath(__file__)))
+    mode, base = _parse_args(sys.argv[1:])
+    pre = Preprocessor(base)
     if mode == "scan":
         pre.scan()
     elif mode == "build":
         pre.build()
     else:
-        sys.exit("usage: preprocess.py [scan|build]")
+        sys.exit("usage: preprocess.py [scan|build] [--base DIR]")

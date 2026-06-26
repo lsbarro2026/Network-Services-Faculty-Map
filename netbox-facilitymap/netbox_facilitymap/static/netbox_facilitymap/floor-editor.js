@@ -86,7 +86,7 @@ class FloorEditor extends Editor {
     this.app.setToolbar(this._toolbar());
 
     const stage = Dom.$('#stage'); stage.innerHTML = '';
-    const imgs = base.cells.map(c => Dom.el('img', { class: 'sheet', src: (window.MAP ? window.MAP.static : '/') + c.image, alt: f.label,
+    const imgs = base.cells.map(c => Dom.el('img', { class: 'sheet', src: (window.MAP ? window.MAP.media : '/') + c.image, alt: f.label,
       style: `left:${c.col * base.cellW}px;top:${c.row * base.cellH}px;width:${base.cellW}px;height:${base.cellH}px` }));
     const s = Dom.svg('svg', { preserveAspectRatio: 'none' });
     const wrap = Dom.el('div', { class: 'map-wrap', id: 'floor-wrap', style: `width:${W}px;height:${H}px` },

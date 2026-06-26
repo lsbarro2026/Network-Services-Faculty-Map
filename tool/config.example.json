@@ -1,6 +1,0 @@
-{
-  "netbox_url": "https://netbox.example.com",
-  "netbox_token": "your-netbox-api-token-here",
-  "verify_ssl": true,
-  "port": 8765
-}

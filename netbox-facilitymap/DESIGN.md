@@ -10,8 +10,10 @@ see `../tool/ARCHITECTURE.md`.
 
 > Status: **built** in this directory — all phases (skeleton → read-only map →
 > editing/save → ORM racks/devices + auth hardening → relational `Room` +
-> NetBox-native render → full Room UI + REST) are implemented and shipped as
-> `1.1.0`. The standalone tool keeps running unchanged alongside the plugin.
+> NetBox-native render → full Room UI + REST → **in-app PDF import**) are implemented and
+> shipped as `1.2.0`. As of `1.2.0` the plugin is **self-contained**: the standalone tool's
+> PDF-import pipeline was folded in (§7) and the tool retired, so this directory is the
+> whole project. References to `../tool/` below are historical (where the code came from).
 
 ---
 
@@ -114,11 +116,14 @@ netbox-facilitymap/                      # distribution root
   CHANGELOG.md
   LICENSE
   netbox_facilitymap/                    # the importable Django app package
-    __init__.py                          # FacilityMapConfig(PluginConfig)  (§4)
+    __init__.py                          # FacilityMapConfig(PluginConfig) + render guardrails (§4)
     navigation.py                        # Facility Map + Rooms nav items
-    urls.py                              # page mount + api/ JSON endpoints + Room UI routes
+    urls.py                              # page mount + api/ JSON + import/media + Room UI routes
     views.py                             # MapView (TemplateView) + Room UI (list/detail/edit/bulk)
     api.py                               # AnnotationsView (compose/decompose) + blob CRUD + ORM reads
+    imports.py                           # PDF import endpoints + authenticated manifest/media serving (§7)
+    preprocess.py                        # PDF render engine, run as an isolated subprocess (§7)
+    storage.py                           # work_dir()/safe_path()/media_url() (MEDIA_ROOT working dir)
     models.py                            # FacilityMapBlob; Room(NetBoxModel) FK → dcim.Location
     filtersets.py  tables.py  forms.py   # RoomFilterSet / RoomTable / Room*Form
     search.py                            # RoomIndex (global search)
@@ -127,41 +132,46 @@ netbox-facilitymap/                      # distribution root
       serializers.py  views.py  urls.py  # RoomSerializer + RoomViewSet + NetBoxRouter
     management/
       commands/
-        facilitymap_import.py            # load existing tool/ JSON into the DB (§7)
+        facilitymap_import.py            # import a legacy JSON export into the DB (§7)
     migrations/                          # 0001_initial, 0002_room, 0003_backfill_rooms
     templates/netbox_facilitymap/
-      index.html                         # was tool/web/index.html (injects window.MAP)
+      index.html                         # injects window.MAP (api/media/static/csrf)
       floor_rooms.html                   # the Location-page room overlay
       room.html                          # Room detail page + polygon preview
-    static/netbox_facilitymap/
+    static/netbox_facilitymap/           # framework-free frontend only (no facility data)
       lib.js device-shapes.js netbox.js store.js grid.js panzoom.js
-      editor.js floor-editor.js siteplan-editor.js app.js
+      editor.js floor-editor.js siteplan-editor.js import-wizard.js app.js
       style.css
       fonts/                             # bundled WOFF2 (Public Sans + IBM Plex Mono)
-      images/<slug>/<floor>.png          # operator-supplied (from tool/images/); absent by default
-      manifest.json                      # operator-supplied; ships as an empty stub
+
+  # facility data is NOT packaged — it is rendered at runtime into the working dir:
+  <MEDIA_ROOT>/netbox_facilitymap/       # writable; see storage.work_dir() (§7)
+    uploads/<folder>/*.pdf  uploads/.thumbs/...   # uploaded PDFs + wizard thumbnails
+    images/<slug>/<floor>.png            # rendered floor/siteplan images
+    manifest.json  import-map.json       # rendered manifest + the wizard's floor mapping
 ```
 
-The frontend JS/CSS/fonts are reused from `tool/web/`; **`import-wizard.js` is *not*
-copied** (the PDF import is tool-only — NetBox has no render endpoint). The plugin ships
-with **no facility content**: `manifest.json` is the empty stub
-`{"siteplan":null,"buildings":[]}` and there is no `images/` until an operator builds one
-(§7).
+The frontend JS/CSS/fonts moved from `tool/web/` (only ~20 URL literals changed), now
+**including `import-wizard.js`** — the PDF import runs in-plugin (§7). The plugin ships with
+**no facility content**: `manifest.json` + `images/` are produced at runtime under
+`MEDIA_ROOT` (not packaged static assets), and `api/manifest` serves an empty stub until the
+first import.
 
-**Reused vs. replaced (from `tool/`):**
+**Reused vs. replaced (origin: the retired `tool/`):**
 
-| Existing (`tool/`) | Fate in plugin |
+| Origin (`tool/`) | Fate in plugin |
 |---|---|
 | `web/*.js`, `style.css`, `fonts/` | Reused; only ~20 URL literals change → `static/netbox_facilitymap/`. |
 | `web/index.html` | Becomes `templates/netbox_facilitymap/index.html` (config injection + `{% static %}`). |
+| `web/import-wizard.js` | **Vendored** → `static/`; its `/api/import/*` + `/uploads/*` URLs rebased onto `window.MAP`. |
 | `server.py` `JsonStore` (the JSON files) | Replaced by `FacilityMapBlob` model + CRUD views; room polygons further promoted to `Room`. |
 | `server.py` `NetBoxProxy` | Replaced by ORM-backed views; deleted. |
 | `server.py` `Config`/`ToolServer`/`Handler` | Deleted — NetBox provides server, routing, auth. |
 | `server.py` `_trim`/`_trim_rack`/`_trim_device` | Reused as shaping functions (keep the 4.x `role` / 3.x `device_role` fallback). |
+| `server.py` `/api/import/*` + static serving | Reimplemented in `imports.py` — permission-gated, validated, authenticated media (§7). |
 | `rackcache.json` + `/api/netbox/sync-room` | Dropped — racks/devices queried live via ORM. |
-| `preprocess.py` | Stays **external/offline** (the tool's import engine); the plugin never renders PDFs (§7). |
-| `import-wizard.js` | **Not copied** — PDF import is tool-only (no render endpoint in NetBox). |
-| `manifest.json` + `images/` | Format preserved; **operator-supplied** static assets — ship empty. |
+| `preprocess.py` | **Vendored** as `netbox_facilitymap/preprocess.py`; run as an isolated subprocess (§7). |
+| `manifest.json` + `images/` | Format preserved; now **rendered at runtime** under `MEDIA_ROOT`, served authenticated. |
 
 ---
 
@@ -175,12 +185,15 @@ class FacilityMapConfig(PluginConfig):
     name = 'netbox_facilitymap'
     verbose_name = 'Facility Map'
     description = 'Navigable siteplan → building → floor → room map linked to Locations'
-    version = '1.1.0'
+    version = '1.2.0'
     author = 'Facility Map'
     base_url = 'facilitymap'
     min_version = '4.1.7'     # pinned to the tested range; NetBox enforces at load
     max_version = '4.6.0'
-    default_settings = {}     # netbox_url/token/port from config.json are obsolete
+    default_settings = {      # import/render guardrails (overridable in PLUGINS_CONFIG, §7)
+        'work_dir': None, 'max_pdf_mb': 50, 'max_pdfs': 400,
+        'render_timeout_s': 300, 'render_mem_mb': 4096,
+    }
 
 config = FacilityMapConfig
 ```
@@ -242,7 +255,7 @@ name = "netbox-facilitymap"
 version = "1.1.0"
 description = "Facility map plugin for NetBox"
 requires-python = ">=3.10"
-dependencies = []                 # stdlib + Django/DRF (NetBox supplies them)
+dependencies = ["pypdfium2", "Pillow"]   # PDF render engine; Django/DRF come from NetBox
 readme = "README.md"
 license = { text = "MIT" }
 
@@ -260,12 +273,13 @@ recursive-include netbox_facilitymap/static *
 ```
 
 **Key packaging rules**
-- **No runtime pip dependencies.** The plugin code is stdlib + Django/DRF (which NetBox
-  already provides). `preprocess.py`'s optional `pypdfium2`/`Pillow` are a *developer* build
-  tool, never a plugin runtime dep — keep them out of `[project.dependencies]`.
+- **Runtime deps are `pypdfium2` + `Pillow`** (the PDF render engine, §7). NetBox supplies
+  Django/DRF. `pypdfium2` bundles PDFium as a self-contained wheel (no system
+  Ghostscript/poppler); it is loaded only by the render **subprocess**, never the NetBox
+  worker, so the native-code surface stays out of the long-lived process.
 - **Ship the static + template files**, not just `.py` — that is what `package-data` /
-  `MANIFEST.in` guarantee. The plugin ships with an empty `manifest.json` stub and no floor
-  PNGs; an operator supplies them (build in the tool, copy into `static/`).
+  `MANIFEST.in` guarantee. The plugin ships with **no facility content**: floor images +
+  `manifest.json` are rendered at runtime under `MEDIA_ROOT` (§7), not packaged.
 - **Static is namespaced** under `static/netbox_facilitymap/` so `collectstatic` can't
   collide with another app; templates likewise under `templates/netbox_facilitymap/`.
 - **Versioning = git tags.** Tag releases `v1.1.0`, etc., so installs can pin to a tag. Keep
@@ -277,29 +291,58 @@ recursive-include netbox_facilitymap/static *
 
 ---
 
-## 7. preprocess / images pipeline & data import
+## 7. In-app PDF import pipeline (`imports.py` + `preprocess.py` + `storage.py`)
 
-- **`preprocess.py` stays external/offline.** It is the standalone tool's render engine
-  (the tool's in-app import uploads PDFs and renders them via a `preprocess.py` subprocess);
-  it never contacts NetBox — the wrong thing to run in-process. The plugin ships with **no
-  facility content**: `manifest.json` is an empty stub and `images/` is absent. To populate
-  the plugin, import drawings in the tool, then copy `tool/manifest.json` + `tool/images/`
-  into `static/netbox_facilitymap/` and run `collectstatic`.
-- `manifest.json` stays a **read-only served static file** — not modelled. It encodes the
-  load-bearing conventions (`dir == Site slug`, `floorSlug == Location slug`, image
-  filenames) that the import command and the `Room` FKs must honour.
-- **Data import** — a management command moves existing tool data into the DB:
-  ```
-  python manage.py facilitymap_import --src /path/to/tool
-  #   annotations.json     -> rooms (Room rows) + blob (image/w/h/arrows)
-  #   siteplan.json        -> row  (kind='siteplan',   key='')
-  #   rackplacements.json  -> rows (kind='placements', key=<floorKey>)
-  #   pagelayouts.json     -> rows (kind='layouts',    key=<floorKey>)
-  ```
-  Round-trip is trivial (`json.load` → split top-level keys; inverse to re-export), so
-  annotations move between the standalone tool and the plugin freely. Annotations embed
-  absolute `location.url`s — harmless inside the same NetBox; the command may optionally
-  re-resolve `location.id` against the current host, or trust ids.
+As of `1.2.0` the plugin imports a facility from PDFs itself. The standalone tool kept PDF
+rendering out of NetBox for two reasons — no render endpoint, and avoiding the parser's
+attack surface in-process. Folding it in keeps the second concern by **isolating the
+renderer in a subprocess**; the first is solved by the new endpoints.
+
+**Working directory.** Uploads + rendered output need a writable location (the package's
+`static/` tree is read-only at runtime), so `storage.work_dir()` resolves
+`<MEDIA_ROOT>/netbox_facilitymap/` (overridable via the `work_dir` plugin setting). It holds
+`uploads/` (PDFs + `.thumbs/`), `images/`, `manifest.json`, and `import-map.json` — the
+exact layout `preprocess.py` already expects. `storage.safe_path()` is the shared traversal
+guard; `storage.media_url()` reverses the authenticated `api-media` route for server-rendered
+pages.
+
+**Endpoints** (`imports.py`, under the page mount). All four import endpoints require the
+`netbox_facilitymap.change_facilitymapblob` permission (`PermissionRequiredMixin`), not just
+a login — importing rewrites the whole map and `reset` wipes it:
+- `POST api/import/upload?path=<folder>/<file>` — multipart (`file`), streamed to disk;
+  validates `%PDF-` magic bytes, a `max_pdf_mb` cap, and a traversal-guarded path under
+  `uploads/`.
+- `POST api/import/scan` / `POST api/import/build` — run `preprocess.py scan|build` (build
+  first persists the posted import-map and enforces `max_pdfs`).
+- `POST api/import/reset` — clear the working dir.
+- `GET api/manifest` (login) — serve the rendered manifest, or the empty stub.
+- `GET api/media/<path>` (login) — stream a rendered image / thumbnail / uploaded PDF from
+  the working dir; traversal-guarded and confined to `images/`/`uploads/`. Floor plans are
+  **not** exposed at a public static URL.
+
+**Renderer isolation + limits.** `_run_preprocess` spawns
+`python preprocess.py <mode> --base <workdir>` **by file path** (not `-m`, so the package's
+NetBox-importing `__init__` never loads into the child), with `timeout=render_timeout_s` and
+a POSIX `preexec_fn` setting `RLIMIT_CPU` + `RLIMIT_AS` (`render_mem_mb`). `preprocess.py`
+stays stdlib + `pypdfium2`/`Pillow` only and only rasterizes page 1 — no PDF text/JS/embedded
+content is executed. A working-dir lockfile (`_acquire_lock`, with stale-lock recovery)
+serializes renders across worker processes, since the tool's thread lock could not.
+
+`manifest.json` encodes the load-bearing conventions (`dir == Site slug`,
+`floorSlug == Location slug`, image filenames) that the `Room` FKs must honour; it is served
+(authenticated), not modelled.
+
+**Legacy data import.** The `facilitymap_import` management command still moves a JSON export
+into the DB (for migrating an older deployment), unchanged:
+```
+python manage.py facilitymap_import --src /path/to/dir
+#   annotations.json     -> rooms (Room rows) + blob (image/w/h/arrows)
+#   siteplan.json        -> row  (kind='siteplan',   key='')
+#   rackplacements.json  -> rows (kind='placements', key='')
+#   pagelayouts.json     -> rows (kind='layouts',    key='')
+```
+Round-trip is trivial (`json.load` → split top-level keys; inverse to re-export). New
+facilities use the in-app wizard instead.
 
 ---
 
@@ -340,14 +383,20 @@ Hash routing (`app.js router()`) is already prefix-agnostic — no change.
 
 1. **CSRF on session POST** — silent 403s if the token header isn't threaded into
    `Api.post`. Highest-likelihood gotcha (§8).
-2. **`collectstatic` + large PNG set** — 30+ building dirs of PNGs bloat the static tree;
-   works, but may need a served-data fallback view if size hurts.
+2. **Untrusted PDF parsing** — uploads are rasterized server-side. Mitigated by isolating
+   the parser in a short-lived, resource-limited **subprocess** (never the NetBox worker),
+   `%PDF-` + size/count validation, permission-gating, and `pypdfium2` (hardened PDFium,
+   no system Ghostscript/poppler). Residual risk is a PDFium CVE inside the sandboxed child;
+   keep `pypdfium2` patched. Large facilities also produce many PNGs under `MEDIA_ROOT` —
+   served on-demand by `MediaView`, so no `collectstatic` bloat, but watch disk.
 3. **Live-query UX** — dropping `rackcache` removed the offline snapshot and adds slight
    per-panel latency. Acceptable, but a behaviour change from the standalone tool.
 4. **NetBox version drift** — `restrict()` / `PluginConfig` / menu / template-extension APIs
    shift between 4.x minors; pin `min/max_version` and test against the exact prod minor.
-5. **Object perms** — the remaining blobs (siteplan/placements/layouts) are still
-   all-or-nothing. Rooms, now a `NetBoxModel`, are read through `Room.objects.restrict()`, so
+5. **Object perms** — blob **writes** (annotations/siteplan/placements/layouts) and all
+   import endpoints now require the `change_facilitymapblob` permission, and `sync_rooms`
+   scopes deletes via `restrict(user, 'delete')`; blob *reads* remain all-or-nothing per
+   login. Rooms, now a `NetBoxModel`, are read through `Room.objects.restrict()`, so
    they honour any object-permission constraints an admin defines — including constraints
    keyed to the `location` FK, which the blob could never express. (Promotion makes rooms
    *scopable*; it does not auto-inherit the Location's own permissions.)

@@ -1,29 +1,30 @@
 # netbox-facilitymap
 
-A NetBox 4.x plugin that embeds a facility map — a navigable **siteplan →
+A self-contained NetBox 4.x plugin that embeds a facility map — a navigable **siteplan →
 building → floor → room** view whose rooms link to NetBox **Locations** — inside NetBox.
-It packages the standalone annotation tool (`../tool/`): the framework-free frontend is
-reused (verbatim except its URL literals), the tool's flat JSON files become a
-`FacilityMapBlob` table, and the tool's token-holding NetBox proxy becomes direct ORM
-reads. The plugin **ships with no facility content** — see *Build artifacts*.
+Import a facility's floor-plan **PDFs in-app**, draw and bind room polygons, and render the
+same map natively on NetBox Location pages. The framework-free frontend, the relational
+`Room` model, and the PDF-import pipeline all live in the one plugin — there is no separate
+tool or external build step.
 
-> Status: **built** (skeleton → read-only map → editing/save → ORM racks/devices +
-> auth hardening → relational `Room` + NetBox-native render → full Room UI + REST),
-> shipped as `1.1.0`. Design & packaging internals in [`DESIGN.md`](DESIGN.md);
-> release history in [`CHANGELOG.md`](CHANGELOG.md).
+> Status: **built**. Design & packaging internals in [`DESIGN.md`](DESIGN.md); the deep
+> frontend/coordinate/data reference in [`ARCHITECTURE.md`](ARCHITECTURE.md); release
+> history in [`CHANGELOG.md`](CHANGELOG.md).
 
-## What works in this milestone
+## What it does
 
 - Installs into NetBox and mounts at `/plugins/facilitymap/` with a **Facility Map** nav item.
 - **Full-bleed map** (the app takes the whole viewport; it does not embed in NetBox chrome).
+- **Import a facility from PDFs, in-app.** Upload a folder of floor-plan PDFs; the plugin
+  renders them to floor images and a manifest, then drops you onto the new map. (See
+  *Security model* — the renderer runs isolated and is permission-gated.)
 - View annotated floors; pan/zoom; view-mode room clicks open the bound Location page.
-- **Draw + save** rooms, siteplan hotspots, arrows, and sheet layouts (CSRF-protected).
-  Bind a room to a NetBox Location (live ORM autocomplete).
+- **Draw + save** rooms, siteplan hotspots, arrows, and sheet layouts (CSRF-protected,
+  permission-gated). Bind a room to a NetBox Location (live ORM autocomplete).
 - **Relational rooms.** Room polygons are a first-class `Room(NetBoxModel)` FK'd to
   `dcim.Location` (the source of truth behind the editor's JSON), so they are queryable and
   object-permission scopable. Each floor's `dcim.Location` page shows a **Rooms** panel that
   draws the floor plan with its room polygons, each linking to its bound room Location.
-- Import existing tool data with `manage.py facilitymap_import` (rooms land as `Room` rows).
 - **Place racks/devices** in datacenter rooms: inventory is fetched live from NetBox
   (`netbox/racks`, `netbox/devices`), restricted to the requester's object permissions.
 - **Native Room UI + REST.** Rooms have a **Rooms** nav item with a filterable list,
@@ -34,33 +35,82 @@ reads. The plugin **ships with no facility content** — see *Build artifacts*.
   editor next saves that floor (last-writer-wins); native editing is best for
   `label`/`location`/`datacenter`/`tags`.
 
-## Build artifacts (ships empty)
+## Importing a facility
 
-The JS/CSS/fonts under `netbox_facilitymap/static/netbox_facilitymap/` are reused from the
-standalone tool. The facility data — `manifest.json` + `images/` — is **operator-supplied**
-and ships empty (`manifest.json` is the stub `{"siteplan":null,"buildings":[]}`, no `images/`).
-To populate the plugin for your facility:
+The plugin ships with **no facility content**; you build it from your drawings:
 
-1. Import your drawings in the standalone tool (its in-app **Import** wizard) to produce
-   `tool/manifest.json` + `tool/images/`.
-2. Copy `tool/manifest.json` and `tool/images/` into `static/netbox_facilitymap/`, then run
-   `collectstatic`.
-3. Import the annotations with `manage.py facilitymap_import` (rooms land as `Room` rows).
+1. Open **Facility Map** (an empty install lands on the import wizard; otherwise use
+   **Settings → Import a facility from PDFs**).
+2. **Upload** a folder of building drawings — one sub-folder per building, each holding its
+   floor PDFs. A sub-folder named like *site plan* seeds the overall siteplan image.
+3. **Map** each drawing to a floor (the PDFs carry no text layer, so floor identity is
+   assigned here), confirm each building's NetBox **site slug** and floor-id prefix.
+4. **Build** — the plugin renders the images + manifest and opens the map. Then draw rooms
+   and bind each to its NetBox Location.
 
-(The import wizard itself is **tool-only** — NetBox has no PDF-render endpoint; the plugin
-consumes the tool's built output.)
+Rendered images, thumbnails, the manifest, and uploaded PDFs live under a writable working
+directory — `<MEDIA_ROOT>/netbox_facilitymap/` by default (override with the `work_dir`
+setting) — and are served back only through **authenticated** endpoints, never a public
+static URL.
+
+> **Migrating from an older export.** If you have JSON exported by a previous version
+> (`annotations.json`, `siteplan.json`, `rackplacements.json`, `pagelayouts.json`), import
+> it with `manage.py facilitymap_import --src /path/to/dir` (rooms land as `Room` rows). New
+> facilities should use the in-app wizard instead.
+
+## Security model
+
+Accepting and rasterizing uploaded PDFs is an attack surface, so it is contained:
+
+- **Renderer isolation.** PDFs are parsed **only in a short-lived subprocess**
+  (`preprocess.py`, invoked by file path so the plugin/Django is never imported into the
+  child), with a wall-clock **timeout** and POSIX **resource limits** (CPU + address space).
+  A PDFium exploit cannot reach the NetBox worker's memory or DB. The renderer is
+  [`pypdfium2`](https://github.com/pypdfium2-team/pypdfium2) (Google's PDFium as a
+  self-contained wheel) — no system Ghostscript/poppler.
+- **Authorization.** Every import endpoint and every map **write** requires the
+  `netbox_facilitymap.change_facilitymapblob` permission (not merely a login). Grant it to
+  the users who maintain the map. Reads require a login (same access as the map).
+- **Input validation.** Uploads must be real `%PDF-` files within a size cap, on a
+  traversal-guarded path; an import past a PDF-count cap is rejected.
+- **Authenticated serving.** Floor plans are streamed from the working dir through a
+  login-gated, traversal-guarded view — not exposed at a guessable public URL.
+- **Concurrency.** A working-dir lockfile serializes renders across worker processes.
+
+Tunable guardrails (all optional, with safe defaults) via `PLUGINS_CONFIG`:
+
+```python
+PLUGINS_CONFIG = {
+    "netbox_facilitymap": {
+        # "work_dir": "/var/lib/netbox-facilitymap",  # default: <MEDIA_ROOT>/netbox_facilitymap
+        "max_pdf_mb": 50,         # reject a single PDF larger than this
+        "max_pdfs": 400,          # reject an import with more PDFs than this
+        "render_timeout_s": 300,  # kill the render subprocess after this long
+        "render_mem_mb": 4096,    # RLIMIT_AS for the render subprocess (POSIX)
+    },
+}
+```
 
 ## Install (into a NetBox instance)
 
 Run as the NetBox service user, **inside NetBox's virtualenv** (default `/opt/netbox/venv`).
+Installing pulls the runtime deps `pypdfium2` + `Pillow` automatically. NetBox's
+`MEDIA_ROOT` must be writable by the service (it already is for NetBox's own uploads).
+
+The plugin lives in the `netbox-facilitymap/` subdirectory of the
+[Network-Services-Faculty-Map](https://github.com/lsbarro2026/Network-Services-Faculty-Map)
+repository, so installing straight from GitHub uses pip's `#subdirectory=` syntax.
 
 ```bash
 source /opt/netbox/venv/bin/activate
 
-# From a checkout (dev): editable install from this directory
-pip install -e /path/to/netbox-facilitymap
-# …or, once it has its own GitHub repo, pin to a release tag:
-# pip install git+https://github.com/<org>/netbox-facilitymap.git@v1.1.0
+# Straight from GitHub (no clone needed) — note the subdirectory pin:
+pip install "git+https://github.com/lsbarro2026/Network-Services-Faculty-Map.git#subdirectory=netbox-facilitymap"
+# …or pin to a release tag (once tagged):
+# pip install "git+https://github.com/lsbarro2026/Network-Services-Faculty-Map.git@v1.2.0#subdirectory=netbox-facilitymap"
+
+# …or, from a local checkout (dev): editable install from this directory
+# pip install -e /path/to/Network-Services-Faculty-Map/netbox-facilitymap
 ```
 
 Enable it in `/opt/netbox/netbox/netbox/configuration.py`:
@@ -69,7 +119,7 @@ Enable it in `/opt/netbox/netbox/netbox/configuration.py`:
 PLUGINS = [
     "netbox_facilitymap",
 ]
-# PLUGINS_CONFIG is optional — the plugin ships working defaults.
+# PLUGINS_CONFIG is optional — see Security model for the tunable render guardrails.
 ```
 
 Apply the database + static changes and restart:
@@ -77,27 +127,25 @@ Apply the database + static changes and restart:
 ```bash
 python /opt/netbox/netbox/manage.py migrate
 python /opt/netbox/netbox/manage.py collectstatic --no-input
-
-# first install only: import existing annotations from the standalone tool
-python /opt/netbox/netbox/manage.py facilitymap_import --src /path/to/tool
-
 sudo systemctl restart netbox netbox-rq
 ```
 
-Open **NetBox → Plugins → Facility Map** (or `/plugins/facilitymap/`).
+Open **NetBox → Plugins → Facility Map** (or `/plugins/facilitymap/`) and import your PDFs.
 
 > **NetBox version.** `min_version`/`max_version` in `netbox_facilitymap/__init__.py` are
 > pinned to `4.1.7`–`4.6.0`. NetBox's plugin/menu/`restrict()`/template-extension APIs shift
 > between 4.x minors, so re-verify against your exact minor before widening the range. The
-> `Room` schema migration
-> (`0002_room`) is authored to 4.x conventions; if `makemigrations netbox_facilitymap`
-> against your minor produces a different file, prefer the generated one.
+> `Room` schema migration (`0002_room`) is authored to 4.x conventions; if
+> `makemigrations netbox_facilitymap` against your minor produces a different file, prefer
+> the generated one.
 
 ## Upgrade
 
 ```bash
 source /opt/netbox/venv/bin/activate
-pip install --upgrade -e /path/to/netbox-facilitymap     # or @vX.Y.Z from GitHub
+# from GitHub:
+pip install --upgrade "git+https://github.com/lsbarro2026/Network-Services-Faculty-Map.git#subdirectory=netbox-facilitymap"
+# …or from a local checkout: git pull, then  pip install --upgrade -e /path/to/Network-Services-Faculty-Map/netbox-facilitymap
 python /opt/netbox/netbox/manage.py migrate
 python /opt/netbox/netbox/manage.py collectstatic --no-input
 sudo systemctl restart netbox netbox-rq
@@ -112,15 +160,21 @@ restart NetBox. To drop the data first, reverse the migrations before removing t
 python /opt/netbox/netbox/manage.py migrate netbox_facilitymap zero
 ```
 
+Rendered images and uploads under `<MEDIA_ROOT>/netbox_facilitymap/` are not removed by
+uninstall; delete that directory manually if you want them gone.
+
 ## Layout
 
 ```
 netbox_facilitymap/
-  __init__.py        FacilityMapConfig(PluginConfig)
+  __init__.py        FacilityMapConfig(PluginConfig) — version + render guardrails
   navigation.py      Facility Map + Rooms nav items
-  urls.py            page mount + /api/ JSON endpoints + Room UI routes
+  urls.py            page mount + /api/ JSON endpoints + import/media + Room UI routes
   views.py           MapView (full-bleed TemplateView) + Room list/detail/edit/delete/bulk
   api.py             AnnotationsView (compose/decompose) + blob GET/POST + ORM netbox reads
+  imports.py         PDF import (upload/scan/build/reset) + authenticated manifest/media serving
+  preprocess.py      PDF render engine (run as an isolated subprocess; pypdfium2 + Pillow)
+  storage.py         work_dir() / safe_path() / media_url() helpers (MEDIA_ROOT working dir)
   api/               DRF REST API for Room (serializers, viewset, router) → /api/plugins/facilitymap/
   models.py          FacilityMapBlob (JSON docs) + Room (NetBoxModel, FK → dcim.Location)
   filtersets.py      RoomFilterSet (shared by REST + UI list)
@@ -129,9 +183,9 @@ netbox_facilitymap/
   search.py          RoomIndex (global search)
   template_content.py  FloorRooms (room-polygon panel on the floor Location page)
   migrations/        0001_initial, 0002_room, 0003_backfill_rooms
-  management/commands/facilitymap_import.py
+  management/commands/facilitymap_import.py  (import a legacy JSON export)
   templates/netbox_facilitymap/index.html        (injects window.MAP)
   templates/netbox_facilitymap/floor_rooms.html  (the Location-page room overlay)
   templates/netbox_facilitymap/room.html         (Room detail page + polygon preview)
-  static/netbox_facilitymap/                     (frontend + build artifacts)
+  static/netbox_facilitymap/                     (framework-free frontend: JS/CSS/fonts)
 ```

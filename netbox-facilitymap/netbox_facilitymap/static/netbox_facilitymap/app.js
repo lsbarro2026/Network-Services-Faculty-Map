@@ -18,8 +18,8 @@ class App {
   async init() {
     try { await this.store.load(); }
     catch (e) {
-      document.body.innerHTML = '<div class="empty">Failed to load: ' + e.message
-        + '<br>Did you run preprocess.py and start server.py?</div>';
+      document.body.innerHTML = '<div class="empty">Failed to load the facility map: '
+        + e.message + '</div>';
       return;
     }
     this._bindGlobal();
@@ -33,11 +33,17 @@ class App {
   router() {
     const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
     this.closePanel();
+    if (parts[0] === 'import') return this.showImport();
     if (parts[0] === 'settings') return this.showSettings();
     if (parts[0] === 'b') return this.renderBuilding(decodeURIComponent(parts[1]));
     if (parts[0] === 'f') return this.showFloor(decodeURIComponent(parts[1]), decodeURIComponent(parts[2]));
+    // A fresh install has no facility yet → land on the import wizard, not an empty siteplan.
+    if (!this.store.hasContent()) return this.showImport();
     return this.showSiteplan();
   }
+
+  /** The in-app PDF import flow (no editor active). */
+  showImport() { this.current = null; new ImportWizard(this).show(); }
 
   /** Settings view (no editor active). Rack inventory now syncs per room from the
    *  floor's Place-racks panel, so there is nothing rack-related to configure here. */
@@ -48,9 +54,12 @@ class App {
     const stage = Dom.$('#stage'); stage.innerHTML = '';
     stage.append(Dom.el('div', { class: 'settings-view' }, [
       Dom.el('h2', {}, 'Settings'),
+      Dom.el('button', { class: 'primary', onclick: () => this.go('/import') },
+        'Import a facility from PDFs'),
       Dom.el('div', { class: 'hint' },
-        'Nothing to configure here yet. Rack inventory is now pulled per room from '
-        + 'the floor view: Edit → Place racks → open a datacenter room → Refresh racks.'),
+        'Importing renders a folder of floor-plan PDFs into the map. Rack inventory is '
+        + 'pulled per room from the floor view: Edit → Place racks → open a datacenter '
+        + 'room → Refresh racks.'),
     ]));
   }
 
@@ -84,7 +93,7 @@ class App {
         class: 'floor-card',
         onclick: () => this.go('/f/' + encodeURIComponent(dir) + '/' + encodeURIComponent(f.id)),
       }, [
-        Dom.el('img', { src: (window.MAP ? window.MAP.static : '/') + f.image, loading: 'lazy' }),
+        Dom.el('img', { src: (window.MAP ? window.MAP.media : '/') + f.image, loading: 'lazy' }),
         Dom.el('div', { class: 'cap' }, [
           Dom.el('b', {}, f.label),
           Dom.el('span', { class: 'cnt ' + (n ? 'mapped' : 'unmapped') }, n ? n + ' rooms' : 'unmapped'),

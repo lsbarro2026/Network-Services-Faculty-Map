@@ -1,17 +1,6 @@
-# Operator-supplied facility data — never commit. These are produced by the
-# standalone tool and copied in at deploy time (see ../../../README.md), so they
-# hold real facility content and must stay out of version control.
-images/
+# This directory holds ONLY the framework-free frontend (JS/CSS/fonts) — it is packaged
+# and read-only at runtime. Facility data (uploaded PDFs, rendered images, manifest.json,
+# import-map.json) is NOT stored here: it is written at runtime under
+# <MEDIA_ROOT>/netbox_facilitymap/ and served through authenticated endpoints (see
+# storage.py / imports.py). Nothing facility-specific should ever land in this folder.
 *.bak
-
-# User/runtime data, should it ever be copied here alongside the build artifacts.
-annotations.json
-siteplan.json
-pagelayouts.json
-rackplacements.json
-rackcache.json
-
-# NOTE: manifest.json is intentionally tracked as the empty stub
-# {"siteplan":null,"buildings":[]} that ships with the package. It is NOT ignored
-# here because the plugin needs it present at runtime. Keep the committed copy
-# blank — populate it only on the deployed instance, never in this repo.
