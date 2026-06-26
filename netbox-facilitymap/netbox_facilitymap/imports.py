@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import sys
 import time
+import zipfile
 from pathlib import Path
 
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
@@ -134,6 +135,28 @@ def _count_pdfs(base):
     return sum(1 for _ in uploads.rglob('*.pdf')) if uploads.is_dir() else 0
 
 
+def _zip_targets(names):
+    """Map a zip's `.pdf` member paths to `(folder, file)` upload destinations, mirroring the
+    wizard's folder-upload split (see `ImportWizard._split`). A single directory shared by
+    every drawing — the wrapper folder a zip usually has — is stripped first; a PDF then
+    sitting at the root alongside subfoldered drawings is treated as the overall site map."""
+    pdfs = [n for n in names if n.lower().endswith('.pdf') and not n.endswith('/')]
+    split = [[s for s in n.replace('\\', '/').split('/') if s] for n in pdfs]
+    # Peel off any leading directory shared by every drawing (nested wrapper folders).
+    while split and all(len(s) > 1 for s in split) and len({s[0] for s in split}) == 1:
+        split = [s[1:] for s in split]
+    has_subfolders = any(len(s) >= 2 for s in split)
+    out = {}
+    for name, segs in zip(pdfs, split):
+        if not segs:
+            continue
+        if has_subfolders and len(segs) == 1:
+            out[name] = ('Site Plan', segs[-1])
+        else:
+            out[name] = (segs[-2] if len(segs) > 1 else 'Building', segs[-1])
+    return out
+
+
 # --- endpoints ---------------------------------------------------------------------
 
 class _ImportView(PermissionRequiredMixin, View):
@@ -175,6 +198,84 @@ class UploadView(_ImportView):
                 f.write(chunk)
         os.replace(part, target)
         return JsonResponse({'ok': True, 'bytes': up.size})
+
+
+class UploadZipView(_ImportView):
+    """Extract one uploaded `.zip` of building drawings into `<workdir>/uploads/...`, mapping
+    members the same way folder uploads are (`_zip_targets`). Extraction only writes bytes and
+    checks magic — PDFs are still parsed solely in the isolated render subprocess, so this does
+    not breach that isolation. Guarded against oversize archives, zip bombs (per-file +
+    cumulative decompressed caps), path traversal, and symlink/special members."""
+
+    def post(self, request):
+        up = request.FILES.get('file')
+        if up is None:
+            return HttpResponseBadRequest('missing file')
+        if not (up.name or '').lower().endswith('.zip'):
+            return HttpResponseBadRequest('a .zip file is required')
+        if up.size > _cfg('max_zip_mb') * 1024 * 1024:
+            return JsonResponse({'ok': False, 'error': 'zip exceeds size limit'}, status=413)
+        if not up.read(4).startswith(b'PK\x03\x04'):
+            return HttpResponseBadRequest('not a zip (bad magic bytes)')
+        up.seek(0)
+
+        max_pdfs = _cfg('max_pdfs')
+        per_file_cap = _cfg('max_pdf_mb') * 1024 * 1024
+        total_cap = _cfg('max_zip_uncompressed_mb') * 1024 * 1024
+        base = work_dir()
+        base.mkdir(parents=True, exist_ok=True)
+
+        count, total = 0, 0
+        try:
+            with zipfile.ZipFile(up) as zf:
+                targets = _zip_targets(zf.namelist())
+                if not targets:
+                    return JsonResponse({'ok': False, 'error': 'no PDFs in the zip'}, status=400)
+                if len(targets) > max_pdfs:
+                    return JsonResponse(
+                        {'ok': False, 'error': 'too many PDFs (limit %d)' % max_pdfs}, status=400)
+                for info in zf.infolist():
+                    if info.filename not in targets or info.is_dir():
+                        continue
+                    # Refuse symlinks/special files — safe_path's resolve() would follow them.
+                    mode = (info.external_attr >> 16) & 0o170000
+                    if mode and mode != 0o100000:
+                        return HttpResponseBadRequest('zip contains a non-regular file')
+                    folder, fname = targets[info.filename]
+                    try:
+                        target = safe_path('uploads/' + folder + '/' + fname)
+                        parts = target.relative_to(work_dir().resolve()).parts
+                    except ValueError:
+                        return HttpResponseBadRequest('zip entry escapes the working directory')
+                    if not parts or parts[0] != 'uploads':
+                        return HttpResponseBadRequest('invalid zip entry path')
+
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    part = target.with_name(target.name + '.part')
+                    written = 0
+                    with zf.open(info) as src, open(part, 'wb') as dst:
+                        chunk = src.read(1024 * 1024)
+                        if not chunk.startswith(b'%PDF-'):
+                            os.unlink(part)
+                            return HttpResponseBadRequest('zip contains a non-PDF (%s)' % fname)
+                        while chunk:
+                            written += len(chunk)
+                            total += len(chunk)
+                            if written > per_file_cap:
+                                os.unlink(part)
+                                return JsonResponse(
+                                    {'ok': False, 'error': 'a PDF exceeds the size limit'}, status=413)
+                            if total > total_cap:
+                                os.unlink(part)
+                                return JsonResponse(
+                                    {'ok': False, 'error': 'zip decompresses too large'}, status=413)
+                            dst.write(chunk)
+                            chunk = src.read(1024 * 1024)
+                    os.replace(part, target)
+                    count += 1
+        except zipfile.BadZipFile:
+            return HttpResponseBadRequest('corrupt zip file')
+        return JsonResponse({'ok': True, 'count': count})
 
 
 class ScanView(_ImportView):

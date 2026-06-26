@@ -55,31 +55,36 @@ class ImportWizard {
   // ---- step 1: upload ----
   _stepUpload() {
     const view = this._stage('Import a facility');
-    view.append(Dom.el('p', { class: 'hint' },
-      'Select the folder of building drawings — one sub-folder per building, each holding '
-      + 'its floor PDFs. The PDFs are uploaded to NetBox and rendered there.'));
 
-    const input = Dom.el('input', {
+    const folder = Dom.el('input', {
       type: 'file', class: 'imp-file', multiple: 'multiple', accept: '.pdf',
       onchange: (e) => this._upload(this._fromInput(e.target.files)),
     });
-    input.setAttribute('webkitdirectory', '');
+    folder.setAttribute('webkitdirectory', '');
+    const zip = Dom.el('input', {
+      type: 'file', class: 'imp-file', accept: '.zip',
+      onchange: (e) => { if (e.target.files[0]) this._uploadZip(e.target.files[0]); },
+    });
     const drop = Dom.el('div', { class: 'imp-drop' }, [
-      Dom.el('div', { class: 'imp-drop-big' }, 'Drop a facility folder here'),
-      Dom.el('div', { class: 'hint' }, 'or'),
-      Dom.el('label', { class: 'imp-pick' }, [Dom.el('span', {}, 'Choose folder…'), input]),
+      Dom.el('div', { class: 'imp-drop-big' }, 'Drop a facility folder or .zip here'),
+      Dom.el('div', { class: 'imp-picks' }, [
+        Dom.el('label', { class: 'imp-pick' }, [Dom.el('span', {}, 'Choose folder…'), folder]),
+        Dom.el('label', { class: 'imp-pick' }, [Dom.el('span', {}, 'Choose .zip…'), zip]),
+      ]),
     ]);
     drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
     drop.addEventListener('dragleave', () => drop.classList.remove('over'));
     drop.addEventListener('drop', async (e) => {
       e.preventDefault(); drop.classList.remove('over');
+      const z = [...(e.dataTransfer.files || [])].find(f => f.name.toLowerCase().endsWith('.zip'));
+      if (z) return this._uploadZip(z);
       this._upload(await this._fromDrop(e.dataTransfer));
     });
     view.append(drop);
     this._progress = Dom.el('div', { class: 'imp-progress hidden' });
     view.append(this._progress);
     view.append(Dom.el('div', { class: 'hint' },
-      ['Already uploaded? ', Dom.el('a', { onclick: () => this._scanAndMap() }, 'Continue to mapping'),
+      [Dom.el('a', { onclick: () => this._scanAndMap() }, 'Continue to mapping'),
         ' · ', Dom.el('a', { onclick: () => this._reset() }, 'Start over')]));
   }
 
@@ -143,6 +148,25 @@ class ImportWizard {
     this._scanAndMap();
   }
 
+  /** Upload a single `.zip`; the server extracts its PDFs (stripping any wrapper folder)
+   *  into the same `uploads/<building>/<file>` layout a folder upload produces. */
+  async _uploadZip(file) {
+    this._progress.classList.remove('hidden');
+    this._progress.textContent = `Uploading ${file.name}…`;
+    const apiBase = window.MAP ? window.MAP.api : '/api/';
+    try {
+      const fd = new FormData();
+      fd.append('file', file, file.name);
+      const headers = {};
+      if (window.MAP && window.MAP.csrf) headers['X-CSRFToken'] = window.MAP.csrf;
+      const r = await fetch(apiBase + 'import/upload-zip', { method: 'POST', headers, body: fd });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || 'HTTP ' + r.status);
+      this._progress.textContent = `Extracted ${j.count} drawings — rendering previews…`;
+    } catch (e) { Toast.show('Zip upload failed: ' + e.message, true); return; }
+    this._scanAndMap();
+  }
+
   // ---- step 2: map ----
   async _scanAndMap() {
     try {
@@ -172,6 +196,8 @@ class ImportWizard {
         name, slug: ImportWizard.slugify(f.folder), abbr: ImportWizard.initials(name),
         assign: Object.fromEntries(f.pdfs.map((p, i) =>
           [p.stem, isSite ? { type: 'none', num: 1 } : { type: 'level', num: i + 1 }])),
+        // Per-card thumbnail framing (zoom/pan) — a viewing aid only, never sent to build.
+        frame: Object.fromEntries(f.pdfs.map(p => [p.stem, { scale: 1, x: 0, y: 0 }])),
       });
     }
   }
@@ -179,9 +205,8 @@ class ImportWizard {
   _stepMap() {
     const view = this._stage('Map drawings to floors');
     view.append(Dom.el('p', { class: 'hint' },
-      'For each building, set its name, NetBox site slug, and floor-id prefix, then assign '
-      + 'each drawing a floor. Click a thumbnail to open the full PDF. Two drawings on the '
-      + 'same floor (e.g. stacked sheets) → set the second to “same floor”.'));
+      'Name each building and assign every drawing to a floor. Click a card to preview; '
+      + 'scroll or drag it to frame the floor label.'));
 
     view.append(this._siteplanRow());
     for (const b of this.buildings) view.append(this._buildingSection(b));
@@ -212,7 +237,6 @@ class ImportWizard {
       }
     return Dom.el('div', { class: 'imp-siteplan' }, [
       Dom.el('label', {}, 'Site plan image (optional)'), sel,
-      Dom.el('span', { class: 'hint' }, 'the overall map; draw building areas on it later'),
     ]);
   }
 
@@ -245,14 +269,77 @@ class ImportWizard {
       const o = Dom.el('option', { value: v }, lbl); if (a.type === v) o.selected = true; sel.append(o);
     }
     showNum();
-    const href = ImportWizard._media(p.pdf);
+    let thumb;
+    if (p.thumb) {
+      const img = Dom.el('img', { src: ImportWizard._media(p.thumb), loading: 'lazy' });
+      thumb = Dom.el('div', { class: 'imp-thumb' }, [img]);
+      this._framing(thumb, img, b.frame[p.stem], () => this._lightbox(p.pdf, p.file));
+    } else {
+      thumb = Dom.el('div', { class: 'imp-thumb imp-nothumb' }, p.file);
+    }
     return Dom.el('div', { class: 'imp-card' }, [
-      Dom.el('a', { href, target: '_blank', rel: 'noopener', class: 'imp-thumb' },
-        p.thumb ? Dom.el('img', { src: ImportWizard._media(p.thumb), loading: 'lazy' })
-          : Dom.el('div', { class: 'imp-nothumb' }, p.file)),
+      thumb,
       Dom.el('div', { class: 'imp-cardfile' }, p.file),
       Dom.el('div', { class: 'imp-cardrow' }, [sel, num]),
     ]);
+  }
+
+  /** Wire scroll-to-zoom + drag-to-pan framing onto a thumbnail box. A press that doesn't
+   *  travel past a few pixels counts as a click and opens the preview instead. Framing state
+   *  lives on the wizard model so it survives step switches — it's a viewing aid only and is
+   *  never sent to the build. */
+  _framing(box, img, frame, onClick) {
+    const clamp = () => {
+      const mx = (frame.scale - 1) * box.clientWidth / 2;
+      const my = (frame.scale - 1) * box.clientHeight / 2;
+      frame.x = Math.max(-mx, Math.min(mx, frame.x));
+      frame.y = Math.max(-my, Math.min(my, frame.y));
+    };
+    const apply = () => { img.style.transform = `translate(${frame.x}px, ${frame.y}px) scale(${frame.scale})`; };
+    apply();
+    box.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      frame.scale = Math.min(6, Math.max(1, frame.scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+      if (frame.scale === 1) { frame.x = 0; frame.y = 0; } else clamp();
+      apply();
+    }, { passive: false });
+    box.addEventListener('pointerdown', (e) => {
+      const sx = e.clientX, sy = e.clientY, ox = frame.x, oy = frame.y;
+      let moved = 0;
+      try { box.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+      const move = (ev) => {
+        moved += Math.abs(ev.movementX) + Math.abs(ev.movementY);
+        if (frame.scale > 1) {
+          frame.x = ox + (ev.clientX - sx); frame.y = oy + (ev.clientY - sy);
+          clamp(); apply();
+        }
+      };
+      const up = () => {
+        box.removeEventListener('pointermove', move);
+        box.removeEventListener('pointerup', up);
+        if (moved < 4) onClick();
+      };
+      box.addEventListener('pointermove', move);
+      box.addEventListener('pointerup', up);
+    });
+  }
+
+  /** Full-window preview of a drawing: the actual PDF in an iframe (native zoom), dismissed
+   *  by the backdrop, the ✕, or Esc. */
+  _lightbox(pdfRel, title) {
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    const close = () => { document.removeEventListener('keydown', onKey); box.remove(); };
+    const panel = Dom.el('div', { class: 'imp-lightbox-panel' }, [
+      Dom.el('div', { class: 'imp-lightbox-head' }, [
+        Dom.el('span', {}, title),
+        Dom.el('button', { class: 'imp-lightbox-x', title: 'Close', onclick: close }, '✕'),
+      ]),
+      Dom.el('iframe', { class: 'imp-lightbox-frame', src: ImportWizard._media(pdfRel) }),
+    ]);
+    const box = Dom.el('div', { class: 'imp-lightbox' }, [panel]);
+    box.addEventListener('click', (e) => { if (e.target === box) close(); });
+    document.addEventListener('keydown', onKey);
+    document.body.append(box);
   }
 
   _autoNumber(b) {

@@ -3,6 +3,24 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.3.0 — Smoother facility-import upload flow
+- **Import.** The wizard's upload and map steps were streamlined and gained three
+  conveniences, version → `1.3.0`:
+  - **`.zip` upload.** Alongside the folder picker/drop, you can now pick or drop a single
+    `.zip` of the drawings. A new `UploadZipView` (`api/import/upload-zip`, frontend
+    `_uploadZip`) extracts it server-side into the same `uploads/<building>/<file>` layout,
+    stripping any wrapper folder the archive carries (`_zip_targets`, mirroring `_split`).
+    Extraction only writes bytes + checks `%PDF-` magic, so untrusted PDFs are still **parsed**
+    only in the render subprocess; it is bounded by new `max_zip_mb` /
+    `max_zip_uncompressed_mb` caps plus the existing `max_pdf_mb` / `max_pdfs`, with
+    symlink-member refusal and per-member `safe_path` confinement.
+  - **In-app preview.** Clicking a drawing card now opens a full-window lightbox iframe of the
+    actual PDF (`_lightbox`) instead of a new browser tab; dismiss via backdrop / ✕ / Esc.
+  - **Framable thumbnails.** Scroll-to-zoom and drag-to-pan a card (`_framing`) to frame the
+    part of the sheet that names the floor. Framing is a client-only viewing aid (per-PDF
+    `frame` state), never sent to the build or the manifest.
+  - **Less chrome.** Trimmed the instructional prose on both steps.
+
 ## 1.2.2 — Recognize a loose top-level PDF as the site map on import
 - **Import.** The import wizard now seeds the overall siteplan from a PDF dropped **loose at
   the top level** of the facility folder (any filename), not only from a sub-folder named like

@@ -501,19 +501,26 @@ Shapes are **building hotspots**. `editing()`=`app.siteEdit`.
 
 ### import-wizard.js — `ImportWizard` (not an Editor; a stage-takeover view)
 The in-app PDF import, in three steps rendered into `#stage`. **Upload** (`_stepUpload`):
-a `webkitdirectory` folder picker + a drag-drop zone (`_fromInput`/`_fromDrop` walk the
-selection — `_fromDrop` uses `webkitGetAsEntry` recursion); each `.pdf` is POSTed as a
-**multipart form** (`file` field) to `/api/import/upload?path=<building>/<file>` (folder =
-the file's parent dir, via `_split`). A PDF dropped **loose at the top level** of the
-facility folder (a two-segment `<root>/<file>.pdf` path) is the overall site map, so `_split`
-routes it into the reserved `Site Plan` folder — but only when the drop also contains
-subfoldered drawings (`hasSubfolders`, computed in `_upload`), so a single flat building
-folder isn't mistaken for a siteplan. **Map** (`_scanAndMap`/`_stepMap`): POSTs
+a `webkitdirectory` folder picker, a `.zip` picker, and a drag-drop zone that accepts either
+(`_fromInput`/`_fromDrop` walk a folder selection — `_fromDrop` uses `webkitGetAsEntry`
+recursion); each `.pdf` is POSTed as a **multipart form** (`file` field) to
+`/api/import/upload?path=<building>/<file>` (folder = the file's parent dir, via `_split`).
+A PDF dropped **loose at the top level** of the facility folder (a two-segment
+`<root>/<file>.pdf` path) is the overall site map, so `_split` routes it into the reserved
+`Site Plan` folder — but only when the drop also contains subfoldered drawings
+(`hasSubfolders`, computed in `_upload`), so a single flat building folder isn't mistaken for a
+siteplan. A picked/dropped **`.zip`** is sent whole to `/api/import/upload-zip` (`_uploadZip`),
+where the server extracts its PDFs into the same `uploads/<building>/<file>` layout — stripping
+any wrapper folder (see `UploadZipView`/`_zip_targets` below). **Map** (`_scanAndMap`/`_stepMap`): POSTs
 `/api/import/scan`, then `_modelFromInventory` builds an editable per-folder model
 (name/slug/abbr defaults via `slugify`/`prettyName`/`initials`; a folder matching
 `/site\s*plan/i` — including the `Site Plan` bucket a loose top-level map lands in — seeds the
-siteplan and contributes no floors, the rest default to Level 1..N). Each PDF gets a thumbnail (its
-`src` rebased onto `window.MAP.media`; click opens the full PDF) + a floor control
+siteplan and contributes no floors, the rest default to Level 1..N; it also seeds a per-PDF
+`frame` `{scale,x,y}`). Each PDF gets a thumbnail (its `src` rebased onto `window.MAP.media`)
+wired by `_framing` for scroll-to-zoom / drag-to-pan so the floor label can be framed — a
+viewing aid kept in the model (survives step switches), never sent to the build; a click
+(press that doesn't cross a small drag threshold) opens `_lightbox`, a full-window iframe
+preview of the actual PDF (dismiss: backdrop / ✕ / Esc). Plus a floor control
 (Basement/Ground/Level/Roof/`same floor`); `_resolveFloors` turns the controls into the
 `{stem: token}` table (a `same`-floor entry reuses the previous token → multi-page).
 **Build** (`_build`): assembles `{siteplan, buildings}`, POSTs `/api/import/build`, then
@@ -626,6 +633,14 @@ access as the map).
   (via `safe_path`) **inside** `uploads/` (traversal-guarded); the upload must be within
   `max_pdf_mb` (413 otherwise) and start with the `%PDF-` magic bytes. Writes go to a
   `.part` temp then `os.replace` (atomic).
+- **`UploadZipView`** (POST `api/import/upload-zip`) — extracts one uploaded `.zip` into the
+  same `uploads/<folder>/<file>` layout. `_zip_targets` maps each `.pdf` member to a
+  destination, mirroring `_split` (strip a shared wrapper directory; a root-level PDF beside
+  subfoldered drawings → `Site Plan`). Extraction only writes bytes + checks `%PDF-` magic —
+  PDFs are still **parsed** only in the render subprocess. Guards: `.zip` magic + `max_zip_mb`
+  size; per-member `max_pdf_mb` and cumulative `max_zip_uncompressed_mb` decompression caps
+  (streamed in chunks, never trusting `ZipInfo.file_size`); `max_pdfs` member cap; symlink/
+  special members refused (`external_attr` mode bits); each member re-confined via `safe_path`.
 - **`ScanView`** (POST `api/import/scan`) / **`BuildView`** (POST `api/import/build`) /
   **`ResetView`** (POST `api/import/reset`) — drive the render. `ScanView` runs
   `preprocess.py scan` (thumbnails + inventory). `BuildView` writes the posted import map
@@ -728,6 +743,7 @@ read-only at runtime), so it lives under NetBox's `MEDIA_ROOT`.
 | GET | `api/netbox/racks?location=` | `api.NbRacksView` | login (object-scoped) |
 | GET | `api/netbox/devices?location=` | `api.NbDevicesView` | login (object-scoped) |
 | POST | `api/import/upload?path=<rel>` | `imports.UploadView` (multipart PDF → `uploads/`) | **EDIT_PERM** |
+| POST | `api/import/upload-zip` | `imports.UploadZipView` (extract `.zip` → `uploads/`) | **EDIT_PERM** |
 | POST | `api/import/scan` | `imports.ScanView` (thumbnails + inventory) | **EDIT_PERM** |
 | POST | `api/import/build` | `imports.BuildView` (save map, render images + manifest) | **EDIT_PERM** |
 | POST | `api/import/reset` | `imports.ResetView` (clear the import) | **EDIT_PERM** |
@@ -900,7 +916,8 @@ Nested Locations: **Site (building) → Location (floor) → Location (room)**.
 - **Boot:** `App.init` → `Store.load` (manifest via `api/manifest` / annotations / siteplan
   / rackplacements / pagelayouts) → `router`. An empty install (`!hasContent()`) lands on
   the import wizard.
-- **Import a facility:** wizard **Upload** (multipart POST per PDF → `api/import/upload`) →
+- **Import a facility:** wizard **Upload** (multipart POST per PDF → `api/import/upload`, or
+  a whole `.zip` → `api/import/upload-zip`) →
   **Map** (POST `api/import/scan` → thumbnails + inventory; assign floors) → **Build** (POST
   `api/import/build` → render subprocess writes `images/` + `manifest.json` under the
   working dir) → `store.load()` + `router()` lands on the new map. See §10 *In-app import*.
@@ -1058,6 +1075,17 @@ point at the deep treatment.
   enforces a `max_pdfs` cap. `RENDER_SCALE`/`THUMB_SCALE` set pixel size only — coords are
   normalized, so changing them is safe. After a build the client must `store.load()` (the
   manifest is re-fetched from `api/manifest`).
+- **Zip upload extracts in the worker, not the subprocess.** `UploadZipView` unzips with
+  stdlib `zipfile` directly in NetBox — that's fine because it only *writes bytes* and checks
+  magic; the untrusted-PDF parse still happens only in `preprocess.py`. The trade is that the
+  worker now bears the zip-bomb risk, so the caps (`max_zip_mb`, per-member `max_pdf_mb`,
+  cumulative `max_zip_uncompressed_mb`, `max_pdfs` members) are enforced **as it streams**,
+  never from `ZipInfo.file_size`, and symlink/special members are refused before `safe_path`.
+- **Thumbnail framing is client-only.** The per-PDF `frame` `{scale,x,y}` (zoom/pan to make a
+  floor legible) lives in the wizard model and the card's CSS transform; it is **never** sent
+  to `api/import/build` and never reaches `manifest.json`. A rescan resets it. Don't wire it
+  into the import map. A card press under the drag threshold opens the `_lightbox` PDF preview,
+  so don't lower that threshold or panning will swallow clicks.
 
 ### Multi-sheet floors
 

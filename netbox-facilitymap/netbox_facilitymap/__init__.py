@@ -16,7 +16,7 @@ class FacilityMapConfig(PluginConfig):
     name = 'netbox_facilitymap'
     verbose_name = 'Facility Map'
     description = 'Navigable siteplan → building → floor → room map linked to NetBox Locations'
-    version = '1.2.2'
+    version = '1.3.0'
     author = 'Facility Map'
     author_email = ''
     base_url = 'facilitymap'
@@ -31,6 +31,8 @@ class FacilityMapConfig(PluginConfig):
         'work_dir': None,        # writable dir for uploads/images/manifest (None → MEDIA_ROOT)
         'max_pdf_mb': 50,        # reject a single uploaded PDF larger than this
         'max_pdfs': 400,         # reject an import with more PDFs than this
+        'max_zip_mb': 200,       # reject a single uploaded .zip larger than this
+        'max_zip_uncompressed_mb': 2048,  # cumulative decompressed cap (zip-bomb guard)
         'render_timeout_s': 300,  # kill the render subprocess after this many seconds
         'render_mem_mb': 4096,   # RLIMIT_AS for the render subprocess (POSIX)
     }

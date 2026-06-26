@@ -15,8 +15,10 @@ tool or external build step.
 
 - Installs into NetBox and mounts at `/plugins/facilitymap/` with a **Facility Map** nav item.
 - **Full-bleed map** (the app takes the whole viewport; it does not embed in NetBox chrome).
-- **Import a facility from PDFs, in-app.** Upload a folder of floor-plan PDFs; the plugin
-  renders them to floor images and a manifest, then drops you onto the new map. (See
+- **Import a facility from PDFs, in-app.** Upload a folder of floor-plan PDFs — or a single
+  `.zip` of them (any wrapper folder is stripped automatically) — and the plugin renders them
+  to floor images and a manifest, then drops you onto the new map. While mapping floors, click
+  a drawing to preview it and scroll/drag its thumbnail to frame the floor label. (See
   *Security model* — the renderer runs isolated and is permission-gated.)
 - View annotated floors; pan/zoom; view-mode room clicks open the bound Location page.
 - **Draw + save** rooms, siteplan hotspots, arrows, and sheet layouts (CSRF-protected,
@@ -42,10 +44,12 @@ The plugin ships with **no facility content**; you build it from your drawings:
 1. Open **Facility Map** (an empty install lands on the import wizard; otherwise use
    **Settings → Import a facility from PDFs**).
 2. **Upload** a folder of building drawings — one sub-folder per building, each holding its
-   floor PDFs. The overall siteplan image comes from either a PDF dropped **loose at the top
-   level** of the facility folder (any name) or a sub-folder named like *site plan*.
+   floor PDFs — or a single **`.zip`** of that folder (a wrapper folder inside the zip is
+   stripped automatically). The overall siteplan image comes from either a PDF dropped **loose
+   at the top level** of the facility folder (any name) or a sub-folder named like *site plan*.
 3. **Map** each drawing to a floor (the PDFs carry no text layer, so floor identity is
-   assigned here), confirm each building's NetBox **site slug** and floor-id prefix.
+   assigned here), confirm each building's NetBox **site slug** and floor-id prefix. Click a
+   card to preview the PDF; scroll or drag a thumbnail to frame the part that names the floor.
 4. **Build** — the plugin renders the images + manifest and opens the map. Then draw rooms
    and bind each to its NetBox Location.
 
@@ -73,7 +77,9 @@ Accepting and rasterizing uploaded PDFs is an attack surface, so it is contained
   `netbox_facilitymap.change_facilitymapblob` permission (not merely a login). Grant it to
   the users who maintain the map. Reads require a login (same access as the map).
 - **Input validation.** Uploads must be real `%PDF-` files within a size cap, on a
-  traversal-guarded path; an import past a PDF-count cap is rejected.
+  traversal-guarded path; an import past a PDF-count cap is rejected. A `.zip` upload is
+  unpacked in the worker (PDF *rendering* still runs only in the subprocess) under size,
+  decompression, count, traversal, and symlink-member guards.
 - **Authenticated serving.** Floor plans are streamed from the working dir through a
   login-gated, traversal-guarded view — not exposed at a guessable public URL.
 - **Concurrency.** A working-dir lockfile serializes renders across worker processes.
@@ -86,6 +92,8 @@ PLUGINS_CONFIG = {
         # "work_dir": "/var/lib/netbox-facilitymap",  # default: <MEDIA_ROOT>/netbox_facilitymap
         "max_pdf_mb": 50,         # reject a single PDF larger than this
         "max_pdfs": 400,          # reject an import with more PDFs than this
+        "max_zip_mb": 200,        # reject a .zip upload larger than this
+        "max_zip_uncompressed_mb": 2048,  # cumulative decompressed cap (zip-bomb guard)
         "render_timeout_s": 300,  # kill the render subprocess after this long
         "render_mem_mb": 4096,    # RLIMIT_AS for the render subprocess (POSIX)
     },

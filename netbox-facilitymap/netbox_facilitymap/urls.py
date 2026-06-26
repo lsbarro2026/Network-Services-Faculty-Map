@@ -36,6 +36,7 @@ urlpatterns = [
 
     # PDF import (permission-gated) + authenticated serving of the rendered result.
     path('api/import/upload', imports.UploadView.as_view(), name='api-import-upload'),
+    path('api/import/upload-zip', imports.UploadZipView.as_view(), name='api-import-upload-zip'),
     path('api/import/scan', imports.ScanView.as_view(), name='api-import-scan'),
     path('api/import/build', imports.BuildView.as_view(), name='api-import-build'),
     path('api/import/reset', imports.ResetView.as_view(), name='api-import-reset'),

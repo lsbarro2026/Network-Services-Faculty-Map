@@ -193,6 +193,7 @@ class FacilityMapConfig(PluginConfig):
     max_version = '4.6.0'
     default_settings = {      # import/render guardrails (overridable in PLUGINS_CONFIG, §7)
         'work_dir': None, 'max_pdf_mb': 50, 'max_pdfs': 400,
+        'max_zip_mb': 200, 'max_zip_uncompressed_mb': 2048,   # .zip upload caps
         'render_timeout_s': 300, 'render_mem_mb': 4096,
     }
 
@@ -307,7 +308,7 @@ exact layout `preprocess.py` already expects. `storage.safe_path()` is the share
 guard; `storage.media_url()` reverses the authenticated `api-media` route for server-rendered
 pages.
 
-**Endpoints** (`imports.py`, under the page mount). All four import endpoints require the
+**Endpoints** (`imports.py`, under the page mount). All import endpoints require the
 `netbox_facilitymap.change_facilitymapblob` permission (`PermissionRequiredMixin`), not just
 a login — importing rewrites the whole map and `reset` wipes it:
 - `POST api/import/upload?path=<folder>/<file>` — multipart (`file`), streamed to disk;
@@ -317,6 +318,14 @@ a login — importing rewrites the whole map and `reset` wipes it:
   folder is the overall site map and is folded into the reserved `Site Plan` folder (so the
   existing siteplan auto-detect/build path handles it). Naming a folder `Site Plan` still
   works; the loose-PDF route is recognized by **position, not filename**.
+- `POST api/import/upload-zip` — multipart `.zip`; the server extracts it into the same
+  `uploads/<folder>/<file>` layout (`_zip_targets` mirrors the upload `_split`, stripping a
+  shared wrapper directory the archive usually carries). Extraction runs in the worker — it
+  only writes bytes and re-checks `%PDF-` magic, so it does **not** breach the "untrusted PDFs
+  parsed only in the subprocess" rule — and is hardened against zip bombs / traversal: `.zip`
+  magic + `max_zip_mb`, streamed per-member `max_pdf_mb` and cumulative
+  `max_zip_uncompressed_mb` caps (never trusting `ZipInfo.file_size`), a `max_pdfs` member
+  cap, refusal of symlink/special members, and per-member `safe_path` confinement.
 - `POST api/import/scan` / `POST api/import/build` — run `preprocess.py scan|build` (build
   first persists the posted import-map and enforces `max_pdfs`).
 - `POST api/import/reset` — clear the working dir.
@@ -394,6 +403,10 @@ Hash routing (`app.js router()`) is already prefix-agnostic — no change.
    no system Ghostscript/poppler). Residual risk is a PDFium CVE inside the sandboxed child;
    keep `pypdfium2` patched. Large facilities also produce many PNGs under `MEDIA_ROOT` —
    served on-demand by `MediaView`, so no `collectstatic` bloat, but watch disk.
+   `.zip` uploads are unpacked in the worker (only PDF *rendering* stays in the subprocess);
+   the zip-bomb / traversal surface that adds is bounded by streamed size caps
+   (`max_zip_mb`, `max_zip_uncompressed_mb`, per-member `max_pdf_mb`, `max_pdfs`) and
+   symlink-member refusal in `UploadZipView`.
 3. **Live-query UX** — dropping `rackcache` removed the offline snapshot and adds slight
    per-panel latency. Acceptable, but a behaviour change from the standalone tool.
 4. **NetBox version drift** — `restrict()` / `PluginConfig` / menu / template-extension APIs
