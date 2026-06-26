@@ -2,7 +2,7 @@ from django.urls import path
 
 from netbox.views.generic import ObjectChangeLogView
 
-from . import api, imports, views
+from . import frontend_api, imports, views
 from .models import Room
 
 urlpatterns = [
@@ -22,17 +22,17 @@ urlpatterns = [
 
     # Editor data (blob persistence) — same logical paths as the standalone server,
     # rooted here at /plugins/facilitymap/api/ (see window.MAP.api in index.html).
-    path('api/annotations', api.AnnotationsView.as_view(), name='api-annotations'),
-    path('api/siteplan', api.BlobView.as_view(kind='siteplan'), name='api-siteplan'),
-    path('api/rackplacements', api.BlobView.as_view(kind='placements'), name='api-placements'),
-    path('api/pagelayouts', api.BlobView.as_view(kind='layouts'), name='api-layouts'),
+    path('api/annotations', frontend_api.AnnotationsView.as_view(), name='api-annotations'),
+    path('api/siteplan', frontend_api.BlobView.as_view(kind='siteplan'), name='api-siteplan'),
+    path('api/rackplacements', frontend_api.BlobView.as_view(kind='placements'), name='api-placements'),
+    path('api/pagelayouts', frontend_api.BlobView.as_view(kind='layouts'), name='api-layouts'),
 
     # NetBox reads (replace the token-holding proxy with direct ORM queries,
     # restricted by the requester's object permissions).
-    path('api/netbox/rooms', api.NbRoomsView.as_view(), name='api-nb-rooms'),
-    path('api/netbox/locations', api.NbLocationsView.as_view(), name='api-nb-locations'),
-    path('api/netbox/racks', api.NbRacksView.as_view(), name='api-nb-racks'),
-    path('api/netbox/devices', api.NbDevicesView.as_view(), name='api-nb-devices'),
+    path('api/netbox/rooms', frontend_api.NbRoomsView.as_view(), name='api-nb-rooms'),
+    path('api/netbox/locations', frontend_api.NbLocationsView.as_view(), name='api-nb-locations'),
+    path('api/netbox/racks', frontend_api.NbRacksView.as_view(), name='api-nb-racks'),
+    path('api/netbox/devices', frontend_api.NbDevicesView.as_view(), name='api-nb-devices'),
 
     # PDF import (permission-gated) + authenticated serving of the rendered result.
     path('api/import/upload', imports.UploadView.as_view(), name='api-import-upload'),

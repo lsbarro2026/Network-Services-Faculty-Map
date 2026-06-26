@@ -171,7 +171,7 @@ netbox_facilitymap/
   navigation.py      Facility Map + Rooms nav items
   urls.py            page mount + /api/ JSON endpoints + import/media + Room UI routes
   views.py           MapView (full-bleed TemplateView) + Room list/detail/edit/delete/bulk
-  api.py             AnnotationsView (compose/decompose) + blob GET/POST + ORM netbox reads
+  frontend_api.py    AnnotationsView (compose/decompose) + blob GET/POST + ORM netbox reads
   imports.py         PDF import (upload/scan/build/reset) + authenticated manifest/media serving
   preprocess.py      PDF render engine (run as an isolated subprocess; pypdfium2 + Pillow)
   storage.py         work_dir() / safe_path() / media_url() helpers (MEDIA_ROOT working dir)

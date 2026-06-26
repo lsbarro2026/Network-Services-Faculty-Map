@@ -1,7 +1,7 @@
 """DRF serializer for the relational `Room` (Phase 5).
 
 This is the *NetBox REST API* surface (mounted under `/api/plugins/facilitymap/`), not
-to be confused with the page-mount `api.py` views that feed the map frontend. It shapes
+to be confused with the page-mount `frontend_api.py` views that feed the map frontend. It shapes
 the same `Room` rows the editor writes through `sync_rooms`, so a room is now reachable
 both ways. `polygon` is exposed read/write but is editor-owned geometry (see the roadmap
 "last-writer-wins" note); the high-value writable fields here are `label`, `location`,

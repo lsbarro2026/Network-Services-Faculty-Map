@@ -16,7 +16,7 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from netbox_facilitymap.api import _split_annotations, sync_rooms
+from netbox_facilitymap.frontend_api import _split_annotations, sync_rooms
 from netbox_facilitymap.models import FacilityMapBlob
 
 # tool JSON filename -> blob kind (annotations is handled separately, see handle()).

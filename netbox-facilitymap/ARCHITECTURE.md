@@ -75,7 +75,8 @@ netbox-facilitymap/
     __init__.py             # FacilityMapConfig(PluginConfig): version, base_url, default_settings
     urls.py                 # all routes: page mount, Room UI, api/*, api/import/*, media
     views.py                # MapView (the SPA shell) + Room list/detail/edit/delete views
-    api.py                  # frontend JSON views: AnnotationsView, BlobView, NbRooms/Locations/Racks/Devices
+    frontend_api.py         # frontend JSON views: AnnotationsView, BlobView, NbRooms/Locations/Racks/Devices
+                            # (named to avoid shadowing the api/ REST package — see §10)
     imports.py              # NEW: PDF import pipeline (Upload/Scan/Build/Reset) + Manifest/Media serving
     preprocess.py           # NEW here: render engine (Preprocessor; scan|build) — run as a SUBPROCESS
     storage.py              # NEW: work_dir() / safe_path() / media_url() (working-dir + traversal guard)
@@ -554,8 +555,9 @@ The standalone `server.py` (Config/NetBoxProxy/JsonStore/Handler/ToolServer) is 
 responsibilities are split across four small modules, all mounted under the plugin's page
 URL (`/plugins/facilitymap/`, set by `base_url='facilitymap'` in `__init__.py`):
 
-- **`api.py`** — the frontend's JSON read/write endpoints (replacing `JsonStore` + the
-  `NetBoxProxy`).
+- **`frontend_api.py`** — the frontend's JSON read/write endpoints (replacing `JsonStore` +
+  the `NetBoxProxy`). Named `frontend_api`, **not** `api`, so it can't be shadowed by the
+  `api/` DRF REST package that NetBox auto-discovers (see §10).
 - **`imports.py`** — the in-app PDF import pipeline + authenticated serving of the
   rendered result (replacing `Handler`'s `/api/import/*` + static `images/`/`manifest`).
 - **`preprocess.py`** — the render engine, **run as a subprocess** (unchanged in spirit
@@ -567,7 +569,7 @@ relational `NetBoxModel`); `views.py` is `MapView` (the SPA shell) plus the Room
 list/detail/edit views; `template_content.py` overlays rooms on the NetBox Location page.
 See `DESIGN.md` for the storage model and packaging.
 
-### api.py — frontend JSON endpoints
+### frontend_api.py — frontend JSON endpoints
 Plain Django `View`s (not DRF) mounted under `/plugins/facilitymap/api/`, so they ride
 NetBox session auth + Django CSRF directly (`Api.post` sends the session token in
 `X-CSRFToken`). Request/response shapes are **identical** to the old server, so the
@@ -970,6 +972,13 @@ point at the deep treatment.
   by running `preprocess.py` as a **subprocess** (`imports._run_preprocess`, invoked by file
   path), never importing it. Keep it that way: do not `import preprocess` (or
   pypdfium2/Pillow) anywhere in the package's importable modules.
+- **Never name a top-level module `api`.** The DRF REST surface lives in the `api/`
+  **package** (`api/urls.py` is auto-discovered by NetBox and mounted at
+  `/api/plugins/facilitymap/`). A sibling `api.py` module would be **shadowed** — Python
+  always resolves a package over a same-named module — so `from . import api` would import the
+  empty `api/__init__.py` and every `api.*View` reference in `urls.py` would raise
+  `AttributeError`, crashing URLconf import (`urlpatterns` never defined). The page-mount
+  browser endpoints therefore live in **`frontend_api.py`**, not `api.py`.
 - The plugin **ships with no facility content** — no committed drawings, images, or real
   manifest; the only static `manifest.json` is the empty stub. Everything is created by an
   in-app import and written under the **working dir** (`<MEDIA_ROOT>/netbox_facilitymap/`),

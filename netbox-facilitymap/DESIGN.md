@@ -22,7 +22,7 @@ see `../tool/ARCHITECTURE.md`.
 Two deliberate refinements are worth recording:
 
 1. **The browser-facing JSON endpoints are plain Django views under the *page* mount,
-   not a DRF router.** `api.py`'s views (`AnnotationsView`, `BlobView`, `NbRoomsView`,
+   not a DRF router.** `frontend_api.py`'s views (`AnnotationsView`, `BlobView`, `NbRoomsView`,
    `NbLocationsView`, `NbRacksView`, `NbDevicesView`) are `django.views.View` subclasses
    wired in `urls.py` at `/plugins/facilitymap/api/…`, so they ride NetBox **session
    auth + Django's CSRF middleware** directly — the cleanest fit for a browser-session
@@ -120,7 +120,8 @@ netbox-facilitymap/                      # distribution root
     navigation.py                        # Facility Map + Rooms nav items
     urls.py                              # page mount + api/ JSON + import/media + Room UI routes
     views.py                             # MapView (TemplateView) + Room UI (list/detail/edit/bulk)
-    api.py                               # AnnotationsView (compose/decompose) + blob CRUD + ORM reads
+    frontend_api.py                      # AnnotationsView (compose/decompose) + blob CRUD + ORM reads
+                                         # (page-mount views; named to not shadow the api/ REST package)
     imports.py                           # PDF import endpoints + authenticated manifest/media serving (§7)
     preprocess.py                        # PDF render engine, run as an isolated subprocess (§7)
     storage.py                           # work_dir()/safe_path()/media_url() (MEDIA_ROOT working dir)

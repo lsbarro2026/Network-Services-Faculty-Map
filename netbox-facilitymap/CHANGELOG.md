@@ -3,6 +3,16 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.2.1 — Fix URLconf import crash (api module/package collision)
+- **Bugfix.** The page-mount browser endpoints module `api.py` collided with the `api/` DRF
+  REST package: Python resolves a package over a same-named module, so `from . import api` in
+  `urls.py` imported the empty `api/__init__.py` and every `api.*View` reference raised
+  `AttributeError` (first surfaced as `module 'netbox_facilitymap.api' has no attribute
+  'AnnotationsView'`), crashing URLconf import so `urlpatterns` was never defined and
+  `manage.py migrate` failed. Renamed `api.py` → `frontend_api.py` (the `api/` package name is
+  fixed by NetBox REST auto-discovery) and updated its two importers (`urls.py`, the
+  `facilitymap_import` command). No schema change; no behaviour change. Version → `1.2.1`.
+
 ## 1.2.0 — In-app PDF import; one self-contained plugin
 The standalone tool is retired: its PDF-import pipeline moves into the plugin, so the plugin
 now imports a facility from PDFs in-app with no external build step. (Supersedes the prior
