@@ -3,6 +3,16 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.2.2 — Recognize a loose top-level PDF as the site map on import
+- **Import.** The import wizard now seeds the overall siteplan from a PDF dropped **loose at
+  the top level** of the facility folder (any filename), not only from a sub-folder named like
+  *site plan*. `import-wizard.js` `_split` routes a two-segment `<root>/<file>.pdf` path into
+  the reserved `Site Plan` folder, reusing the existing siteplan auto-detect/build path. The
+  signal is **position, not filename** (so a map named e.g. `2600 - Drawing List Plan.pdf` is
+  picked up); it fires only when the drop also has subfoldered drawings, so a single flat
+  building folder isn't mistaken for a siteplan. Frontend-only; no backend, schema, or
+  security change. Version → `1.2.2`.
+
 ## 1.2.1 — Fix URLconf import crash (api module/package collision)
 - **Bugfix.** The page-mount browser endpoints module `api.py` collided with the `api/` DRF
   REST package: Python resolves a package over a same-named module, so `from . import api` in

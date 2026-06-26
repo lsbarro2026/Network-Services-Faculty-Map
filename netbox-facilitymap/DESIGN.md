@@ -312,7 +312,11 @@ pages.
 a login — importing rewrites the whole map and `reset` wipes it:
 - `POST api/import/upload?path=<folder>/<file>` — multipart (`file`), streamed to disk;
   validates `%PDF-` magic bytes, a `max_pdf_mb` cap, and a traversal-guarded path under
-  `uploads/`.
+  `uploads/`. The wizard derives `<folder>` from each PDF's position: floor PDFs keep their
+  building subfolder, while a PDF sitting **loose at the top level** of the dropped facility
+  folder is the overall site map and is folded into the reserved `Site Plan` folder (so the
+  existing siteplan auto-detect/build path handles it). Naming a folder `Site Plan` still
+  works; the loose-PDF route is recognized by **position, not filename**.
 - `POST api/import/scan` / `POST api/import/build` — run `preprocess.py scan|build` (build
   first persists the posted import-map and enforces `max_pdfs`).
 - `POST api/import/reset` — clear the working dir.

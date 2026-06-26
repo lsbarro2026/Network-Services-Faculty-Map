@@ -504,10 +504,15 @@ The in-app PDF import, in three steps rendered into `#stage`. **Upload** (`_step
 a `webkitdirectory` folder picker + a drag-drop zone (`_fromInput`/`_fromDrop` walk the
 selection — `_fromDrop` uses `webkitGetAsEntry` recursion); each `.pdf` is POSTed as a
 **multipart form** (`file` field) to `/api/import/upload?path=<building>/<file>` (folder =
-the file's parent dir). **Map** (`_scanAndMap`/`_stepMap`): POSTs `/api/import/scan`, then
-`_modelFromInventory` builds an editable per-folder model (name/slug/abbr defaults via
-`slugify`/`prettyName`/`initials`; a folder matching `/site\s*plan/i` seeds the siteplan and
-contributes no floors, the rest default to Level 1..N). Each PDF gets a thumbnail (its
+the file's parent dir, via `_split`). A PDF dropped **loose at the top level** of the
+facility folder (a two-segment `<root>/<file>.pdf` path) is the overall site map, so `_split`
+routes it into the reserved `Site Plan` folder — but only when the drop also contains
+subfoldered drawings (`hasSubfolders`, computed in `_upload`), so a single flat building
+folder isn't mistaken for a siteplan. **Map** (`_scanAndMap`/`_stepMap`): POSTs
+`/api/import/scan`, then `_modelFromInventory` builds an editable per-folder model
+(name/slug/abbr defaults via `slugify`/`prettyName`/`initials`; a folder matching
+`/site\s*plan/i` — including the `Site Plan` bucket a loose top-level map lands in — seeds the
+siteplan and contributes no floors, the rest default to Level 1..N). Each PDF gets a thumbnail (its
 `src` rebased onto `window.MAP.media`; click opens the full PDF) + a floor control
 (Basement/Ground/Level/Roof/`same floor`); `_resolveFloors` turns the controls into the
 `{stem: token}` table (a `same`-floor entry reuses the previous token → multi-page).
@@ -1033,6 +1038,14 @@ point at the deep treatment.
 - **Two drawings sharing a floor token = one multi-page floor** (ordered by drawing
   number) — that is how stacked sheets of one floor group. In the wizard the *“same floor
   (extra sheet)”* control reuses the previous token; in the map it's just the same token.
+- **A loose top-level PDF is the site map.** `_split` treats a two-segment
+  `<root>/<file>.pdf` path (a PDF directly under the dropped facility folder, not in a
+  building subfolder) as the siteplan and routes it into the reserved `Site Plan` folder,
+  reusing the existing `/site\s*plan/i` auto-detect/build path. This only fires when the
+  drop **also** has subfoldered drawings (`hasSubfolders`) — otherwise a single flat
+  building folder, whose PDFs are also two-segment, would be misread as a siteplan. The
+  signal is **position, not filename** (the map can be named anything, e.g. `2600 - Drawing
+  List Plan.pdf`); naming a folder `Site Plan` still works as before.
 - Rendering is a **subprocess**: `imports._run_preprocess` spawns `preprocess.py scan|build
   --base <workdir>` **by file path** so Django/NetBox never load into the child, with a
   timeout + POSIX rlimits, under a **working-dir lockfile** (`_run_locked`, cross-worker —

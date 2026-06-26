@@ -106,9 +106,15 @@ class ImportWizard {
     return out.filter(x => x.file.name.toLowerCase().endsWith('.pdf'));
   }
 
-  /** Building folder + filename from a relative path `<root>/<building>/<file>.pdf`. */
-  static _split(relPath) {
+  /** Building folder + filename from a relative path `<root>/<building>/<file>.pdf`. A PDF
+   *  sitting directly under the dropped root (`<root>/<file>.pdf`, two segments) is the
+   *  overall site map, so route it into the reserved `Site Plan` bucket — but only when the
+   *  drop also has subfoldered drawings (`hasSubfolders`), else a single flat building folder
+   *  would be mistaken for the siteplan. The `Site Plan` name reuses the existing siteplan
+   *  auto-detect/build path unchanged. */
+  static _split(relPath, hasSubfolders) {
     const segs = relPath.split('/').filter(Boolean);
+    if (hasSubfolders && segs.length === 2) return { folder: 'Site Plan', file: segs[1] };
     return { folder: segs.length > 1 ? segs[segs.length - 2] : 'Building', file: segs[segs.length - 1] };
   }
 
@@ -116,9 +122,10 @@ class ImportWizard {
     if (!items.length) { Toast.show('No PDFs found in that selection', true); return; }
     this._progress.classList.remove('hidden');
     const apiBase = window.MAP ? window.MAP.api : '/api/';
+    const hasSubfolders = items.some(it => it.path.split('/').filter(Boolean).length >= 3);
     let done = 0;
     for (const it of items) {
-      const { folder, file } = ImportWizard._split(it.path);
+      const { folder, file } = ImportWizard._split(it.path, hasSubfolders);
       this._progress.textContent = `Uploading ${++done} / ${items.length}…`;
       try {
         // Multipart so the server streams to disk (no in-memory body cap); CSRF header so

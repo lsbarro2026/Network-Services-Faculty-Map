@@ -42,7 +42,8 @@ The plugin ships with **no facility content**; you build it from your drawings:
 1. Open **Facility Map** (an empty install lands on the import wizard; otherwise use
    **Settings → Import a facility from PDFs**).
 2. **Upload** a folder of building drawings — one sub-folder per building, each holding its
-   floor PDFs. A sub-folder named like *site plan* seeds the overall siteplan image.
+   floor PDFs. The overall siteplan image comes from either a PDF dropped **loose at the top
+   level** of the facility folder (any name) or a sub-folder named like *site plan*.
 3. **Map** each drawing to a floor (the PDFs carry no text layer, so floor identity is
    assigned here), confirm each building's NetBox **site slug** and floor-id prefix.
 4. **Build** — the plugin renders the images + manifest and opens the map. Then draw rooms
