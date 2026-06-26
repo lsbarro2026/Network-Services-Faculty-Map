@@ -1,0 +1,30 @@
+{# Facility-map room overlay injected on a floor's Location page (Phase 4).
+   Self-contained: presentation is inline so it needs none of the plugin stylesheet,
+   which isn't loaded on dcim pages. #}
+<div class="card">
+  <h5 class="card-header">Facility Map — Rooms</h5>
+  <div class="card-body">
+    <svg viewBox="0 0 {{ vw }} {{ vh }}" preserveAspectRatio="xMidYMid meet"
+         style="width:100%;height:auto;border:1px solid #ccc;background:#f4f5f7">
+      {% if image_url %}
+        <image href="{{ image_url }}" x="0" y="0" width="{{ vw }}" height="{{ vh }}"/>
+      {% endif %}
+      {% for s in shapes %}
+        {% if s.url %}<a href="{{ s.url }}" target="_blank">{% endif %}
+        <polygon points="{{ s.points }}"
+                 fill="{% if s.datacenter %}#066fd133{% else %}#2fa84f22{% endif %}"
+                 stroke="{% if s.datacenter %}#066fd1{% else %}#2fa84f{% endif %}"
+                 stroke-width="2" vector-effect="non-scaling-stroke">
+          <title>{{ s.label }}</title>
+        </polygon>
+        {% if s.url %}</a>{% endif %}
+      {% endfor %}
+    </svg>
+    {% if multisheet %}
+      <p class="text-muted small mt-2 mb-0">
+        This floor has multiple drawing sheets; only the first sheet image is shown here
+        (room outlines are positioned over the full combined plan).
+      </p>
+    {% endif %}
+  </div>
+</div>

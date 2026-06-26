@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netbox-facilitymap"
+version = "1.1.0"
+description = "Facility map plugin for NetBox — siteplan → building → floor → room, linked to Locations"
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Facility Map" }]
+# No runtime pip dependencies: NetBox supplies Django/DRF. preprocess.py's optional
+# pypdfium2/Pillow are a developer build tool, never a plugin runtime dep.
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["netbox_facilitymap*"]
+
+[tool.setuptools.package-data]
+netbox_facilitymap = ["templates/**/*", "static/**/*"]

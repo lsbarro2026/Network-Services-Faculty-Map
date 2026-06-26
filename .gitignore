@@ -1,0 +1,10 @@
+# AI tooling — kept local, never committed
+CLAUDE.md
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+
+# OS junk
+.DS_Store

@@ -1,0 +1,20 @@
+# Contains the NetBox API token -- never commit.
+config.json
+
+# In-app import: uploaded PDFs, rendered assets, and the import mapping
+# (all regenerate by re-importing — the tool ships with no facility content).
+uploads/
+images/
+manifest.json
+import-map.json
+import-map.stub.json
+*.bak
+
+# Synced NetBox rack inventory (regenerate from Settings → Sync racks).
+rackcache.json
+
+# User-drawn map data — start downloaders on a blank slate.
+annotations.json
+siteplan.json
+pagelayouts.json
+rackplacements.json

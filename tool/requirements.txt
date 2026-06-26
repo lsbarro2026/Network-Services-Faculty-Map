@@ -1,0 +1,8 @@
+# Rendering dependencies for preprocess.py (the import engine). REQUIRED: the in-app
+# import renders every uploaded floor PDF (and the siteplan PDF) to PNG with these, via
+# a preprocess.py subprocess. The server itself imports neither and stays stdlib-only.
+# Both are self-contained pip wheels (no system packages), so the tool bundles cleanly
+# into a fresh venv / Docker image. Install before running server.py:
+#   pip install -r requirements.txt
+pypdfium2
+Pillow

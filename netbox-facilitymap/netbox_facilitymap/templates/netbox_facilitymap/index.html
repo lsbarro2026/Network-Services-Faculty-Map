@@ -1,0 +1,56 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Facility Map</title>
+<link rel="stylesheet" href="{% static 'netbox_facilitymap/style.css' %}"/>
+</head>
+<body>
+
+<!-- Mount-aware config: the frontend resolves /api/* and asset paths against these.
+     api  -> /plugins/facilitymap/api/   (Django reverses the plugin page mount)
+     static -> /static/netbox_facilitymap/
+     csrf -> session token threaded into Api.post so saves don't 403. -->
+<script>
+  window.MAP = {
+    api:    "{% url 'plugins:netbox_facilitymap:map' %}api/",
+    static: "{% static 'netbox_facilitymap/' %}",
+    csrf:   "{{ csrf_token }}"
+  };
+</script>
+
+<header id="topbar">
+  <nav id="crumbs"></nav>
+  <div class="spacer"></div>
+  <div id="toolbar"></div>
+  <button id="settings-gear" title="Settings"></button>
+</header>
+
+<main id="stage">
+  <!-- Siteplan / building / floor views render here -->
+</main>
+
+<aside id="panel" class="hidden">
+  <div id="panel-head">
+    <span id="panel-title">Rooms</span>
+    <button id="panel-close" title="Close">&times;</button>
+  </div>
+  <div id="panel-body"></div>
+</aside>
+
+<div id="toast"></div>
+
+<!-- Loaded in dependency order; all classes are globals (no build step). -->
+<script src="{% static 'netbox_facilitymap/lib.js' %}"></script>
+<script src="{% static 'netbox_facilitymap/device-shapes.js' %}"></script>
+<script src="{% static 'netbox_facilitymap/netbox.js' %}"></script>
+<script src="{% static 'netbox_facilitymap/store.js' %}"></script>
+<script src="{% static 'netbox_facilitymap/grid.js' %}"></script>
+<script src="{% static 'netbox_facilitymap/panzoom.js' %}"></script>
+<script src="{% static 'netbox_facilitymap/editor.js' %}"></script>
+<script src="{% static 'netbox_facilitymap/floor-editor.js' %}"></script>
+<script src="{% static 'netbox_facilitymap/siteplan-editor.js' %}"></script>
+<script src="{% static 'netbox_facilitymap/app.js' %}"></script>
+</body>
+</html>
