@@ -515,11 +515,14 @@ later `NetBoxClient` lookups key off.
 
 It also carries `nbFloors` — the bound site's **floor Locations**, lazily fetched in the map
 step by `_ensureFloors` (`netbox.locations(slug)`, then `_floorsFromLocations` walks the
-returned Locations' `parent` links to pick the floors: the site's layout is Site → building
-Location → floors → rooms, so floors are the children of the single building root — falling
-back to the roots themselves for a Site → floors → rooms layout. This uses `parent`, **not**
-`depth`/`level`, which is an MPTT artifact unreliable on NetBox 4.2+. `nbFloors`:
-`undefined`=not fetched, `'loading'`=in flight, array=done). A non-empty array puts the
+returned Locations' `parent` links to pick the floors). The **building Location** is the root
+named after the bound site (e.g. "CYCLOTRON VAULT"); its children are floors, and **every
+other root is also a floor** — some sites park a floor like "Roof" or "Level B2" at the top
+level as a sibling of the building. When no root matches the site name, the site has no
+building wrapper and the roots themselves are the floors (e.g. ARIEL). Matching the building by
+**name** (not tree shape) works even when floors have no rooms yet; `depth`/`level` is avoided
+(MPTT-only, unreliable on NetBox 4.2+). `nbFloors`: `undefined`=not fetched, `'loading'`=in
+flight, array=done. A non-empty array puts the
 building in **Location mode**: each PDF's per-stem `assign` entry gains a `token` (a Location
 slug) + `label` (its name), and a non-null `token` takes precedence over `type`/`num` in
 `_resolveFloors`. In Location mode the **floor prefix (`abbr`) is forced empty** on build (and

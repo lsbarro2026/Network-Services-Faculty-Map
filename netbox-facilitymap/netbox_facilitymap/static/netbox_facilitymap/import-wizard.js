@@ -399,37 +399,45 @@ class ImportWizard {
     return nav;
   }
 
-  /** Lazily fetch a building's NetBox floor Locations (top-level Locations under its bound
-   *  site) so the per-card floor selector can offer them as buttons. Cached on `b.nbFloors`;
-   *  on completion the map step re-renders if this building is still the visible one. A blank
-   *  slug or empty result leaves `b.nbFloors = []`, which drives the floor-type fallback. */
+  /** Lazily fetch a building's NetBox floor Locations so the per-card floor selector can offer
+   *  them as buttons. Cached on `b.nbFloors`; on completion the map step re-renders if this
+   *  building is still the visible one. A blank slug or empty result leaves `b.nbFloors = []`,
+   *  which drives the floor-type fallback. */
   _ensureFloors(b) {
     if (b.nbFloors !== undefined) return;
     const slug = (b.slug || '').trim();
     if (!slug) { b.nbFloors = []; return; }
     b.nbFloors = 'loading';
+    // The building Location is named after the bound NetBox site, so match on that (not the
+    // user-editable `b.name`); fall back to `b.name` when unbound.
+    const siteName = (b.nbSite && b.nbSite.name) || b.name;
     const settle = (floors) => {
       b.nbFloors = floors;
       if (floors.length) this._normalizeToLocations(b);
       if (this._mapView && this.buildings[this._bIdx] === b) this._stepMap();
     };
     this.app.netbox.locations(slug)
-      .then((res) => settle(this._floorsFromLocations(res.rooms || [])))
+      .then((res) => settle(this._floorsFromLocations(res.rooms || [], siteName)))
       .catch(() => settle([]));
   }
 
   /** Pick the floor Locations out of a site's flat Location list using the parent tree. The
-   *  layout is Site → building Location → floors → rooms, so the floors are simply the children
-   *  of the single building root — regardless of whether those floors have rooms under them
-   *  yet. Multiple roots means floors sit directly under the site (no building wrapper), so use
-   *  the roots themselves. Uses `parent` rather than `depth`/`level`, which is an MPTT artifact
-   *  unreliable across the supported NetBox range. */
-  _floorsFromLocations(locs) {
+   *  building Location is the root named after the bound site (e.g. "CYCLOTRON VAULT"); its
+   *  children are floors. Any OTHER root is itself a floor — some sites park a floor like
+   *  "Roof" or "Level B2" at the top level, as a sibling of the building. When no root matches
+   *  the site name the site has no building wrapper and the roots themselves are the floors
+   *  (e.g. ARIEL). Identifying the building by name — not by tree shape — works even when the
+   *  floors have no rooms under them yet; `depth`/`level` is avoided (MPTT-only, unreliable on
+   *  NetBox 4.2+). Floors are sorted by name for a stable, natural order (B1, B2, G, …, Roof). */
+  _floorsFromLocations(locs, siteName) {
     const ids = new Set(locs.map(l => l.id));
     const roots = locs.filter(l => l.parent == null || !ids.has(l.parent));
-    return roots.length === 1
-      ? locs.filter(l => l.parent === roots[0].id)
-      : roots;
+    const nameLc = (siteName || '').trim().toLowerCase();
+    const building = nameLc
+      ? roots.find(r => (r.name || '').trim().toLowerCase() === nameLc) : null;
+    const floors = roots.filter(r => r !== building);
+    if (building) for (const l of locs) if (l.parent === building.id) floors.push(l);
+    return floors.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
   }
 
   /** Entering Location mode: a drawing with no Location token yet is treated as unassigned
