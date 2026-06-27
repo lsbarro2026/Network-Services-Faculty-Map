@@ -1,6 +1,7 @@
 # AI tooling — kept local, never committed
 CLAUDE.md
 .claude/
+TODO.local.md
 
 # Python
 __pycache__/
