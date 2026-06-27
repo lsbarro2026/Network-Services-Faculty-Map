@@ -500,29 +500,48 @@ Shapes are **building hotspots**. `editing()`=`app.siteEdit`.
   delete), `save()`.
 
 ### import-wizard.js — `ImportWizard` (not an Editor; a stage-takeover view)
-The in-app PDF import, in three steps rendered into `#stage`. **Upload** (`_stepUpload`):
-a `webkitdirectory` folder picker, a `.zip` picker, and a drag-drop zone that accepts either
-(`_fromInput`/`_fromDrop` walk a folder selection — `_fromDrop` uses `webkitGetAsEntry`
-recursion); each `.pdf` is POSTed as a **multipart form** (`file` field) to
-`/api/import/upload?path=<building>/<file>` (folder = the file's parent dir, via `_split`).
-A PDF dropped **loose at the top level** of the facility folder (a two-segment
-`<root>/<file>.pdf` path) is the overall site map, so `_split` routes it into the reserved
-`Site Plan` folder — but only when the drop also contains subfoldered drawings
-(`hasSubfolders`, computed in `_upload`), so a single flat building folder isn't mistaken for a
-siteplan. A picked/dropped **`.zip`** is sent whole to `/api/import/upload-zip` (`_uploadZip`),
-where the server extracts its PDFs into the same `uploads/<building>/<file>` layout — stripping
-any wrapper folder (see `UploadZipView`/`_zip_targets` below). **Map** (`_scanAndMap`/`_stepMap`): POSTs
-`/api/import/scan`, then `_modelFromInventory` builds an editable per-folder model
-(name/slug/abbr defaults via `slugify`/`prettyName`/`initials`; a folder matching
-`/site\s*plan/i` — including the `Site Plan` bucket a loose top-level map lands in — seeds the
-siteplan and contributes no floors, the rest default to Level 1..N; it also seeds a per-PDF
-`frame` `{scale,x,y}`). A global **size slider** (`_sizer`/`_applyThumbSize`, backed by
-`thumbWidth`) resizes every card at once by setting `--imp-card-w`/`--imp-thumb-h` CSS vars on
-the map view. Each PDF gets a thumbnail (its `src` rebased onto `window.MAP.media`) wired by
-`_attachZoomPan` for **cursor-anchored** scroll-to-zoom / drag-to-pan (clamped to the
+The in-app PDF import, in three steps rendered into `#stage`. Constructor state: `inv`
+(scan inventory), `buildings` (per-folder model), `site` (chosen siteplan), `thumbWidth`
+(slider value), `_bIdx` (index of the building currently visible in the map step).
+
+**Smart resume** — `show()` is async: on open it POSTs `/api/import/scan`; if uploads already
+exist (`folders.length > 0`) it calls `_modelFromInventory()` + `_applyDraft()` and jumps
+directly to `_stepMap()`, skipping the upload screen. If no uploads are found it falls
+through to `_stepUpload()`. The brief "Checking for existing uploads…" state is shown while
+the scan runs.
+
+**Upload** (`_stepUpload`): a drag-drop zone (`imp-drop`) that is also **clickable** — the
+whole zone triggers a hidden `webkitdirectory` folder picker via `folderInput.click()` on its
+`onclick`. Drag-and-drop accepts both folders and `.zip` files (the drop handler detects a
+`.zip` and routes to `_uploadZip`; folder drops go through `_fromDrop` + `_upload`). Zip
+import via click is not supported (single `<input>` cannot present both a folder picker and a
+file picker in the same dialog). `_fromInput`/`_fromDrop` walk the selection; each `.pdf` is
+POSTed as a **multipart form** (`file` field) to `/api/import/upload?path=<building>/<file>`
+(folder = the file's parent dir, via `_split`). A PDF dropped **loose at the top level** of
+the facility folder (a two-segment `<root>/<file>.pdf` path) is the overall site map, so
+`_split` routes it into the reserved `Site Plan` folder — but only when the drop also contains
+subfoldered drawings (`hasSubfolders`, computed in `_upload`), so a single flat building
+folder isn't mistaken for a siteplan. A picked/dropped **`.zip`** is sent whole to
+`/api/import/upload-zip` (`_uploadZip`), where the server extracts its PDFs into the same
+`uploads/<building>/<file>` layout — stripping any wrapper folder (see `UploadZipView`/`_zip_targets` below).
+
+**Map** (`_scanAndMap`/`_stepMap`): `_scanAndMap` POSTs `/api/import/scan`, calls
+`_modelFromInventory` (name/slug/abbr defaults via `slugify`/`prettyName`/`initials`; a folder
+matching `/site\s*plan/i` seeds the siteplan and contributes no floors; the rest default to
+Level 1..N; also seeds a per-PDF `frame` `{scale,x,y}`), resets `_bIdx = 0`, and calls
+`_stepMap`. The map step shows **one building at a time** (`buildings[_bIdx]`); when there are
+multiple buildings a nav row (Prev/Next buttons + "Building X of N" label) appears above the
+building section. Navigating calls `_saveDraft()` (POST to `api/import/save-draft`, writes
+`import-map.draft.json` under the working dir), then increments/decrements `_bIdx` and
+re-renders. `_applyDraft()` (GET `api/import/load-draft`) merges a saved draft into the
+freshly-built model by `folder` key — new folders not in the draft keep their `_modelFromInventory`
+defaults; removed PDF stems are ignored. A global **size slider** (`_sizer`/`_applyThumbSize`,
+backed by `thumbWidth`) resizes every card at once by setting `--imp-card-w`/`--imp-thumb-h`
+CSS vars on the map view. Each PDF gets a thumbnail (its `src` rebased onto `window.MAP.media`)
+wired by `_attachZoomPan` for **cursor-anchored** scroll-to-zoom / drag-to-pan (clamped to the
 contained image; double-click resets) so the floor label can be framed — a viewing aid kept in
-the model (survives step switches), never sent to the build; a click (press that doesn't cross a
-small drag threshold) opens `_lightbox`, a full-window preview that uses the **same** zoom/pan
+the model (survives step switches), never sent to the build; a click (press that doesn't cross
+a small drag threshold) opens `_lightbox`, a full-window preview that uses the **same** zoom/pan
 controller. The small `scan` thumbnails blur when enlarged, so the wizard lazily swaps in the
 PDF's **on-demand full-scale render** (`_previewUrl` → `api/import/preview`, cached server-side):
 per card the first time it's wheel-zoomed (`onZoom`) or when the size slider passes
@@ -533,11 +552,11 @@ Plus a floor control
 (Basement/Ground/Level/Roof/`same floor`); `_resolveFloors` turns the controls into the
 `{stem: token}` table (a `same`-floor entry reuses the previous token → multi-page).
 **Build** (`_build`): assembles `{siteplan, buildings}`, POSTs `/api/import/build`, then
-`store.load()` + `router()` to land on the new map. `_reset` clears via `/api/import/reset`.
-No modal helper exists, so each step replaces `#stage`. See §10 *In-app import*. (This
-file is identical to the tool's wizard except for the multipart upload and the
-`window.MAP.media` thumbnail rebasing — the plugin's upload endpoint streams the file off a
-multipart form rather than the raw body.)
+`store.load()` + `router()` to land on the new map. `_reset` clears via `/api/import/reset`
+(also deletes the draft) and resets `_bIdx = 0`. No modal helper exists, so each step replaces
+`#stage`. See §10 *In-app import*. (This file is identical to the tool's wizard except for the
+multipart upload and the `window.MAP.media` thumbnail rebasing — the plugin's upload endpoint
+streams the file off a multipart form rather than the raw body.)
 
 ### app.js — `App` (orchestrator + entry)
 Owns singletons `store`, `netbox`, `grid`, and cross-view state `mode`
@@ -655,7 +674,13 @@ access as the map).
   `preprocess.py scan` (thumbnails + inventory). `BuildView` writes the posted import map
   to `<workdir>/import-map.json` (after a `max_pdfs` cap check) then runs `preprocess.py
   build` (images + manifest). `ResetView` wipes `uploads/`, `images/`, `manifest.json`,
-  `import-map.json`/`.stub.json`, and the lockfile.
+  `import-map.json`/`.stub.json`/`.draft.json`, and the lockfile.
+- **`SaveDraftView`** (POST `api/import/save-draft`) / **`LoadDraftView`** (GET
+  `api/import/load-draft`) — lightweight wizard-state persistence. `SaveDraftView` writes
+  the wizard's current `{buildings, site}` model JSON to `import-map.draft.json` under the
+  working dir (called on every Prev/Next navigation). `LoadDraftView` reads it back; returns
+  `{ok: false}` if no draft exists. The draft survives across browser sessions so `show()`
+  can restore user-entered names/floor assignments on resume. Both require `EDIT_PERM`.
 - **`PreviewView`** (GET `api/import/preview?path=uploads/<folder>/<file>.pdf`) — renders
   **one** uploaded PDF at full `RENDER_SCALE` on demand and streams the PNG, the wizard's
   high-res preview for the popup and enlarged/zoomed cards. The result is cached at
@@ -772,6 +797,8 @@ read-only at runtime), so it lives under NetBox's `MEDIA_ROOT`.
 | GET | `api/import/preview?path=<rel>` | `imports.PreviewView` (on-demand full-scale PNG, cached) | **EDIT_PERM** |
 | POST | `api/import/build` | `imports.BuildView` (save map, render images + manifest) | **EDIT_PERM** |
 | POST | `api/import/reset` | `imports.ResetView` (clear the import) | **EDIT_PERM** |
+| POST | `api/import/save-draft` | `imports.SaveDraftView` (persist wizard model as draft) | **EDIT_PERM** |
+| GET | `api/import/load-draft` | `imports.LoadDraftView` (return draft or `{ok:false}`) | **EDIT_PERM** |
 | GET | `api/media/<path>` | `imports.MediaView` (stream from the working dir) | login |
 
 A separate **DRF REST API** for `Room` (browsable/programmatic) lives under

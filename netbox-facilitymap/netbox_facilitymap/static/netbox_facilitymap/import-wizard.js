@@ -21,6 +21,7 @@ class ImportWizard {
     this.buildings = [];    // per-folder editable model (see _modelFromInventory)
     this.site = { folder: '', file: '' };  // chosen siteplan PDF (or empty = none)
     this.thumbWidth = 170;  // map-step card width (px); the size slider drives it
+    this._bIdx = 0;         // index of the building currently visible in the map step
   }
 
   // ---- helpers ----
@@ -61,27 +62,36 @@ class ImportWizard {
     return view;
   }
 
-  show() { this._stepUpload(); }
+  async show() {
+    // Probe for an in-progress import (existing uploads). The scan also regenerates
+    // thumbnails so the map step's cards are ready when we jump straight to it.
+    const loadView = this._stage('Import a facility');
+    loadView.append(Dom.el('p', { class: 'imp-progress' }, 'Checking for existing uploads…'));
+    try {
+      const inv = await Api.post('/api/import/scan', {});
+      if (inv.ok && inv.folders?.length) {
+        this.inv = inv;
+        this._modelFromInventory();
+        await this._applyDraft();
+        this._stepMap();
+        return;
+      }
+    } catch (_) { /* no uploads or scan unavailable */ }
+    this._stepUpload();
+  }
 
   // ---- step 1: upload ----
   _stepUpload() {
     const view = this._stage('Import a facility');
 
-    const folder = Dom.el('input', {
+    const folderInput = Dom.el('input', {
       type: 'file', class: 'imp-file', multiple: 'multiple', accept: '.pdf',
       onchange: (e) => this._upload(this._fromInput(e.target.files)),
     });
-    folder.setAttribute('webkitdirectory', '');
-    const zip = Dom.el('input', {
-      type: 'file', class: 'imp-file', accept: '.zip',
-      onchange: (e) => { if (e.target.files[0]) this._uploadZip(e.target.files[0]); },
-    });
-    const drop = Dom.el('div', { class: 'imp-drop' }, [
-      Dom.el('div', { class: 'imp-drop-big' }, 'Drop a facility folder or .zip here'),
-      Dom.el('div', { class: 'imp-picks' }, [
-        Dom.el('label', { class: 'imp-pick' }, [Dom.el('span', {}, 'Choose folder…'), folder]),
-        Dom.el('label', { class: 'imp-pick' }, [Dom.el('span', {}, 'Choose .zip…'), zip]),
-      ]),
+    folderInput.setAttribute('webkitdirectory', '');
+
+    const drop = Dom.el('div', { class: 'imp-drop', onclick: () => folderInput.click() }, [
+      Dom.el('div', { class: 'imp-drop-big' }, 'Drop or click to choose a facility folder'),
     ]);
     drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
     drop.addEventListener('dragleave', () => drop.classList.remove('over'));
@@ -92,6 +102,7 @@ class ImportWizard {
       this._upload(await this._fromDrop(e.dataTransfer));
     });
     view.append(drop);
+    view.append(folderInput);
     this._progress = Dom.el('div', { class: 'imp-progress hidden' });
     view.append(this._progress);
     view.append(Dom.el('div', { class: 'imp-actions' }, [
@@ -188,6 +199,7 @@ class ImportWizard {
     } catch (e) { Toast.show('Scan failed: ' + e.message, true); return; }
     if (!this.inv.folders.length) { Toast.show('No PDFs uploaded yet', true); return this._stepUpload(); }
     this._modelFromInventory();
+    this._bIdx = 0;
     this._stepMap();
   }
 
@@ -225,7 +237,18 @@ class ImportWizard {
     view.append(this._sizer());
     this._applyThumbSize();
     view.append(this._siteplanRow());
-    for (const b of this.buildings) view.append(this._buildingSection(b));
+
+    if (this.buildings.length > 1) {
+      const nav = Dom.el('div', { class: 'imp-nav' });
+      const prev = Dom.el('button', { onclick: async () => { await this._saveDraft(); this._bIdx--; this._stepMap(); } }, '← Previous');
+      const next = Dom.el('button', { onclick: async () => { await this._saveDraft(); this._bIdx++; this._stepMap(); } }, 'Next →');
+      prev.disabled = this._bIdx === 0;
+      next.disabled = this._bIdx === this.buildings.length - 1;
+      nav.append(prev, Dom.el('span', { class: 'imp-nav-label' },
+        `Building ${this._bIdx + 1} of ${this.buildings.length}`), next);
+      view.append(nav);
+    }
+    view.append(this._buildingSection(this.buildings[this._bIdx]));
     this._applyThumbSize();   // re-apply now cards exist, so a large size upgrades them to hi-res
 
     const buildBtn = Dom.el('button', { class: 'primary', onclick: () => this._build() },
@@ -418,6 +441,45 @@ class ImportWizard {
     this._stepMap();
   }
 
+  /** POST the current building model to the server as a draft so it can be restored on next
+   *  open. Silent on failure — a missing draft just means the user starts fresh. */
+  async _saveDraft() {
+    try {
+      const apiBase = window.MAP ? window.MAP.api : '/api/';
+      const headers = { 'Content-Type': 'application/json' };
+      if (window.MAP && window.MAP.csrf) headers['X-CSRFToken'] = window.MAP.csrf;
+      await fetch(apiBase + 'import/save-draft', {
+        method: 'POST', headers,
+        body: JSON.stringify({ buildings: this.buildings, site: this.site }),
+      });
+    } catch (e) { console.warn('Draft save failed:', e); }
+  }
+
+  /** Fetch a saved draft and merge it into `this.buildings` / `this.site`. New folders (not
+   *  in the draft) keep their `_modelFromInventory` defaults; removed stems are ignored. */
+  async _applyDraft() {
+    try {
+      const apiBase = window.MAP ? window.MAP.api : '/api/';
+      const r = await fetch(apiBase + 'import/load-draft');
+      if (!r.ok) return;
+      const draft = await r.json();
+      if (!draft.ok) return;
+      const byFolder = new Map((draft.buildings || []).map(b => [b.folder, b]));
+      for (const b of this.buildings) {
+        const d = byFolder.get(b.folder);
+        if (!d) continue;
+        if (d.name != null) b.name = d.name;
+        if (d.slug != null) b.slug = d.slug;
+        if (d.abbr != null) b.abbr = d.abbr;
+        for (const [stem, a] of Object.entries(d.assign || {}))
+          if (stem in b.assign) b.assign[stem] = a;
+        for (const [stem, f] of Object.entries(d.frame || {}))
+          if (stem in b.frame) b.frame[stem] = f;
+      }
+      if (draft.site?.file) this.site = draft.site;
+    } catch (e) { console.warn('Draft load failed:', e); }
+  }
+
   /** Resolve a building's per-PDF controls into the import-map `floors` table. */
   _resolveFloors(b) {
     const floors = {}; let last = null;
@@ -465,6 +527,7 @@ class ImportWizard {
     if (!confirm('Clear the uploaded PDFs and start the import over?')) return;
     try { await Api.post('/api/import/reset', {}); } catch (e) { /* ignore */ }
     this.inv = null; this.buildings = []; this.site = { folder: '', file: '' };
+    this._bIdx = 0;
     this._stepUpload();
   }
 }

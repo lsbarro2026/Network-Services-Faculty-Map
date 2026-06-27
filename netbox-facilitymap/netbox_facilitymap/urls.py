@@ -41,6 +41,8 @@ urlpatterns = [
     path('api/import/preview', imports.PreviewView.as_view(), name='api-import-preview'),
     path('api/import/build', imports.BuildView.as_view(), name='api-import-build'),
     path('api/import/reset', imports.ResetView.as_view(), name='api-import-reset'),
+    path('api/import/save-draft', imports.SaveDraftView.as_view(), name='api-import-save-draft'),
+    path('api/import/load-draft', imports.LoadDraftView.as_view(), name='api-import-load-draft'),
     path('api/manifest', imports.ManifestView.as_view(), name='api-manifest'),
     path('api/media/<path:path>', imports.MediaView.as_view(), name='api-media'),
 ]

@@ -423,15 +423,12 @@ button.wide { width: 100%; margin-bottom: 6px; justify-content: center; }
 .import-view h2 { font-size: 18px; margin: 0 0 6px; }
 .imp-drop { margin: 16px 0; padding: 34px; text-align: center;
   border: 2px dashed var(--border-strong); border-radius: var(--radius-lg);
-  background: var(--panel2); }
+  background: var(--panel2); cursor: pointer; }
 .imp-drop.over { border-color: var(--accent); background: var(--accent-tint); }
-.imp-drop-big { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
-.imp-picks { display: flex; gap: 10px; justify-content: center; margin-top: 10px; }
-.imp-pick { display: inline-block; }
-.imp-pick span { display: inline-block; padding: 0 14px; height: 34px; line-height: 34px;
-  background: var(--accent); color: #fff; border-radius: var(--radius); cursor: pointer; font-size: 13px; }
-.imp-pick span:hover { background: var(--accent-hover); }
-.imp-pick input { display: none; }
+.imp-drop-big { font-size: 15px; font-weight: 600; }
+.imp-file { display: none; }
+.imp-nav { display: flex; align-items: center; gap: 10px; margin: 14px 0 6px; }
+.imp-nav-label { font-size: 13px; font-weight: 600; color: var(--text2); flex: 1; text-align: center; }
 .imp-progress { font-family: var(--mono); font-size: 12px; margin: 10px 0; color: var(--text2); }
 .imp-siteplan { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 12px 14px; margin-bottom: 14px; background: var(--panel); border: 1px solid var(--line);

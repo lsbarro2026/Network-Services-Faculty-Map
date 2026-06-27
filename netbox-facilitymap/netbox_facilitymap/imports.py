@@ -315,12 +315,41 @@ class ResetView(_ImportView):
         base = work_dir()
         for d in ('uploads', 'images'):
             shutil.rmtree(base / d, ignore_errors=True)
-        for f in (MANIFEST_NAME, 'import-map.json', 'import-map.stub.json', LOCK_NAME):
+        for f in (MANIFEST_NAME, 'import-map.json', 'import-map.stub.json',
+                  'import-map.draft.json', LOCK_NAME):
             try:
                 (base / f).unlink()
             except FileNotFoundError:
                 pass
         return JsonResponse({'ok': True})
+
+
+class SaveDraftView(_ImportView):
+    """Persist the wizard's in-progress building/floor assignments for smart resume."""
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body or b'{}')
+        except json.JSONDecodeError:
+            return HttpResponseBadRequest('invalid JSON')
+        base = work_dir()
+        base.mkdir(parents=True, exist_ok=True)
+        (base / 'import-map.draft.json').write_text(json.dumps(data), encoding='utf-8')
+        return JsonResponse({'ok': True})
+
+
+class LoadDraftView(_ImportView):
+    """Return the saved wizard draft (buildings/site) if one exists."""
+
+    def get(self, request):
+        draft = work_dir() / 'import-map.draft.json'
+        if not draft.is_file():
+            return JsonResponse({'ok': False})
+        try:
+            data = json.loads(draft.read_text(encoding='utf-8'))
+        except (json.JSONDecodeError, OSError):
+            return JsonResponse({'ok': False})
+        return JsonResponse({'ok': True, **data})
 
 
 class PreviewView(_ImportView):
