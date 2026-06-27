@@ -3,6 +3,26 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.3.2 — Sharp import previews; cursor-anchored zoom/pan
+- **Import.** The map step's thumbnails/preview no longer blur when enlarged or zoomed,
+  version → `1.3.2`:
+  - **On-demand high-res render.** A new `preview` mode in `preprocess.py` renders one named
+    PDF at full `RENDER_SCALE` (the same fidelity as the built floor images), served by
+    `PreviewView` (`api/import/preview`) and cached under `uploads/.thumbs/<…>.full.png`.
+    Same isolation/permission posture as the other render endpoints (isolated subprocess,
+    `change_facilitymapblob`-gated, traversal-guarded), but it renders a single file without
+    the import lock, so opening a preview never blocks/409s against an in-flight scan.
+  - **Crisp where it matters.** The `scan` thumbnails stay small and fast; the frontend swaps
+    in the hi-res render lazily — when a card is wheel-zoomed (`onZoom`) or the size slider
+    passes `HIRES_AT`, and always in the preview popup. So enlarging or zooming now reveals
+    real detail instead of upscaling a too-small raster (a letter-size sheet's thumbnail is
+    ~368px wide; the preview is ~1224px).
+  - **Better zoom/pan.** `_framing` became the reusable `_attachZoomPan`, shared by the cards
+    and the popup: wheel-zoom is **anchored at the cursor**, panning is **clamped to the
+    contained image** (no sliding into the letterbox), and double-click resets. The preview
+    popup gained zoom/pan it never had (was `object-fit: contain` only). `_previewUrl` builds
+    the render URL; framing remains a client-only viewing aid, never sent to the build.
+
 ## 1.3.1 — Fix import preview; resizable thumbnails
 - **Import.** Version → `1.3.1`:
   - **Preview fix.** The map-step preview embedded the raw PDF in an `<iframe>`, which went

@@ -485,5 +485,9 @@ button.wide { width: 100%; margin-bottom: 6px; justify-content: center; }
   font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 6px; }
 .imp-lightbox-x:hover { color: var(--text); }
 .imp-lightbox-body { flex: 1; min-height: 0; display: flex; align-items: center;
-  justify-content: center; background: #fff; overflow: auto; }
-.imp-lightbox-img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+  justify-content: center; background: #fff; overflow: hidden;
+  cursor: grab; touch-action: none; }
+.imp-lightbox-body:active { cursor: grabbing; }
+.imp-lightbox-img { max-width: 100%; max-height: 100%; object-fit: contain; display: block;
+  transform-origin: center; will-change: transform; }
+.imp-lightbox-spin { color: var(--muted); font-family: var(--mono); font-size: 13px; }

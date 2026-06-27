@@ -328,6 +328,14 @@ a login — importing rewrites the whole map and `reset` wipes it:
   cap, refusal of symlink/special members, and per-member `safe_path` confinement.
 - `POST api/import/scan` / `POST api/import/build` — run `preprocess.py scan|build` (build
   first persists the posted import-map and enforces `max_pdfs`).
+- `GET api/import/preview?path=<uploads-rel.pdf>` — render **one** uploaded PDF at full scale
+  on demand (`preprocess.py preview`) and stream the PNG, cached at `uploads/.thumbs/<…>.full.png`.
+  This backs the wizard's high-res preview (popup + enlarged/zoomed cards): the small `scan`
+  thumbnails stay cheap, and the crisp render is produced lazily only where it's actually
+  viewed. Same `EDIT_PERM` + subprocess isolation + `safe_path` confinement as the others, but
+  it renders a single file to a distinct cache path **without the import lock**, so a preview
+  never 409s against an in-flight scan (a racing `reset` just 404s). The `.full.png` cache sits
+  under `.thumbs`, which `scan` skips and `reset` wipes — no extra cleanup.
 - `POST api/import/reset` — clear the working dir.
 - `GET api/manifest` (login) — serve the rendered manifest, or the empty stub.
 - `GET api/media/<path>` (login) — stream a rendered image / thumbnail / uploaded PDF from
@@ -340,7 +348,8 @@ NetBox-importing `__init__` never loads into the child), with `timeout=render_ti
 a POSIX `preexec_fn` setting `RLIMIT_CPU` + `RLIMIT_AS` (`render_mem_mb`). `preprocess.py`
 stays stdlib + `pypdfium2`/`Pillow` only and only rasterizes page 1 — no PDF text/JS/embedded
 content is executed. A working-dir lockfile (`_acquire_lock`, with stale-lock recovery)
-serializes renders across worker processes, since the tool's thread lock could not.
+serializes **scan/build** renders across worker processes, since the tool's thread lock could
+not; the single-file `preview` render skips the lock by design (it writes its own cache path).
 
 `manifest.json` encodes the load-bearing conventions (`dir == Site slug`,
 `floorSlug == Location slug`, image filenames) that the `Room` FKs must honour; it is served

@@ -519,10 +519,16 @@ siteplan and contributes no floors, the rest default to Level 1..N; it also seed
 `frame` `{scale,x,y}`). A global **size slider** (`_sizer`/`_applyThumbSize`, backed by
 `thumbWidth`) resizes every card at once by setting `--imp-card-w`/`--imp-thumb-h` CSS vars on
 the map view. Each PDF gets a thumbnail (its `src` rebased onto `window.MAP.media`) wired by
-`_framing` for scroll-to-zoom / drag-to-pan so the floor label can be framed — a viewing aid
-kept in the model (survives step switches), never sent to the build; a click (press that
-doesn't cross a small drag threshold) opens `_lightbox`, a full-window preview of the rendered
-page **image** (the thumbnail PNG, not a PDF iframe — see §10; dismiss: backdrop / ✕ / Esc).
+`_attachZoomPan` for **cursor-anchored** scroll-to-zoom / drag-to-pan (clamped to the
+contained image; double-click resets) so the floor label can be framed — a viewing aid kept in
+the model (survives step switches), never sent to the build; a click (press that doesn't cross a
+small drag threshold) opens `_lightbox`, a full-window preview that uses the **same** zoom/pan
+controller. The small `scan` thumbnails blur when enlarged, so the wizard lazily swaps in the
+PDF's **on-demand full-scale render** (`_previewUrl` → `api/import/preview`, cached server-side):
+per card the first time it's wheel-zoomed (`onZoom`) or when the size slider passes
+`HIRES_AT` (260px), and always in the popup. The popup image is therefore the full render (not a
+PDF iframe — see §10; dismiss: backdrop / ✕ / Esc), showing a brief "Rendering preview…" state
+until the render resolves.
 Plus a floor control
 (Basement/Ground/Level/Roof/`same floor`); `_resolveFloors` turns the controls into the
 `{stem: token}` table (a `same`-floor entry reuses the previous token → multi-page).
@@ -650,16 +656,26 @@ access as the map).
   to `<workdir>/import-map.json` (after a `max_pdfs` cap check) then runs `preprocess.py
   build` (images + manifest). `ResetView` wipes `uploads/`, `images/`, `manifest.json`,
   `import-map.json`/`.stub.json`, and the lockfile.
-- **Render invocation** — `_run_preprocess(mode)` spawns `python3 preprocess.py <mode>
-  --base <workdir>` **by file path** (not `-m`), so the package `__init__` (which imports
-  Django/NetBox) is never loaded into the child — the child stays stdlib + pypdfium2/Pillow
-  only. It runs with `capture_output`, a `render_timeout_s` timeout, and (POSIX) a
-  `preexec_fn` setting `RLIMIT_CPU` + `RLIMIT_AS` (`_rlimits`), so a runaway/malicious
-  render is bounded. `scan` returns the child's stdout JSON inventory; `build` returns its
-  stderr log. `_run_locked(mode)` wraps a render in a **working-dir lockfile**
-  (`.import.lock`, `_acquire_lock`/`O_CREAT|O_EXCL` with stale-lock recovery) so concurrent
-  imports across **worker processes** (a thread lock could not) return 409 instead of
-  colliding.
+- **`PreviewView`** (GET `api/import/preview?path=uploads/<folder>/<file>.pdf`) — renders
+  **one** uploaded PDF at full `RENDER_SCALE` on demand and streams the PNG, the wizard's
+  high-res preview for the popup and enlarged/zoomed cards. The result is cached at
+  `uploads/.thumbs/<…>.full.png` (`THUMBS_DIRNAME`) and reused while newer than the PDF.
+  Same `safe_path` confinement to `uploads/` + `EDIT_PERM` + isolated subprocess as the
+  other endpoints, **but it does not take the import lock** — it renders a single file to a
+  distinct cache path, so opening a preview never 409s against an in-flight scan (a racing
+  `reset` just yields a clean 404). The `.full.png` cache lives under `.thumbs`, which `scan`
+  skips and `reset` wipes, so no extra cleanup is needed.
+- **Render invocation** — `_run_preprocess(mode, extra=None)` spawns `python3 preprocess.py
+  <mode> --base <workdir> [extra…]` **by file path** (not `-m`), so the package `__init__`
+  (which imports Django/NetBox) is never loaded into the child — the child stays stdlib +
+  pypdfium2/Pillow only. `extra` carries mode-specific argv (`--pdf`/`--out` for `preview`).
+  It runs with `capture_output`, a `render_timeout_s` timeout, and (POSIX) a `preexec_fn`
+  setting `RLIMIT_CPU` + `RLIMIT_AS` (`_rlimits`), so a runaway/malicious render is bounded.
+  `scan` returns the child's stdout JSON inventory; `build`/`preview` return its stderr log.
+  `_run_locked(mode)` wraps **scan/build** in a **working-dir lockfile** (`.import.lock`,
+  `_acquire_lock`/`O_CREAT|O_EXCL` with stale-lock recovery) so concurrent imports across
+  **worker processes** (a thread lock could not) return 409 instead of colliding; `preview`
+  bypasses the lock by design (see `PreviewView`).
 - **`ManifestView`** (GET `api/manifest`, `LoginRequiredMixin`) — streams the rendered
   `manifest.json` from the working dir, or `EMPTY_MANIFEST` (`{'siteplan':None,
   'buildings':[]}`) before any import. The frontend fetches the manifest from here (not a
@@ -682,8 +698,9 @@ never load into the worker. `__init__(base_dir)` resolves everything relative to
 `import_map_path`, `stub_path`) — so the data lives under `MEDIA_ROOT` while the script
 lives in the package. The working dir arrives via `--base <dir>` (else
 `$FACILITYMAP_WORKDIR`, else the script's own dir); `_parse_args` is an argparse-free
-mode+`--base` parser to keep the child minimal. Class data: `RENDER_SCALE` (2.0, full
-plans), `THUMB_SCALE` (0.6, wizard thumbnails), `THUMBS_DIRNAME` (`.thumbs`).
+mode+`--base` parser (plus `--pdf`/`--out` for `preview`) to keep the child minimal. Class
+data: `RENDER_SCALE` (2.0, full plans), `THUMB_SCALE` (0.6, wizard thumbnails),
+`THUMBS_DIRNAME` (`.thumbs`).
 
 The floor PDFs have **no text layer** (every label is vectorized), so a PDF's floor is
 **data, not inferred** — it comes from `import-map.json`, which the wizard writes.
@@ -691,6 +708,8 @@ The floor PDFs have **no text layer** (every label is vectorized), so a PDF's fl
 - **Rendering:** `render_pdf_full(pdf)` → `(raw_png, w, h)` for page 1 at `RENDER_SCALE`
   (page rotation honored; no target size — it is the *source* of the image).
   `render_pdf_thumb(pdf, out)` writes a small PNG at `THUMB_SCALE` for the wizard grid.
+  `preview(pdf_rel, out_rel)` renders one PDF at full `RENDER_SCALE` to `out_rel` (atomic
+  `.part`+`os.replace`) — the wizard's on-demand high-res preview (`PreviewView`).
   `write_image(rel_dir, id, raw)` saves under `images/<rel_dir>/<id>.png` and returns the
   working-dir-relative path.
 - **Labels:** `floor_label(token)` maps a floor token to a label (`b3`→"Basement 3",
@@ -714,6 +733,8 @@ The floor PDFs have **no text layer** (every label is vectorized), so a PDF's fl
     wizard's mapping step.
   - `build` (default) — read `import-map.json`, render every mapped PDF, write
     `manifest.json` (buildings with zero floors are dropped); summary on stderr.
+  - `preview` — render the `--pdf` PDF at full scale to `--out` (the high-res preview cache);
+    no stdout payload.
 
 ### storage.py — working dir + path safety
 The import pipeline needs a **writable** directory (the package `static/` tree is
@@ -748,6 +769,7 @@ read-only at runtime), so it lives under NetBox's `MEDIA_ROOT`.
 | POST | `api/import/upload?path=<rel>` | `imports.UploadView` (multipart PDF → `uploads/`) | **EDIT_PERM** |
 | POST | `api/import/upload-zip` | `imports.UploadZipView` (extract `.zip` → `uploads/`) | **EDIT_PERM** |
 | POST | `api/import/scan` | `imports.ScanView` (thumbnails + inventory) | **EDIT_PERM** |
+| GET | `api/import/preview?path=<rel>` | `imports.PreviewView` (on-demand full-scale PNG, cached) | **EDIT_PERM** |
 | POST | `api/import/build` | `imports.BuildView` (save map, render images + manifest) | **EDIT_PERM** |
 | POST | `api/import/reset` | `imports.ResetView` (clear the import) | **EDIT_PERM** |
 | GET | `api/media/<path>` | `imports.MediaView` (stream from the working dir) | login |
@@ -1066,12 +1088,14 @@ point at the deep treatment.
   building folder, whose PDFs are also two-segment, would be misread as a siteplan. The
   signal is **position, not filename** (the map can be named anything, e.g. `2600 - Drawing
   List Plan.pdf`); naming a folder `Site Plan` still works as before.
-- Rendering is a **subprocess**: `imports._run_preprocess` spawns `preprocess.py scan|build
-  --base <workdir>` **by file path** so Django/NetBox never load into the child, with a
-  timeout + POSIX rlimits, under a **working-dir lockfile** (`_run_locked`, cross-worker —
-  a thread lock could not serialize separate worker processes). `scan` prints its inventory
-  JSON to **stdout** (keep progress on **stderr**, or the parse breaks); `build` reads
-  `import-map.json` and writes `manifest.json` (buildings with zero floors are dropped).
+- Rendering is a **subprocess**: `imports._run_preprocess` spawns `preprocess.py
+  scan|build|preview --base <workdir>` **by file path** so Django/NetBox never load into the
+  child, with a timeout + POSIX rlimits. `scan`/`build` run under a **working-dir lockfile**
+  (`_run_locked`, cross-worker — a thread lock could not serialize separate worker processes);
+  `preview` (single-file, distinct cache path) deliberately bypasses the lock so opening a
+  preview never blocks a scan. `scan` prints its inventory JSON to **stdout** (keep progress on
+  **stderr**, or the parse breaks); `build` reads `import-map.json` and writes `manifest.json`
+  (buildings with zero floors are dropped).
 - Uploads ride a **multipart form** (`file` field, so Django streams to disk) to
   `api/import/upload?path=<building>/<file>.pdf`; the endpoint enforces `.pdf`, the `%PDF-`
   magic bytes, a size cap (`max_pdf_mb`), and `safe_path` confinement to `uploads/`. Build
@@ -1087,12 +1111,19 @@ point at the deep treatment.
 - **Thumbnail framing + size are client-only.** The per-PDF `frame` `{scale,x,y}` (zoom/pan to
   make a floor legible) and the global `thumbWidth` (the size slider) live only in the wizard
   model + CSS; neither is **ever** sent to `api/import/build` or reaches `manifest.json`, and a
-  rescan resets them. Don't wire them into the import map. A card press under the drag threshold
-  opens the `_lightbox` preview, so don't lower that threshold or panning will swallow clicks.
-- **The `_lightbox` shows the rendered PNG, not the PDF.** An earlier version framed the raw PDF
-  in an `<iframe>`, which went blank / triggered a download when the browser is set to download
-  PDFs (or under `X-Frame-Options`). The thumbnail PNG (`uploads/.thumbs/...`) always renders
-  inline and is high-res enough to read labels — keep the preview image-based.
+  rescan resets them. Don't wire them into the import map. The zoom/pan controller
+  (`_attachZoomPan`, shared by cards and the popup) is cursor-anchored and clamps panning to the
+  contained image. A card press under the drag threshold opens the `_lightbox` preview, so don't
+  lower that threshold or panning will swallow clicks.
+- **The popup/large-card image is the on-demand full render, not the scan thumbnail.** The small
+  `scan` thumbnails (`THUMB_SCALE`) blur when enlarged, so the wizard lazily swaps in
+  `_previewUrl(p.pdf)` → `api/import/preview` (rendered at full `RENDER_SCALE`, cached at
+  `uploads/.thumbs/<…>.full.png`): per card on first wheel-zoom or when the slider passes
+  `HIRES_AT`, and always in `_lightbox`. The preview is still a **PNG, never a PDF `<iframe>`**
+  (an iframe went blank / triggered a download when the browser downloads PDFs or under
+  `X-Frame-Options`) — keep it image-based. `PreviewView` renders a single file **without the
+  import lock**, so a preview never 409s against an in-flight scan; the `.full.png` cache lives
+  under `.thumbs`, which `scan` skips and `reset` wipes.
 
 ### Multi-sheet floors
 

@@ -43,6 +43,10 @@ EDIT_PERM = 'netbox_facilitymap.change_facilitymapblob'
 
 LOCK_NAME = '.import.lock'
 
+# On-demand high-res preview renders are cached here (mirrors preprocess.py's THUMBS_DIRNAME).
+# Living under uploads/.thumbs means `scan` skips it and `reset` wipes it for free.
+THUMBS_DIRNAME = '.thumbs'
+
 
 def _cfg(key):
     return get_plugin_config('netbox_facilitymap', key)
@@ -63,9 +67,10 @@ def _rlimits(timeout_s, mem_mb):
     return apply
 
 
-def _run_preprocess(mode):
-    """Spawn `preprocess.py <mode> --base <workdir>` and shape its result. Invoked by file
-    path (not `-m`) so the child stays stdlib + pypdfium2 only — no Django in-process."""
+def _run_preprocess(mode, extra=None):
+    """Spawn `preprocess.py <mode> --base <workdir> [extra...]` and shape its result. Invoked
+    by file path (not `-m`) so the child stays stdlib + pypdfium2 only — no Django in-process.
+    `extra` carries mode-specific argv (e.g. `--pdf`/`--out` for `preview`)."""
     base = work_dir()
     base.mkdir(parents=True, exist_ok=True)
     script = str(Path(__file__).resolve().parent / 'preprocess.py')
@@ -75,7 +80,7 @@ def _run_preprocess(mode):
         kwargs['preexec_fn'] = _rlimits(timeout, _cfg('render_mem_mb'))
     try:
         proc = subprocess.run(
-            [sys.executable, script, mode, '--base', str(base)],
+            [sys.executable, script, mode, '--base', str(base), *(extra or [])],
             capture_output=True, text=True, cwd=str(base), timeout=timeout, **kwargs)
     except subprocess.TimeoutExpired:
         return {'ok': False, 'error': 'render timed out after %ss' % timeout}
@@ -316,6 +321,43 @@ class ResetView(_ImportView):
             except FileNotFoundError:
                 pass
         return JsonResponse({'ok': True})
+
+
+class PreviewView(_ImportView):
+    """Render one uploaded PDF at full scale on demand and stream the PNG back — the wizard's
+    high-res preview for the popup and for enlarged/zoomed mapping cards. Permission-gated +
+    isolated like the other render endpoints, but it renders a single file to a cache without
+    taking the import lock, so opening a preview never 409s against an in-flight scan.
+
+    GET ?path=uploads/<folder>/<file>.pdf"""
+
+    def get(self, request):
+        rel = (request.GET.get('path') or '').lstrip('/')
+        if not rel.lower().endswith('.pdf'):
+            return HttpResponseBadRequest('a .pdf path is required')
+        base = work_dir().resolve()
+        try:
+            full = safe_path(rel)
+            inside = full.relative_to(base / 'uploads')
+        except ValueError:
+            raise Http404
+        if not full.is_file():
+            raise Http404
+
+        pdf_rel = full.relative_to(base).as_posix()
+        cache = base / 'uploads' / THUMBS_DIRNAME / inside.with_suffix('.full.png')
+        cache_rel = cache.relative_to(base).as_posix()
+        try:
+            fresh = cache.is_file() and cache.stat().st_mtime >= full.stat().st_mtime
+        except OSError:
+            fresh = False
+        if not fresh:
+            result = _run_preprocess('preview', ['--pdf', pdf_rel, '--out', cache_rel])
+            if not result.get('ok') or not cache.is_file():
+                return JsonResponse(
+                    {'ok': False, 'error': result.get('error') or 'preview render failed'},
+                    status=500)
+        return FileResponse(open(cache, 'rb'), content_type='image/png')
 
 
 class ManifestView(LoginRequiredMixin, View):

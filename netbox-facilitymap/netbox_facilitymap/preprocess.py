@@ -17,17 +17,20 @@ floor-token}` table. Floor labels are derived from the token (`b3` -> "Basement 
 `g` -> "Ground", `l1` -> "Level 1", `r` -> "Roof"); two drawings sharing a token become
 one multi-page floor (ordered by drawing number).
 
-Two modes:
-  scan   walk uploads/, render a thumbnail per PDF, and print a JSON inventory of
-         folders + drawings to stdout (the wizard's mapping step reads this).
-  build  read import-map.json, render every mapped PDF to images/<slug>/<id>[-N].png,
-         and write manifest.json (the default mode).
+Three modes:
+  scan     walk uploads/, render a thumbnail per PDF, and print a JSON inventory of
+           folders + drawings to stdout (the wizard's mapping step reads this).
+  build    read import-map.json, render every mapped PDF to images/<slug>/<id>[-N].png,
+           and write manifest.json (the default mode).
+  preview  render one named PDF at full scale to --out (the wizard's on-demand high-res
+           preview, served from a .thumbs cache).
 
 Rendering needs `pypdfium2` + `Pillow`. The working directory is passed explicitly so the
 data can live under NetBox's MEDIA_ROOT while this script lives in the package:
 
   python3 preprocess.py scan  --base /path/to/workdir
   python3 preprocess.py build --base /path/to/workdir
+  python3 preprocess.py preview --base /path/to/workdir --pdf uploads/A/1.pdf --out uploads/.thumbs/A/1.full.png
 """
 
 import io
@@ -89,6 +92,26 @@ class Preprocessor:
         except Exception as e:
             print("WARN thumb %s: %s" % (pdf_path, e), file=sys.stderr)
             return False
+
+    def preview(self, pdf_rel, out_rel):
+        """Render page 1 of a single uploaded PDF at full RENDER_SCALE to ``out_rel`` —
+        the wizard's on-demand high-res preview (popup + enlarged/zoomed cards). Both paths
+        are working-dir-relative; the caller (imports.py) has already traversal-guarded
+        them. Writes atomically via a ``.part`` temp so concurrent identical renders are
+        safe. Returns True on success."""
+        res = self.render_pdf_full(os.path.join(self.base_dir, pdf_rel))
+        if res is None:
+            print("WARN preview %s: could not render (need pypdfium2 + Pillow)" % pdf_rel,
+                  file=sys.stderr)
+            return False
+        raw = res[0]
+        out_path = os.path.join(self.base_dir, out_rel)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        part = out_path + ".part"
+        with open(part, "wb") as f:
+            f.write(raw)
+        os.replace(part, out_path)
+        return True
 
     def write_image(self, rel_dir, floor_id, raw):
         out_dir = os.path.join(self.images_dir, rel_dir)
@@ -282,30 +305,41 @@ class Preprocessor:
 
 
 def _parse_args(argv):
-    """Tiny argv parser (argparse-free to keep the child minimal): a bare `scan`/`build`
-    mode plus an optional `--base <dir>` (falls back to $FACILITYMAP_WORKDIR, then the
-    script's own directory)."""
+    """Tiny argv parser (argparse-free to keep the child minimal): a bare
+    `scan`/`build`/`preview` mode plus an optional `--base <dir>` (falls back to
+    $FACILITYMAP_WORKDIR, then the script's own directory). `preview` also takes
+    `--pdf <uploads-relative.pdf>` and `--out <base-relative.png>`."""
     mode = "build"
     base = os.environ.get("FACILITYMAP_WORKDIR")
+    opts = {}
     i = 0
     while i < len(argv):
-        if argv[i] == "--base" and i + 1 < len(argv):
-            base = argv[i + 1]
+        if argv[i] in ("--base", "--pdf", "--out") and i + 1 < len(argv):
+            key = argv[i][2:]
+            if key == "base":
+                base = argv[i + 1]
+            else:
+                opts[key] = argv[i + 1]
             i += 2
         else:
             mode = argv[i]
             i += 1
     if not base:
         base = os.path.dirname(os.path.abspath(__file__))
-    return mode, base
+    return mode, base, opts
 
 
 if __name__ == "__main__":
-    mode, base = _parse_args(sys.argv[1:])
+    mode, base, opts = _parse_args(sys.argv[1:])
     pre = Preprocessor(base)
     if mode == "scan":
         pre.scan()
     elif mode == "build":
         pre.build()
+    elif mode == "preview":
+        if not opts.get("pdf") or not opts.get("out"):
+            sys.exit("preview needs --pdf and --out")
+        if not pre.preview(opts["pdf"], opts["out"]):
+            sys.exit("preview render failed")
     else:
-        sys.exit("usage: preprocess.py [scan|build] [--base DIR]")
+        sys.exit("usage: preprocess.py [scan|build|preview] [--base DIR]")

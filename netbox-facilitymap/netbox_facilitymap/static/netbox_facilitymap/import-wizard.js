@@ -13,6 +13,8 @@
    shared Api.post wrapper (which rebases /api/* and adds CSRF). */
 
 class ImportWizard {
+  static HIRES_AT = 260;   // card width (px) at/above which the size slider upgrades to hi-res
+
   constructor(app) {
     this.app = app;
     this.inv = null;        // scan inventory { folders:[{folder, pdfs:[...]}] }
@@ -39,6 +41,14 @@ class ImportWizard {
    *  media URL. */
   static _media(rel) {
     return (window.MAP ? window.MAP.media : '/') + encodeURI(rel);
+  }
+
+  /** On-demand high-res render URL for an uploaded PDF (`p.pdf`). The server renders it at
+   *  full scale and caches the PNG, so this stays crisp when enlarged or zoomed — unlike the
+   *  small scan thumbnail. Used by the preview popup and the lazy card upgrade. */
+  static _previewUrl(pdfRel) {
+    const api = window.MAP ? window.MAP.api : '/api/';
+    return api + 'import/preview?path=' + encodeURIComponent(pdfRel);
   }
 
   _stage(title) {
@@ -84,9 +94,10 @@ class ImportWizard {
     view.append(drop);
     this._progress = Dom.el('div', { class: 'imp-progress hidden' });
     view.append(this._progress);
-    view.append(Dom.el('div', { class: 'hint' },
-      [Dom.el('a', { onclick: () => this._scanAndMap() }, 'Continue to mapping'),
-        ' · ', Dom.el('a', { onclick: () => this._reset() }, 'Start over')]));
+    view.append(Dom.el('div', { class: 'imp-actions' }, [
+      Dom.el('button', { class: 'primary', onclick: () => this._scanAndMap() }, 'Continue to mapping'),
+      Dom.el('button', { onclick: () => this._reset() }, 'Start over'),
+    ]));
   }
 
   _fromInput(fileList) {
@@ -206,6 +217,7 @@ class ImportWizard {
   _stepMap() {
     const view = this._stage('Map drawings to floors');
     this._mapView = view;
+    this._cards = [];   // {upgrade()} per card — lets the size slider swap in hi-res renders
     view.append(Dom.el('p', { class: 'hint' },
       'Name each building and assign every drawing to a floor. Click a card for a full '
       + 'preview, or drag the size slider to enlarge every thumbnail at once.'));
@@ -214,6 +226,7 @@ class ImportWizard {
     this._applyThumbSize();
     view.append(this._siteplanRow());
     for (const b of this.buildings) view.append(this._buildingSection(b));
+    this._applyThumbSize();   // re-apply now cards exist, so a large size upgrades them to hi-res
 
     const buildBtn = Dom.el('button', { class: 'primary', onclick: () => this._build() },
       'Build facility map');
@@ -234,11 +247,16 @@ class ImportWizard {
     ]);
   }
 
-  /** Push the current size onto the map view as CSS vars the grid/cards read. */
+  /** Push the current size onto the map view as CSS vars the grid/cards read. Past a width
+   *  threshold a small scan thumbnail can't stay legible when stretched, so upgrade every
+   *  card to its on-demand hi-res render (lazy-loaded + server-cached, so only on-screen
+   *  large cards actually fetch). */
   _applyThumbSize() {
     if (!this._mapView) return;
     this._mapView.style.setProperty('--imp-card-w', this.thumbWidth + 'px');
     this._mapView.style.setProperty('--imp-thumb-h', Math.round(this.thumbWidth * 110 / 150) + 'px');
+    if (this.thumbWidth >= ImportWizard.HIRES_AT && this._cards)
+      for (const c of this._cards) c.upgrade();
   }
 
   _siteplanRow() {
@@ -295,7 +313,13 @@ class ImportWizard {
     if (p.thumb) {
       const img = Dom.el('img', { src: ImportWizard._media(p.thumb), loading: 'lazy' });
       thumb = Dom.el('div', { class: 'imp-thumb' }, [img]);
-      this._framing(thumb, img, b.frame[p.stem], () => this._lightbox(p.thumb, p.file));
+      // Lazily swap the small scan thumbnail for the full-scale render the first time the
+      // card is enlarged or zoomed — keeps the initial grid light, sharpens on demand.
+      let hires = false;
+      const upgrade = () => { if (!hires) { hires = true; img.src = ImportWizard._previewUrl(p.pdf); } };
+      this._cards.push({ upgrade });
+      this._attachZoomPan(thumb, img, b.frame[p.stem],
+        { onClick: () => this._lightbox(p), onZoom: upgrade });
     } else {
       thumb = Dom.el('div', { class: 'imp-thumb imp-nothumb' }, p.file);
     }
@@ -306,25 +330,42 @@ class ImportWizard {
     ]);
   }
 
-  /** Wire scroll-to-zoom + drag-to-pan framing onto a thumbnail box. A press that doesn't
-   *  travel past a few pixels counts as a click and opens the preview instead. Framing state
-   *  lives on the wizard model so it survives step switches — it's a viewing aid only and is
-   *  never sent to the build. */
-  _framing(box, img, frame, onClick) {
+  /** Wire scroll-to-zoom (anchored at the cursor) + drag-to-pan onto a framed image box —
+   *  shared by the mapping cards and the preview popup. `frame` ({scale,x,y}) holds the view
+   *  state; for a card it lives on the wizard model so the framing survives step switches (a
+   *  viewing aid only, never sent to the build). Panning is clamped to the rendered
+   *  (object-fit contained) image so a drag can't slide into the letterbox margins.
+   *  `opts.onClick` fires when a press doesn't travel (a click, not a drag); `opts.onZoom`
+   *  fires the first time the user zooms in (used to swap in the hi-res render). Double-click
+   *  resets the view. */
+  _attachZoomPan(box, img, frame, opts = {}) {
+    const apply = () => { img.style.transform = `translate(${frame.x}px, ${frame.y}px) scale(${frame.scale})`; };
     const clamp = () => {
-      const mx = (frame.scale - 1) * box.clientWidth / 2;
-      const my = (frame.scale - 1) * box.clientHeight / 2;
+      const bw = box.clientWidth, bh = box.clientHeight;
+      const nw = img.naturalWidth || bw, nh = img.naturalHeight || bh;
+      const fit = Math.min(bw / nw, bh / nh) || 1;      // object-fit: contain ratio
+      const mx = Math.max(0, (frame.scale * nw * fit - bw) / 2);
+      const my = Math.max(0, (frame.scale * nh * fit - bh) / 2);
       frame.x = Math.max(-mx, Math.min(mx, frame.x));
       frame.y = Math.max(-my, Math.min(my, frame.y));
     };
-    const apply = () => { img.style.transform = `translate(${frame.x}px, ${frame.y}px) scale(${frame.scale})`; };
     apply();
     box.addEventListener('wheel', (e) => {
       e.preventDefault();
-      frame.scale = Math.min(6, Math.max(1, frame.scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+      const prev = frame.scale;
+      const next = Math.min(8, Math.max(1, prev * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+      if (next === prev) return;
+      // Keep the point under the cursor fixed across the zoom (transform-origin is centre).
+      const r = box.getBoundingClientRect();
+      const cx = e.clientX - (r.left + r.width / 2), cy = e.clientY - (r.top + r.height / 2);
+      frame.x = cx - (cx - frame.x) * (next / prev);
+      frame.y = cy - (cy - frame.y) * (next / prev);
+      frame.scale = next;
       if (frame.scale === 1) { frame.x = 0; frame.y = 0; } else clamp();
       apply();
+      if (next > prev && opts.onZoom) opts.onZoom();
     }, { passive: false });
+    box.addEventListener('dblclick', () => { frame.scale = 1; frame.x = 0; frame.y = 0; apply(); });
     box.addEventListener('pointerdown', (e) => {
       const sx = e.clientX, sy = e.clientY, ox = frame.x, oy = frame.y;
       let moved = 0;
@@ -339,33 +380,37 @@ class ImportWizard {
       const up = () => {
         box.removeEventListener('pointermove', move);
         box.removeEventListener('pointerup', up);
-        if (moved < 4) onClick();
+        if (moved < 4 && opts.onClick) opts.onClick();
       };
       box.addEventListener('pointermove', move);
       box.addEventListener('pointerup', up);
     });
   }
 
-  /** Full-window preview of a drawing. Shows the rendered page image (`p.thumb`), not the raw
-   *  PDF in an iframe — the PNG always renders inline (no browser "download PDFs" detour or
-   *  X-Frame-Options blank) and the thumbnails are high-res enough to read floor labels.
-   *  Dismissed by the backdrop, the ✕, or Esc. */
-  _lightbox(imgRel, title) {
+  /** Full-window preview of a drawing. Renders the PDF on demand at full scale (not the small
+   *  scan thumbnail), so it stays sharp under wheel-zoom + drag-pan (scroll to zoom at the
+   *  cursor, drag to pan, double-click to reset). A PNG always renders inline — no browser
+   *  "download PDFs" detour or X-Frame-Options blank. Dismissed by the backdrop, the ✕, or Esc. */
+  _lightbox(p) {
     const onKey = (e) => { if (e.key === 'Escape') close(); };
     const close = () => { document.removeEventListener('keydown', onKey); box.remove(); };
+    const img = Dom.el('img', { class: 'imp-lightbox-img', src: ImportWizard._previewUrl(p.pdf) });
+    const spin = Dom.el('div', { class: 'imp-lightbox-spin' }, 'Rendering preview…');
+    img.addEventListener('load', () => spin.remove());
+    img.addEventListener('error', () => { spin.remove(); Toast.show('Preview failed to render', true); });
+    const body = Dom.el('div', { class: 'imp-lightbox-body' }, [img, spin]);
     const panel = Dom.el('div', { class: 'imp-lightbox-panel' }, [
       Dom.el('div', { class: 'imp-lightbox-head' }, [
-        Dom.el('span', {}, title),
+        Dom.el('span', {}, p.file),
         Dom.el('button', { class: 'imp-lightbox-x', title: 'Close', onclick: close }, '✕'),
       ]),
-      Dom.el('div', { class: 'imp-lightbox-body' }, [
-        Dom.el('img', { class: 'imp-lightbox-img', src: ImportWizard._media(imgRel) }),
-      ]),
+      body,
     ]);
     const box = Dom.el('div', { class: 'imp-lightbox' }, [panel]);
     box.addEventListener('click', (e) => { if (e.target === box) close(); });
     document.addEventListener('keydown', onKey);
     document.body.append(box);
+    this._attachZoomPan(body, img, { scale: 1, x: 0, y: 0 });
   }
 
   _autoNumber(b) {
