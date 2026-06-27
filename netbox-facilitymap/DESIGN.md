@@ -355,6 +355,15 @@ not; the single-file `preview` render skips the lock by design (it writes its ow
 `floorSlug == Location slug`, image filenames) that the `Room` FKs must honour; it is served
 (authenticated), not modelled.
 
+**Building → NetBox Site binding.** The `dir == Site slug` convention only resolves if a
+building's slug actually matches a real `dcim.Site`. The wizard therefore has a dedicated
+**"Map buildings to NetBox"** step (between scan and floor-mapping) where the operator binds
+each building folder to a Site — auto-matched by name/slug where possible, otherwise picked
+via a `api/netbox/sites?q=` search. The chosen Site's slug is written into the building's
+`slug`, so it flows verbatim through `import-map.json` → `build_building_from_pdfs` → the
+manifest's `siteSlug`. The binding is captured **entirely by the slug** — `preprocess.py`,
+the import-map shape, and the manifest are unchanged, keeping the renderer Django-free.
+
 **Legacy data import.** The `facilitymap_import` management command still moves a JSON export
 into the DB (for migrating an older deployment), unchanged:
 ```

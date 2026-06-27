@@ -468,7 +468,22 @@ button.wide { width: 100%; margin-bottom: 6px; justify-content: center; }
 .imp-cardrow { display: flex; gap: 5px; padding: 6px 7px 8px; }
 .imp-cardrow select { flex: 1; min-width: 0; }
 .imp-num { width: 46px; }
-.imp-actions { display: flex; gap: 10px; margin-top: 8px; }
+/* "Map buildings to NetBox" step — one bind card per building folder. */
+.imp-bind { background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); padding: 14px; margin-bottom: 14px; box-shadow: var(--shadow); }
+.imp-bind-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 10px; }
+.imp-bind-folder { font-weight: 600; font-size: 14px; }
+.imp-bind-state { font-size: 12.5px; }
+.imp-bind-ok { color: var(--success); }
+.imp-bind-auto { color: var(--warn); }
+.imp-bind-warn { color: var(--danger); }
+.imp-bind input { width: 100%; max-width: 360px; height: 30px; padding: 0 8px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); font-family: inherit; font-size: 13px; }
+.imp-bind-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px;
+  max-height: 220px; overflow-y: auto; }
+.imp-actions { display: flex; gap: 10px; margin-top: 8px; align-items: center; }
 .imp-spinner { padding: 30px; text-align: center; color: var(--text2); font-size: 14px; }
 .imp-lightbox { position: fixed; inset: 0; z-index: 1000; display: flex;
   align-items: center; justify-content: center; padding: 24px; background: rgba(0, 0, 0, .55); }

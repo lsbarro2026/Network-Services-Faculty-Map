@@ -17,6 +17,12 @@ class NetBoxClient {
       + `&q=${encodeURIComponent(q || '')}`);
   }
 
+  /** Free-text Site search (the import wizard binds each building to a Site).
+   *  Returns { sites:[{id,name,slug,url}] }. */
+  async sites(q) {
+    return Api.get(`/api/netbox/sites?q=${encodeURIComponent(q || '')}`);
+  }
+
   /** Racks in a Location. Returns { racks:[{id,name,url,u_height}] }. */
   async racks(locationId) {
     return Api.get(`/api/netbox/racks?location=${encodeURIComponent(locationId)}`);

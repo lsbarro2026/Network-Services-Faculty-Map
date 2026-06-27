@@ -31,6 +31,7 @@ urlpatterns = [
     # restricted by the requester's object permissions).
     path('api/netbox/rooms', frontend_api.NbRoomsView.as_view(), name='api-nb-rooms'),
     path('api/netbox/locations', frontend_api.NbLocationsView.as_view(), name='api-nb-locations'),
+    path('api/netbox/sites', frontend_api.NbSitesView.as_view(), name='api-nb-sites'),
     path('api/netbox/racks', frontend_api.NbRacksView.as_view(), name='api-nb-racks'),
     path('api/netbox/devices', frontend_api.NbDevicesView.as_view(), name='api-nb-devices'),
 

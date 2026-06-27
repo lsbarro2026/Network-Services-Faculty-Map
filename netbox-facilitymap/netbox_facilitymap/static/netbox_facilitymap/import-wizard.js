@@ -22,6 +22,7 @@ class ImportWizard {
     this.site = { folder: '', file: '' };  // chosen siteplan PDF (or empty = none)
     this.thumbWidth = 170;  // map-step card width (px); the size slider drives it
     this._bIdx = 0;         // index of the building currently visible in the map step
+    this._autoMapDone = false;  // the building→NetBox auto-match pass runs once per scan
   }
 
   // ---- helpers ----
@@ -73,7 +74,10 @@ class ImportWizard {
         this.inv = inv;
         this._modelFromInventory();
         await this._applyDraft();
-        this._stepMap();
+        // Resume straight to floor mapping only when every building is already bound to a
+        // NetBox site (from the restored draft); otherwise revisit the binding step.
+        if (this._allBuildingsBound()) { this._autoMapDone = true; this._stepMap(); }
+        else this._stepBuildings();
         return;
       }
     } catch (_) { /* no uploads or scan unavailable */ }
@@ -200,7 +204,8 @@ class ImportWizard {
     if (!this.inv.folders.length) { Toast.show('No PDFs uploaded yet', true); return this._stepUpload(); }
     this._modelFromInventory();
     this._bIdx = 0;
-    this._stepMap();
+    this._autoMapDone = false;
+    this._stepBuildings();
   }
 
   /** Build the editable model with sensible defaults: a folder that looks like a site
@@ -218,12 +223,133 @@ class ImportWizard {
       this.buildings.push({
         folder: f.folder, pdfs: f.pdfs,
         name, slug: ImportWizard.slugify(f.folder), abbr: ImportWizard.initials(name),
+        // The NetBox Site this building is bound to, chosen in the "Map buildings to NetBox"
+        // step: { id, slug, name, auto } (auto = picked by auto-map, awaiting confirmation).
+        // null = unbound. Its slug overwrites `slug` so it flows downstream as `siteSlug`.
+        nbSite: null,
         assign: Object.fromEntries(f.pdfs.map((p, i) =>
           [p.stem, isSite ? { type: 'none', num: 1 } : { type: 'level', num: i + 1 }])),
         // Per-card thumbnail framing (zoom/pan) — a viewing aid only, never sent to build.
         frame: Object.fromEntries(f.pdfs.map(p => [p.stem, { scale: 1, x: 0, y: 0 }])),
       });
     }
+  }
+
+  // ---- step 1.5: bind buildings to NetBox sites ----
+
+  /** Building folders that contribute floors — siteplan-only folders need no NetBox site
+   *  (they have no floors and are skipped by the build, see `_build`). */
+  _floorBuildings() {
+    return this.buildings.filter(b => Object.keys(this._resolveFloors(b)).length > 0);
+  }
+
+  /** True once every floor-contributing building is bound to a NetBox site. */
+  _allBuildingsBound() {
+    return this._floorBuildings().every(b => b.nbSite);
+  }
+
+  /** Bind a building to a NetBox site: store its identity and prefill name/slug/abbr from it
+   *  so the slug flows downstream as the manifest `siteSlug`. `auto` flags an unconfirmed
+   *  auto-match (the operator reviews it in the step). */
+  _bindSite(b, site, auto) {
+    b.nbSite = { id: site.id, slug: site.slug, name: site.name, auto: !!auto };
+    b.slug = site.slug;
+    b.name = site.name;
+    b.abbr = ImportWizard.initials(site.name);
+  }
+
+  /** Try to auto-match each still-unbound building to a NetBox site by name/slug. Runs once
+   *  per scan (guarded by `_autoMapDone`). Accept only a confident match — a site whose slug
+   *  equals the folder-derived slug, or whose name matches, or a lone search result — and
+   *  flag it `auto` so the operator confirms it. Ambiguous folders stay unbound for manual
+   *  binding. */
+  async _autoMapBuildings() {
+    if (this._autoMapDone) return;
+    this._autoMapDone = true;
+    for (const b of this._floorBuildings()) {
+      if (b.nbSite) continue;
+      let res;
+      try { res = await this.app.netbox.sites(b.name); } catch (_) { continue; }
+      const sites = res.sites || [];
+      const nameLc = b.name.toLowerCase();
+      const match = sites.find(s => s.slug === b.slug)
+        || sites.find(s => s.name.toLowerCase() === nameLc)
+        || (sites.length === 1 ? sites[0] : null);
+      if (match) this._bindSite(b, match, true);
+    }
+  }
+
+  async _stepBuildings() {
+    const buildings = this._floorBuildings();
+    if (!buildings.length) return this._stepMap();   // siteplan-only import — nothing to bind
+
+    const view = this._stage('Map buildings to NetBox');
+    view.append(Dom.el('p', { class: 'hint' },
+      'Bind each building to its NetBox site so rooms can be linked to Locations later. We '
+      + 'matched them automatically where we could — confirm those and pick a site for any '
+      + 'left unbound.'));
+
+    if (!this._autoMapDone) {
+      view.append(Dom.el('p', { class: 'imp-progress' }, 'Matching buildings to NetBox…'));
+      await this._autoMapBuildings();
+      return this._stepBuildings();   // re-render with the auto-match results
+    }
+
+    for (const b of buildings) view.append(this._bindRow(b));
+
+    const bound = this._allBuildingsBound();
+    const cont = Dom.el('button', { class: 'primary',
+      onclick: async () => { await this._saveDraft(); this._stepMap(); } },
+      'Continue to floor mapping →');
+    cont.disabled = !bound;
+    const actions = [cont, Dom.el('button', { onclick: () => this._reset() }, 'Start over')];
+    if (!bound) actions.push(Dom.el('span', { class: 'hint' },
+      'Bind every building to a NetBox site first.'));
+    view.append(Dom.el('div', { class: 'imp-actions' }, actions));
+  }
+
+  /** One building's bind control: its current state plus a site-search autocomplete. */
+  _bindRow(b) {
+    const state = Dom.el('div', { class: 'imp-bind-state' });
+    if (b.nbSite && b.nbSite.auto)
+      state.append(Dom.el('span', { class: 'imp-bind-auto' },
+        '✓ auto-matched → ' + b.nbSite.name + ' (' + b.nbSite.slug + ') — confirm or change'));
+    else if (b.nbSite)
+      state.append(Dom.el('span', { class: 'imp-bind-ok' },
+        '✓ ' + b.nbSite.name + ' (' + b.nbSite.slug + ')'));
+    else
+      state.append(Dom.el('span', { class: 'imp-bind-warn' },
+        '⚠ not bound — pick a NetBox site'));
+
+    const search = Dom.el('input', { placeholder: 'Search NetBox sites…' });
+    const list = Dom.el('div', { class: 'imp-bind-list' });
+    let token = 0;
+    const run = async (q) => {
+      const mine = ++token;
+      let res;
+      try { res = await this.app.netbox.sites(q); } catch (_) { return; }
+      if (mine !== token) return;   // a newer keystroke superseded this fetch
+      list.innerHTML = '';
+      const sites = res.sites || [];
+      if (!sites.length) { list.append(Dom.el('div', { class: 'hint' }, 'No sites found.')); return; }
+      for (const s of sites) {
+        const isThis = b.nbSite && b.nbSite.slug === s.slug;
+        const item = Dom.el('div', { class: 'room-item' + (isThis ? ' bound' : '') }, [
+          Dom.el('div', { class: 'nm' }, s.name + (isThis ? '  ✓' : '')),
+          Dom.el('div', { class: 'sl' }, s.slug),
+        ]);
+        item.onclick = () => { this._bindSite(b, s, false); this._stepBuildings(); };
+        list.append(item);
+      }
+    };
+    search.addEventListener('input', () => run(search.value));
+
+    return Dom.el('section', { class: 'imp-bind' }, [
+      Dom.el('div', { class: 'imp-bind-head' }, [
+        Dom.el('div', { class: 'imp-bind-folder' }, b.folder), state,
+      ]),
+      search, list,
+    ]);
   }
 
   _stepMap() {
@@ -471,6 +597,7 @@ class ImportWizard {
         if (d.name != null) b.name = d.name;
         if (d.slug != null) b.slug = d.slug;
         if (d.abbr != null) b.abbr = d.abbr;
+        if (d.nbSite !== undefined) b.nbSite = d.nbSite;
         for (const [stem, a] of Object.entries(d.assign || {}))
           if (stem in b.assign) b.assign[stem] = a;
         for (const [stem, f] of Object.entries(d.frame || {}))
@@ -528,6 +655,7 @@ class ImportWizard {
     try { await Api.post('/api/import/reset', {}); } catch (e) { /* ignore */ }
     this.inv = null; this.buildings = []; this.site = { folder: '', file: '' };
     this._bIdx = 0;
+    this._autoMapDone = false;
     this._stepUpload();
   }
 }

@@ -217,6 +217,24 @@ class NbLocationsView(LoginRequiredMixin, View):
         return JsonResponse({'rooms': [_trim(x, request) for x in qs[:200]]})
 
 
+class NbSitesView(LoginRequiredMixin, View):
+    """Free-text Site search. The import wizard binds each uploaded building folder to a
+    NetBox Site (a "building"), so its slug — which becomes the manifest `siteSlug` —
+    matches a real Site and later room/location lookups resolve."""
+
+    def get(self, request):
+        q = request.GET.get('q', '')
+        qs = Site.objects.restrict(request.user, 'view')
+        if q:
+            qs = qs.filter(name__icontains=q)
+        return JsonResponse({'sites': [{
+            'id': s.pk,
+            'name': s.name,
+            'slug': s.slug,
+            'url': request.build_absolute_uri(s.get_absolute_url()),
+        } for s in qs[:200]]})
+
+
 def _trim_rack(rack, request):
     """Shape a Rack for the frontend (mirrors `NetBoxProxy._trim_rack`)."""
     return {

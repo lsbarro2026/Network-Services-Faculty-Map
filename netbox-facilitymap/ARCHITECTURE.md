@@ -155,6 +155,7 @@ when `window.MAP` is absent).
 
 ### netbox.js
 - **`NetBoxClient`** — `rooms(siteSlug,floorSlug)`, `locations(siteSlug,q)`,
+  `sites(q)` (free-text Site search — the import wizard binds each building to a Site),
   `racks(locationId)`, `devices(locationId)`. Thin wrappers over the plugin's
   `/api/netbox/*` Django views, which run **direct ORM queries scoped to the requester's
   object permissions** (replacing the standalone token-holding proxy). The browser never
@@ -500,15 +501,36 @@ Shapes are **building hotspots**. `editing()`=`app.siteEdit`.
   delete), `save()`.
 
 ### import-wizard.js — `ImportWizard` (not an Editor; a stage-takeover view)
-The in-app PDF import, in three steps rendered into `#stage`. Constructor state: `inv`
-(scan inventory), `buildings` (per-folder model), `site` (chosen siteplan), `thumbWidth`
-(slider value), `_bIdx` (index of the building currently visible in the map step).
+The in-app PDF import, in four steps rendered into `#stage` (**Upload → Map buildings to
+NetBox → Map drawings to floors → Build**). Constructor state: `inv` (scan inventory),
+`buildings` (per-folder model), `site` (chosen siteplan), `thumbWidth` (slider value),
+`_bIdx` (index of the building currently visible in the map step), `_autoMapDone` (the
+building→NetBox auto-match pass runs once per scan).
+
+Each building object carries an `nbSite` field — `{id,slug,name,auto}` once bound to a NetBox
+Site in the buildings step (`auto:true` = an unconfirmed auto-match), else `null`. The bound
+Site's slug overwrites the building's `slug` (and prefills `name`/`abbr`), so the **real**
+Site slug — not the folder-name guess — flows downstream as the manifest `siteSlug` that all
+later `NetBoxClient` lookups key off.
 
 **Smart resume** — `show()` is async: on open it POSTs `/api/import/scan`; if uploads already
-exist (`folders.length > 0`) it calls `_modelFromInventory()` + `_applyDraft()` and jumps
-directly to `_stepMap()`, skipping the upload screen. If no uploads are found it falls
-through to `_stepUpload()`. The brief "Checking for existing uploads…" state is shown while
-the scan runs.
+exist (`folders.length > 0`) it calls `_modelFromInventory()` + `_applyDraft()`, then jumps
+straight to `_stepMap()` **only when every floor-contributing building is already bound**
+(`_allBuildingsBound()`), otherwise back to `_stepBuildings()`. If no uploads are found it
+falls through to `_stepUpload()`. The brief "Checking for existing uploads…" state is shown
+while the scan runs.
+
+**Map buildings to NetBox** (`_stepBuildings`): runs after the scan, before drawing→floor
+mapping. `_autoMapBuildings()` runs once per scan (guarded by `_autoMapDone`): for each
+floor-contributing building (`_floorBuildings()` — siteplan-only folders are skipped, mirroring
+the build) it searches `netbox.sites(b.name)` and accepts a **confident** match only (a site
+whose slug equals the folder-derived slug, whose name matches, or a lone result), binding it
+`auto:true` for the operator to confirm. The step then renders one `_bindRow` per building — a
+search-autocomplete over `netbox.sites(q)` (reusing the `.room-item` list markup), with the
+current state shown as auto-matched / bound / "not bound". Picking a site calls `_bindSite`
+(stores `nbSite`, overwrites `slug`/`name`/`abbr`). Binding is **required**: the "Continue to
+floor mapping" button is disabled until `_allBuildingsBound()`. No build/manifest/preprocess
+change is needed — the binding is captured entirely by the slug.
 
 **Upload** (`_stepUpload`): a drag-drop zone (`imp-drop`) that is also **clickable** — the
 whole zone triggers a hidden `webkitdirectory` folder picker via `folderInput.click()` on its
@@ -528,14 +550,17 @@ folder isn't mistaken for a siteplan. A picked/dropped **`.zip`** is sent whole 
 **Map** (`_scanAndMap`/`_stepMap`): `_scanAndMap` POSTs `/api/import/scan`, calls
 `_modelFromInventory` (name/slug/abbr defaults via `slugify`/`prettyName`/`initials`; a folder
 matching `/site\s*plan/i` seeds the siteplan and contributes no floors; the rest default to
-Level 1..N; also seeds a per-PDF `frame` `{scale,x,y}`), resets `_bIdx = 0`, and calls
-`_stepMap`. The map step shows **one building at a time** (`buildings[_bIdx]`); when there are
+Level 1..N; also seeds `nbSite = null` and a per-PDF `frame` `{scale,x,y}`), resets
+`_bIdx = 0` + `_autoMapDone = false`, and calls `_stepBuildings` (the NetBox-binding step
+above, which then continues to `_stepMap`). The map step shows **one building at a time**
+(`buildings[_bIdx]`); when there are
 multiple buildings a nav row (Prev/Next buttons + "Building X of N" label) appears above the
 building section. Navigating calls `_saveDraft()` (POST to `api/import/save-draft`, writes
 `import-map.draft.json` under the working dir), then increments/decrements `_bIdx` and
 re-renders. `_applyDraft()` (GET `api/import/load-draft`) merges a saved draft into the
-freshly-built model by `folder` key — new folders not in the draft keep their `_modelFromInventory`
-defaults; removed PDF stems are ignored. A global **size slider** (`_sizer`/`_applyThumbSize`,
+freshly-built model by `folder` key (`name`/`slug`/`abbr`/`nbSite` + per-stem `assign`/`frame`)
+— new folders not in the draft keep their `_modelFromInventory` defaults; removed PDF stems are
+ignored. A global **size slider** (`_sizer`/`_applyThumbSize`,
 backed by `thumbWidth`) resizes every card at once by setting `--imp-card-w`/`--imp-thumb-h`
 CSS vars on the map view. Each PDF gets a thumbnail (its `src` rebased onto `window.MAP.media`)
 wired by `_attachZoomPan` for **cursor-anchored** scroll-to-zoom / drag-to-pan (clamped to the
@@ -642,7 +667,9 @@ admin-grantable model permission, stricter than login-only) — a POST without i
   `NbRoomsView` (`api/netbox/rooms?site=&floor=` — child Locations of the floor Location,
   falling back to all site Locations when the floor slug has no Location),
   `NbLocationsView` (`api/netbox/locations?site=&q=` — free-text Location search, capped at
-  200), `NbRacksView` (`api/netbox/racks?location=` — racks in a Location), `NbDevicesView`
+  200), `NbSitesView` (`api/netbox/sites?q=` — free-text Site search, capped at 200; backs the
+  import wizard's building→Site binding, returns `{sites:[{id,name,slug,url}]}`),
+  `NbRacksView` (`api/netbox/racks?location=` — racks in a Location), `NbDevicesView`
   (`api/netbox/devices?location=` — Location devices **not** in a rack). `_trim_rack`/
   `_trim_device` mirror the old proxy shapes (the marker glyph keys off `role.slug`/`name`).
   **There is no persisted `rackcache` and no sync-room write** — racks/devices are fetched
