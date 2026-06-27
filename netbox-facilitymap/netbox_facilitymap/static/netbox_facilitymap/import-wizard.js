@@ -227,8 +227,16 @@ class ImportWizard {
         // step: { id, slug, name, auto } (auto = picked by auto-map, awaiting confirmation).
         // null = unbound. Its slug overwrites `slug` so it flows downstream as `siteSlug`.
         nbSite: null,
+        // NetBox floor Locations for the building's bound site, lazily fetched in the map
+        // step so floors can be picked as buttons. undefined = not fetched, 'loading' = in
+        // flight, array = done (empty array = fall back to the floor-type buttons).
+        nbFloors: undefined,
+        // Per-PDF floor assignment. `token` (a NetBox Location slug) takes precedence over
+        // `type`/`num`; when set, the build emits the slug verbatim as the floor id (see
+        // `_resolveFloors`/`_build`).
         assign: Object.fromEntries(f.pdfs.map((p, i) =>
-          [p.stem, isSite ? { type: 'none', num: 1 } : { type: 'level', num: i + 1 }])),
+          [p.stem, isSite ? { type: 'none', num: 1, token: null, label: '' }
+            : { type: 'level', num: i + 1, token: null, label: '' }])),
         // Per-card thumbnail framing (zoom/pan) — a viewing aid only, never sent to build.
         frame: Object.fromEntries(f.pdfs.map(p => [p.stem, { scale: 1, x: 0, y: 0 }])),
       });
@@ -364,17 +372,10 @@ class ImportWizard {
     this._applyThumbSize();
     view.append(this._siteplanRow());
 
-    if (this.buildings.length > 1) {
-      const nav = Dom.el('div', { class: 'imp-nav' });
-      const prev = Dom.el('button', { onclick: async () => { await this._saveDraft(); this._bIdx--; this._stepMap(); } }, '← Previous');
-      const next = Dom.el('button', { onclick: async () => { await this._saveDraft(); this._bIdx++; this._stepMap(); } }, 'Next →');
-      prev.disabled = this._bIdx === 0;
-      next.disabled = this._bIdx === this.buildings.length - 1;
-      nav.append(prev, Dom.el('span', { class: 'imp-nav-label' },
-        `Building ${this._bIdx + 1} of ${this.buildings.length}`), next);
-      view.append(nav);
-    }
-    view.append(this._buildingSection(this.buildings[this._bIdx]));
+    if (this.buildings.length > 1) view.append(this._buildingNav());
+    const b = this.buildings[this._bIdx];
+    this._ensureFloors(b);   // kick off the NetBox Location fetch for this building (cached)
+    view.append(this._buildingSection(b));
     this._applyThumbSize();   // re-apply now cards exist, so a large size upgrades them to hi-res
 
     const buildBtn = Dom.el('button', { class: 'primary', onclick: () => this._build() },
@@ -383,6 +384,50 @@ class ImportWizard {
       buildBtn,
       Dom.el('button', { onclick: () => this._reset() }, 'Start over'),
     ]));
+  }
+
+  /** Direct-access building navigation: one button per building, the current one active.
+   *  Switching saves the draft (same as the old prev/next paging) then re-renders. */
+  _buildingNav() {
+    const nav = Dom.el('div', { class: 'imp-nav' });
+    this.buildings.forEach((b, i) => {
+      nav.append(Dom.el('button', {
+        class: i === this._bIdx ? 'active' : '',
+        onclick: async () => { await this._saveDraft(); this._bIdx = i; this._stepMap(); },
+      }, b.name || b.folder));
+    });
+    return nav;
+  }
+
+  /** Lazily fetch a building's NetBox floor Locations (top-level Locations under its bound
+   *  site) so the per-card floor selector can offer them as buttons. Cached on `b.nbFloors`;
+   *  on completion the map step re-renders if this building is still the visible one. A blank
+   *  slug or empty result leaves `b.nbFloors = []`, which drives the floor-type fallback. */
+  _ensureFloors(b) {
+    if (b.nbFloors !== undefined) return;
+    const slug = (b.slug || '').trim();
+    if (!slug) { b.nbFloors = []; return; }
+    b.nbFloors = 'loading';
+    const settle = (floors) => {
+      b.nbFloors = floors;
+      if (floors.length) this._normalizeToLocations(b);
+      if (this._mapView && this.buildings[this._bIdx] === b) this._stepMap();
+    };
+    this.app.netbox.locations(slug)
+      // Floors are the parent Locations under the site (rooms are their children, per
+      // `NbRoomsView`), so keep only the top-level (depth 0) Locations as floor candidates.
+      .then((res) => settle((res.rooms || []).filter(r => (r.depth || 0) === 0)))
+      .catch(() => settle([]));
+  }
+
+  /** Entering Location mode: a drawing with no Location token yet is treated as unassigned
+   *  (`none`) so it contributes no floor until the user picks a Location button — the
+   *  auto Level 1..N defaults only apply to the floor-type fallback. */
+  _normalizeToLocations(b) {
+    for (const p of b.pdfs) {
+      const a = b.assign[p.stem];
+      if (!a.token) a.type = 'none';
+    }
   }
 
   /** Global thumbnail-size slider — resizes every card at once (the alternative to opening
@@ -435,13 +480,19 @@ class ImportWizard {
       Dom.el('input', { value: b[key], style: 'width:' + w,
         oninput: (e) => { b[key] = e.target.value; } }),
     ]);
-    const head = Dom.el('div', { class: 'imp-bhead' }, [
+    const fields = [
       field('Building name', 'name', '15em'),
       field('Site slug', 'slug', '9em'),
-      field('Floor prefix', 'abbr', '6em'),
-      Dom.el('button', { class: 'imp-auto',
-        onclick: () => this._autoNumber(b) }, 'Number floors 1…N'),
-    ]);
+    ];
+    // In Location mode the floor id must equal the real Location slug, so the floor prefix is
+    // forced empty (see `_build`) and the prefix + auto-number controls are hidden; they only
+    // apply to the floor-type fallback.
+    if (!(Array.isArray(b.nbFloors) && b.nbFloors.length)) {
+      fields.push(field('Floor prefix', 'abbr', '6em'));
+      fields.push(Dom.el('button', { class: 'imp-auto',
+        onclick: () => this._autoNumber(b) }, 'Number floors 1…N'));
+    }
+    const head = Dom.el('div', { class: 'imp-bhead' }, fields);
     const grid = Dom.el('div', { class: 'imp-grid' });
     for (const p of b.pdfs) grid.append(this._pdfCard(b, p));
     return Dom.el('section', { class: 'imp-building' }, [head, grid]);
@@ -449,15 +500,6 @@ class ImportWizard {
 
   _pdfCard(b, p) {
     const a = b.assign[p.stem];
-    const num = Dom.el('input', { type: 'number', min: '1', class: 'imp-num', value: a.num,
-      oninput: (e) => { a.num = parseInt(e.target.value, 10) || 1; } });
-    const showNum = () => { num.style.visibility = (a.type === 'basement' || a.type === 'level') ? '' : 'hidden'; };
-    const sel = Dom.el('select', { onchange: (e) => { a.type = e.target.value; showNum(); } });
-    for (const [v, lbl] of [['none', '— none —'], ['basement', 'Basement'], ['ground', 'Ground'],
-      ['level', 'Level'], ['roof', 'Roof'], ['same', '↳ same floor (extra sheet)']]) {
-      const o = Dom.el('option', { value: v }, lbl); if (a.type === v) o.selected = true; sel.append(o);
-    }
-    showNum();
     let thumb;
     if (p.thumb) {
       const img = Dom.el('img', { src: ImportWizard._media(p.thumb), loading: 'lazy' });
@@ -472,11 +514,46 @@ class ImportWizard {
     } else {
       thumb = Dom.el('div', { class: 'imp-thumb imp-nothumb' }, p.file);
     }
-    return Dom.el('div', { class: 'imp-card' }, [
-      thumb,
+    const body = Dom.el('div', { class: 'imp-cardbody' }, [
       Dom.el('div', { class: 'imp-cardfile' }, p.file),
-      Dom.el('div', { class: 'imp-cardrow' }, [sel, num]),
+      this._floorButtons(b, a),
     ]);
+    return Dom.el('div', { class: 'imp-card' }, [thumb, body]);
+  }
+
+  /** Floor selector for one drawing, as a row of buttons. In Location mode (the building's
+   *  bound site has floor Locations) it offers one button per Location — clicking writes the
+   *  Location slug as the assignment token so the build's floor id equals the real
+   *  `Location.slug`. Otherwise it falls back to the floor-type vocabulary
+   *  (none/basement/ground/level N/roof), preserving the old `<select>` semantics. */
+  _floorButtons(b, a) {
+    const row = Dom.el('div', { class: 'imp-floors' });
+    if (b.nbFloors === 'loading') {
+      row.append(Dom.el('span', { class: 'hint' }, 'Loading floors…'));
+      return row;
+    }
+    const btn = (label, active, onClick) =>
+      Dom.el('button', { class: 'imp-floor' + (active ? ' active' : ''), onclick: onClick }, label);
+    // "— none —" excludes a drawing from the floor set in either mode.
+    row.append(btn('— none —', a.type === 'none' && !a.token, () => {
+      a.token = null; a.label = ''; a.type = 'none'; this._stepMap();
+    }));
+    if (Array.isArray(b.nbFloors) && b.nbFloors.length) {
+      for (const loc of b.nbFloors)
+        row.append(btn(loc.name, a.token === loc.slug, () => {
+          a.token = loc.slug; a.label = loc.name; a.type = 'level'; this._stepMap();
+        }));
+    } else {
+      const set = (type, num) => () => {
+        a.token = null; a.label = ''; a.type = type; a.num = num; this._stepMap();
+      };
+      row.append(btn('Basement', a.type === 'basement', set('basement', 1)));
+      row.append(btn('Ground', a.type === 'ground', set('ground', 1)));
+      for (let i = 1; i <= b.pdfs.length; i++)
+        row.append(btn('Level ' + i, a.type === 'level' && a.num === i, set('level', i)));
+      row.append(btn('Roof', a.type === 'roof', set('roof', 1)));
+    }
+    return row;
   }
 
   /** Wire scroll-to-zoom (anchored at the cursor) + drag-to-pan onto a framed image box —
@@ -563,7 +640,7 @@ class ImportWizard {
   }
 
   _autoNumber(b) {
-    b.pdfs.forEach((p, i) => { b.assign[p.stem] = { type: 'level', num: i + 1 }; });
+    b.pdfs.forEach((p, i) => { b.assign[p.stem] = { type: 'level', num: i + 1, token: null, label: '' }; });
     this._stepMap();
   }
 
@@ -612,7 +689,8 @@ class ImportWizard {
     const floors = {}; let last = null;
     for (const p of b.pdfs) {
       const a = b.assign[p.stem]; let tok = null;
-      if (a.type === 'basement') tok = 'b' + (a.num || 1);
+      if (a.token) tok = a.token;   // direct NetBox Location slug (Location mode)
+      else if (a.type === 'basement') tok = 'b' + (a.num || 1);
       else if (a.type === 'ground') tok = 'g';
       else if (a.type === 'level') tok = 'l' + (a.num || 1);
       else if (a.type === 'roof') tok = 'r';
@@ -630,8 +708,12 @@ class ImportWizard {
       if (!b.slug.trim()) { Toast.show('Every building needs a site slug (' + b.folder + ')', true); return; }
       const floors = this._resolveFloors(b);
       if (!Object.keys(floors).length) continue;   // a siteplan-only folder, etc.
+      // Floor tokens that are real Location slugs must not be re-prefixed: `preprocess.py`
+      // builds the floor id as `abbr + token`, and that id is later matched against
+      // `Location.slug`, so force an empty prefix whenever a direct token is in play.
+      const usesTokens = b.pdfs.some(p => b.assign[p.stem].token);
       map.buildings[b.folder] = { slug: b.slug.trim(), name: b.name.trim() || b.folder,
-        abbr: b.abbr.trim(), floors };
+        abbr: usesTokens ? '' : b.abbr.trim(), floors };
     }
     if (!Object.keys(map.buildings).length) { Toast.show('Assign at least one floor', true); return; }
 

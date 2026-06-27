@@ -427,14 +427,13 @@ button.wide { width: 100%; margin-bottom: 6px; justify-content: center; }
 .imp-drop.over { border-color: var(--accent); background: var(--accent-tint); }
 .imp-drop-big { font-size: 15px; font-weight: 600; }
 .imp-file { display: none; }
-.imp-nav { display: flex; align-items: center; gap: 10px; margin: 14px 0 6px; }
-.imp-nav-label { font-size: 13px; font-weight: 600; color: var(--text2); flex: 1; text-align: center; }
+.imp-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 14px 0 10px; }
 .imp-progress { font-family: var(--mono); font-size: 12px; margin: 10px 0; color: var(--text2); }
 .imp-siteplan { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 12px 14px; margin-bottom: 14px; background: var(--panel); border: 1px solid var(--line);
   border-radius: var(--radius-lg); }
 .imp-siteplan > label { font-weight: 600; font-size: 13px; }
-.imp-siteplan select, .imp-cardrow select, .imp-num {
+.imp-siteplan select {
   height: 30px; padding: 0 7px; background: var(--panel); color: var(--text);
   border: 1px solid var(--border-strong); border-radius: var(--radius);
   font-family: inherit; font-size: 12.5px; }
@@ -451,23 +450,25 @@ button.wide { width: 100%; margin-bottom: 6px; justify-content: center; }
 .imp-sizer span { color: var(--muted); font-size: 11px; font-weight: 600;
   text-transform: uppercase; letter-spacing: .05em; }
 .imp-sizer input { flex: 0 0 220px; max-width: 50%; cursor: pointer; }
-.imp-grid { display: grid; gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(var(--imp-card-w, 150px), 1fr)); }
-.imp-card { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
-  background: var(--panel2); }
-.imp-thumb { position: relative; height: var(--imp-thumb-h, 110px); overflow: hidden;
-  background: #fff; border-bottom: 1px solid var(--line2); cursor: grab; touch-action: none; }
+/* One card per row: thumbnail (slider-sized) on the left, file + floor controls on the right. */
+.imp-grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
+.imp-card { display: flex; align-items: stretch; border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: hidden; background: var(--panel2); }
+.imp-thumb { position: relative; flex: 0 0 var(--imp-card-w, 170px); width: var(--imp-card-w, 170px);
+  height: var(--imp-thumb-h, 125px); overflow: hidden;
+  background: #fff; border-right: 1px solid var(--line2); cursor: grab; touch-action: none; }
 .imp-thumb:active { cursor: grabbing; }
-.imp-thumb img { width: 100%; height: var(--imp-thumb-h, 110px); object-fit: contain;
+.imp-thumb img { width: 100%; height: var(--imp-thumb-h, 125px); object-fit: contain;
   display: block; transform-origin: center; }
 .imp-nothumb { display: flex; align-items: center; justify-content: center;
-  height: var(--imp-thumb-h, 110px);
+  height: var(--imp-thumb-h, 125px);
   color: var(--faint); font-size: 11px; padding: 6px; text-align: center; cursor: default; }
-.imp-cardfile { font-family: var(--mono); font-size: 10.5px; color: var(--muted);
-  padding: 5px 7px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.imp-cardrow { display: flex; gap: 5px; padding: 6px 7px 8px; }
-.imp-cardrow select { flex: 1; min-width: 0; }
-.imp-num { width: 46px; }
+.imp-cardbody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px; }
+.imp-cardfile { font-family: var(--mono); font-size: 11px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imp-floors { display: flex; flex-wrap: wrap; gap: 6px; }
+.imp-floor { height: 28px; padding: 0 10px; font-size: 12px; }
 /* "Map buildings to NetBox" step — one bind card per building folder. */
 .imp-bind { background: var(--panel); border: 1px solid var(--line);
   border-radius: var(--radius-lg); padding: 14px; margin-bottom: 14px; box-shadow: var(--shadow); }

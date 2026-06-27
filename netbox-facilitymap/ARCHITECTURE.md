@@ -513,6 +513,15 @@ Site's slug overwrites the building's `slug` (and prefills `name`/`abbr`), so th
 Site slug — not the folder-name guess — flows downstream as the manifest `siteSlug` that all
 later `NetBoxClient` lookups key off.
 
+It also carries `nbFloors` — the bound site's **floor Locations**, lazily fetched in the map
+step by `_ensureFloors` (`netbox.locations(slug)`, keeping the top-level `depth===0` entries;
+`undefined`=not fetched, `'loading'`=in flight, array=done). A non-empty array puts the
+building in **Location mode**: each PDF's per-stem `assign` entry gains a `token` (a Location
+slug) + `label` (its name), and a non-null `token` takes precedence over `type`/`num` in
+`_resolveFloors`. In Location mode the **floor prefix (`abbr`) is forced empty** on build (and
+its field hidden), because the floor id is `abbr + token` (preprocess) and must equal the real
+`Location.slug` for `NbRoomsView` to match it.
+
 **Smart resume** — `show()` is async: on open it POSTs `/api/import/scan`; if uploads already
 exist (`folders.length > 0`) it calls `_modelFromInventory()` + `_applyDraft()`, then jumps
 straight to `_stepMap()` **only when every floor-contributing building is already bound**
@@ -553,11 +562,10 @@ matching `/site\s*plan/i` seeds the siteplan and contributes no floors; the rest
 Level 1..N; also seeds `nbSite = null` and a per-PDF `frame` `{scale,x,y}`), resets
 `_bIdx = 0` + `_autoMapDone = false`, and calls `_stepBuildings` (the NetBox-binding step
 above, which then continues to `_stepMap`). The map step shows **one building at a time**
-(`buildings[_bIdx]`); when there are
-multiple buildings a nav row (Prev/Next buttons + "Building X of N" label) appears above the
-building section. Navigating calls `_saveDraft()` (POST to `api/import/save-draft`, writes
-`import-map.draft.json` under the working dir), then increments/decrements `_bIdx` and
-re-renders. `_applyDraft()` (GET `api/import/load-draft`) merges a saved draft into the
+(`buildings[_bIdx]`); when there are multiple buildings a nav row (`_buildingNav` — one button
+per building, the current one `.active`) appears above the building section for direct access.
+Switching calls `_saveDraft()` (POST to `api/import/save-draft`, writes `import-map.draft.json`
+under the working dir), sets `_bIdx` to the chosen building, and re-renders. `_applyDraft()` (GET `api/import/load-draft`) merges a saved draft into the
 freshly-built model by `folder` key (`name`/`slug`/`abbr`/`nbSite` + per-stem `assign`/`frame`)
 — new folders not in the draft keep their `_modelFromInventory` defaults; removed PDF stems are
 ignored. A global **size slider** (`_sizer`/`_applyThumbSize`,
@@ -573,9 +581,16 @@ per card the first time it's wheel-zoomed (`onZoom`) or when the size slider pas
 `HIRES_AT` (260px), and always in the popup. The popup image is therefore the full render (not a
 PDF iframe — see §10; dismiss: backdrop / ✕ / Esc), showing a brief "Rendering preview…" state
 until the render resolves.
-Plus a floor control
-(Basement/Ground/Level/Roof/`same floor`); `_resolveFloors` turns the controls into the
-`{stem: token}` table (a `same`-floor entry reuses the previous token → multi-page).
+Cards render **one per row** (`imp-grid` is a single column): the thumbnail sits on the left
+(sized by the `--imp-card-w`/`--imp-thumb-h` vars) and the file name + floor selector on the
+right (`imp-cardbody`). The floor selector (`_floorButtons`) is a **button row**: in Location
+mode one button per `nbFloors` Location (click writes its `slug`→`token`, `name`→`label`),
+otherwise a floor-type fallback (`— none —`/Basement/Ground/Level 1..N/Roof) that sets
+`type`/`num`. `— none —` is offered in both modes; assigning two sheets the **same** Location
+groups them into one multi-sheet floor (same token). On entering Location mode,
+`_normalizeToLocations` marks any token-less drawing `none` so it stays unassigned until a
+Location is picked. `_resolveFloors` turns the assignments into the `{stem: token}` table
+(`token` passed through directly; legacy `same` reuses the previous token → multi-page).
 **Build** (`_build`): assembles `{siteplan, buildings}`, POSTs `/api/import/build`, then
 `store.load()` + `router()` to land on the new map. `_reset` clears via `/api/import/reset`
 (also deletes the draft) and resets `_bIdx = 0`. No modal helper exists, so each step replaces
@@ -1121,7 +1136,10 @@ point at the deep treatment.
   import never imports hotspots (`hotspots: []`). No screen-px/pt conversion exists.
 - A building's NetBox **site slug** is the `slug` the user set in the wizard (stored in
   `import-map.json`); floor ids = floor-id prefix (`abbr`) + token and equal floor
-  **Location slugs** where they exist (§7). The `annotations` key and `Room.floor_key` are
+  **Location slugs** where they exist (§7). When the wizard's floor selector is driven by
+  existing NetBox **floor Locations** (Location mode), the token **is** the Location slug and
+  the wizard forces `abbr=""` on build, so the floor id equals that slug exactly (no
+  double-prefix) and `NbRoomsView` matches it. The `annotations` key and `Room.floor_key` are
   `"<site.slug>/<floorLocation.slug>"` — load-bearing for room→Location binding and for the
   Location-page rooms panel.
 
