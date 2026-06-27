@@ -419,21 +419,17 @@ class ImportWizard {
   }
 
   /** Pick the floor Locations out of a site's flat Location list using the parent tree. The
-   *  layout is Site → building Location → floors → rooms, so the floors are the children of
-   *  the single building root. Falls back to a Site → floors → rooms layout (floors directly
-   *  under the site). Uses `parent` rather than `depth`/`level`, which is an MPTT artifact
+   *  layout is Site → building Location → floors → rooms, so the floors are simply the children
+   *  of the single building root — regardless of whether those floors have rooms under them
+   *  yet. Multiple roots means floors sit directly under the site (no building wrapper), so use
+   *  the roots themselves. Uses `parent` rather than `depth`/`level`, which is an MPTT artifact
    *  unreliable across the supported NetBox range. */
   _floorsFromLocations(locs) {
     const ids = new Set(locs.map(l => l.id));
-    const childrenOf = (pid) => locs.filter(l => l.parent === pid);
     const roots = locs.filter(l => l.parent == null || !ids.has(l.parent));
-    if (roots.length === 1) {
-      const kids = childrenOf(roots[0].id);
-      // Building wrapper: its children (floors) themselves have children (rooms). If the lone
-      // root's children are leaves, the root is itself a floor — keep the root.
-      if (kids.some(k => childrenOf(k.id).length > 0)) return kids;
-    }
-    return roots;
+    return roots.length === 1
+      ? locs.filter(l => l.parent === roots[0].id)
+      : roots;
   }
 
   /** Entering Location mode: a drawing with no Location token yet is treated as unassigned
