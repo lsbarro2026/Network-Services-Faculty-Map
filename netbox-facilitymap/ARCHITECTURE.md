@@ -514,7 +514,11 @@ Site slug — not the folder-name guess — flows downstream as the manifest `si
 later `NetBoxClient` lookups key off.
 
 It also carries `nbFloors` — the bound site's **floor Locations**, lazily fetched in the map
-step by `_ensureFloors` (`netbox.locations(slug)`, keeping the top-level `depth===0` entries;
+step by `_ensureFloors` (`netbox.locations(slug)`, then `_floorsFromLocations` walks the
+returned Locations' `parent` links to pick the floors: the site's layout is Site → building
+Location → floors → rooms, so floors are the children of the single building root — falling
+back to the roots themselves for a Site → floors → rooms layout. This uses `parent`, **not**
+`depth`/`level`, which is an MPTT artifact unreliable on NetBox 4.2+. `nbFloors`:
 `undefined`=not fetched, `'loading'`=in flight, array=done). A non-empty array puts the
 building in **Location mode**: each PDF's per-stem `assign` entry gains a `token` (a Location
 slug) + `label` (its name), and a non-null `token` takes precedence over `type`/`num` in
@@ -562,10 +566,10 @@ matching `/site\s*plan/i` seeds the siteplan and contributes no floors; the rest
 Level 1..N; also seeds `nbSite = null` and a per-PDF `frame` `{scale,x,y}`), resets
 `_bIdx = 0` + `_autoMapDone = false`, and calls `_stepBuildings` (the NetBox-binding step
 above, which then continues to `_stepMap`). The map step shows **one building at a time**
-(`buildings[_bIdx]`); when there are multiple buildings a nav row (`_buildingNav` — one button
-per building, the current one `.active`) appears above the building section for direct access.
-Switching calls `_saveDraft()` (POST to `api/import/save-draft`, writes `import-map.draft.json`
-under the working dir), sets `_bIdx` to the chosen building, and re-renders. `_applyDraft()` (GET `api/import/load-draft`) merges a saved draft into the
+(`buildings[_bIdx]`); when there are multiple buildings a nav row (`_buildingNav` — ← Previous /
+Next → with a "Building N of M" label) appears above the building section. Navigating calls
+`_saveDraft()` (POST to `api/import/save-draft`, writes `import-map.draft.json` under the working
+dir), steps `_bIdx`, and re-renders. `_applyDraft()` (GET `api/import/load-draft`) merges a saved draft into the
 freshly-built model by `folder` key (`name`/`slug`/`abbr`/`nbSite` + per-stem `assign`/`frame`)
 — new folders not in the draft keep their `_modelFromInventory` defaults; removed PDF stems are
 ignored. A global **size slider** (`_sizer`/`_applyThumbSize`,
@@ -676,7 +680,8 @@ admin-grantable model permission, stricter than login-only) — a POST without i
   caller has no delete permission over (`user=None`, the trusted import command, keeps the
   unrestricted behaviour). `_serialize_room`/`_trim` re-derive the room/Location shape from
   the FK, so name/slug/url are always current (no stale snapshot); `url` is made absolute
-  via `request.build_absolute_uri`.
+  via `request.build_absolute_uri`. `_trim` also returns `parent` (the parent Location id, a
+  plain FK column — used by the import wizard to walk the tree and pick floor Locations).
 - **NetBox reads** (`LoginRequiredMixin`, all object-permission scoped via
   `.restrict(request.user,'view')` — the ORM equivalents of `NetBoxProxy`):
   `NbRoomsView` (`api/netbox/rooms?site=&floor=` — child Locations of the floor Location,

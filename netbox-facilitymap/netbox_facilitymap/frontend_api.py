@@ -74,6 +74,10 @@ def _trim(loc, request):
         'name': loc.name,
         'slug': loc.slug,
         'url': request.build_absolute_uri(loc.get_absolute_url()),
+        # `parent` (a plain FK column, reliable on any queryset and across MPTT/tree-queries)
+        # lets the frontend walk the Location tree; `depth` is left for compatibility but is an
+        # MPTT-only `level` artifact and unreliable on NetBox 4.2+.
+        'parent': loc.parent_id,
         'depth': getattr(loc, 'level', 0),
     }
 

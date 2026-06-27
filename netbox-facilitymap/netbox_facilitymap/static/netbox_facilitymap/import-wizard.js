@@ -386,16 +386,16 @@ class ImportWizard {
     ]));
   }
 
-  /** Direct-access building navigation: one button per building, the current one active.
-   *  Switching saves the draft (same as the old prev/next paging) then re-renders. */
+  /** Building paging: ← Previous / Next → with a "Building N of M" label. Navigating saves the
+   *  draft, steps `_bIdx`, and re-renders. Factored into a helper so it can be reused. */
   _buildingNav() {
     const nav = Dom.el('div', { class: 'imp-nav' });
-    this.buildings.forEach((b, i) => {
-      nav.append(Dom.el('button', {
-        class: i === this._bIdx ? 'active' : '',
-        onclick: async () => { await this._saveDraft(); this._bIdx = i; this._stepMap(); },
-      }, b.name || b.folder));
-    });
+    const prev = Dom.el('button', { onclick: async () => { await this._saveDraft(); this._bIdx--; this._stepMap(); } }, '← Previous');
+    const next = Dom.el('button', { onclick: async () => { await this._saveDraft(); this._bIdx++; this._stepMap(); } }, 'Next →');
+    prev.disabled = this._bIdx === 0;
+    next.disabled = this._bIdx === this.buildings.length - 1;
+    nav.append(prev, Dom.el('span', { class: 'imp-nav-label' },
+      `Building ${this._bIdx + 1} of ${this.buildings.length}`), next);
     return nav;
   }
 
@@ -414,10 +414,26 @@ class ImportWizard {
       if (this._mapView && this.buildings[this._bIdx] === b) this._stepMap();
     };
     this.app.netbox.locations(slug)
-      // Floors are the parent Locations under the site (rooms are their children, per
-      // `NbRoomsView`), so keep only the top-level (depth 0) Locations as floor candidates.
-      .then((res) => settle((res.rooms || []).filter(r => (r.depth || 0) === 0)))
+      .then((res) => settle(this._floorsFromLocations(res.rooms || [])))
       .catch(() => settle([]));
+  }
+
+  /** Pick the floor Locations out of a site's flat Location list using the parent tree. The
+   *  layout is Site → building Location → floors → rooms, so the floors are the children of
+   *  the single building root. Falls back to a Site → floors → rooms layout (floors directly
+   *  under the site). Uses `parent` rather than `depth`/`level`, which is an MPTT artifact
+   *  unreliable across the supported NetBox range. */
+  _floorsFromLocations(locs) {
+    const ids = new Set(locs.map(l => l.id));
+    const childrenOf = (pid) => locs.filter(l => l.parent === pid);
+    const roots = locs.filter(l => l.parent == null || !ids.has(l.parent));
+    if (roots.length === 1) {
+      const kids = childrenOf(roots[0].id);
+      // Building wrapper: its children (floors) themselves have children (rooms). If the lone
+      // root's children are leaves, the root is itself a floor — keep the root.
+      if (kids.some(k => childrenOf(k.id).length > 0)) return kids;
+    }
+    return roots;
   }
 
   /** Entering Location mode: a drawing with no Location token yet is treated as unassigned
