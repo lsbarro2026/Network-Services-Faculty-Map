@@ -342,10 +342,6 @@ svg.grid-adjust .clickzone, svg.grid-adjust .arrow-hit { pointer-events: none; }
 /* ---- Settings view ---- */
 .settings-view { max-width: 640px; margin: 24px auto; padding: 0 16px; }
 .settings-view h2 { font-size: 18px; margin: 0 0 16px; }
-.settings-card { background: var(--panel); border: 1px solid var(--line);
-  border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow); }
-.settings-card h3 { font-size: 14px; margin: 0 0 8px; }
-.settings-card button { margin-top: 10px; }
 
 /* ---- Side panel ---- */
 #panel {
