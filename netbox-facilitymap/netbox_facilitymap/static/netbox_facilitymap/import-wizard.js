@@ -29,6 +29,9 @@ class ImportWizard {
     // dragged over the floor code, applied to every drawing. Both persist in the draft.
     this._assignMode = null;
     this._ocrRegion = null;
+    // Add-drawings flow: when true the upload step merges new PDFs into the current model
+    // (re-applying the saved draft so existing assignments survive) instead of starting fresh.
+    this._mergeMode = false;
   }
 
   // ---- helpers ----
@@ -92,7 +95,7 @@ class ImportWizard {
 
   // ---- step 1: upload ----
   _stepUpload() {
-    const view = this._stage('Import a facility');
+    const view = this._stage(this._mergeMode ? 'Add drawings' : 'Import a facility');
 
     const folderInput = Dom.el('input', {
       type: 'file', class: 'imp-file', multiple: 'multiple', accept: '.pdf',
@@ -115,10 +118,13 @@ class ImportWizard {
     view.append(folderInput);
     this._progress = Dom.el('div', { class: 'imp-progress hidden' });
     view.append(this._progress);
-    view.append(Dom.el('div', { class: 'imp-actions' }, [
-      Dom.el('button', { class: 'primary', onclick: () => this._scanAndMap() }, 'Continue to mapping'),
-      Dom.el('button', { onclick: () => this._reset() }, 'Start over'),
-    ]));
+    const cont = this._mergeMode
+      ? Dom.el('button', { class: 'primary', onclick: () => this._mergeUploads() }, 'Done adding')
+      : Dom.el('button', { class: 'primary', onclick: () => this._scanAndMap() }, 'Continue to mapping');
+    const back = this._mergeMode
+      ? Dom.el('button', { onclick: () => { this._mergeMode = false; this._stepMap(); } }, 'Cancel')
+      : Dom.el('button', { onclick: () => this._reset() }, 'Start over');
+    view.append(Dom.el('div', { class: 'imp-actions' }, [cont, back]));
   }
 
   _fromInput(fileList) {
@@ -178,7 +184,7 @@ class ImportWizard {
       } catch (e) { Toast.show('Upload failed: ' + e.message, true); return; }
     }
     this._progress.textContent = `Uploaded ${items.length} drawings — rendering previews…`;
-    this._scanAndMap();
+    if (this._mergeMode) this._mergeUploads(); else this._scanAndMap();
   }
 
   /** Upload a single `.zip`; the server extracts its PDFs (stripping any wrapper folder)
@@ -197,7 +203,7 @@ class ImportWizard {
       if (!r.ok || !j.ok) throw new Error(j.error || 'HTTP ' + r.status);
       this._progress.textContent = `Extracted ${j.count} drawings — rendering previews…`;
     } catch (e) { Toast.show('Zip upload failed: ' + e.message, true); return; }
-    this._scanAndMap();
+    if (this._mergeMode) this._mergeUploads(); else this._scanAndMap();
   }
 
   // ---- step 2: map ----
@@ -210,6 +216,35 @@ class ImportWizard {
     if (!this.inv.folders.length) { Toast.show('No PDFs uploaded yet', true); return this._stepUpload(); }
     this._modelFromInventory();
     this._bIdx = 0;
+    this._autoMapDone = false;
+    this._stepBuildings();
+  }
+
+  /** Add more drawing folders/PDFs to an in-progress or already-built facility without
+   *  resetting. Persists the current assignments as a draft first, then routes through the
+   *  normal upload step in "merge" mode so the re-scan re-applies that draft — existing drawings
+   *  keep their floors and only the newly added ones arrive unassigned. */
+  async _addDrawings() {
+    await this._saveDraft();
+    this._mergeMode = true;
+    this._stepUpload();
+  }
+
+  /** Finish an add-drawings upload: re-scan, rebuild the model, and re-apply the saved draft so
+   *  prior assignments survive (unlike `_scanAndMap`, which starts fresh). New folders surface
+   *  unbound in the binding step, which auto-skips back to the map once everything is bound. */
+  async _mergeUploads() {
+    try {
+      const inv = await Api.post('/api/import/scan', {});
+      if (!inv.ok) throw new Error(inv.error || 'scan failed');
+      this.inv = inv;
+    } catch (e) { Toast.show('Scan failed: ' + e.message, true); return; }
+    this._mergeMode = false;
+    if (!this.inv.folders.length) return this._stepMap();
+    this._modelFromInventory();
+    await this._applyDraft();
+    // Re-run the building→NetBox auto-match so a newly added, still-unbound building gets a
+    // suggested site (already-bound buildings are skipped, so confirmed bindings are untouched).
     this._autoMapDone = false;
     this._stepBuildings();
   }
@@ -581,10 +616,11 @@ class ImportWizard {
     view.append(this._buildActions());
   }
 
-  /** The Build / Start-over action row. Build is gated until every drawing is assigned to a
-   *  floor (no building left with an `unassigned` drawing) and a site-plan image is chosen;
-   *  while gated it shows a disabled button + a hint naming what's missing, so the button never
-   *  silently vanishes. "Start over" stays available regardless. */
+  /** The Build / Add-drawings / Start-over action row. Build is gated until every drawing is
+   *  assigned to a floor (no building left with an `unassigned` drawing) and a site-plan image is
+   *  chosen; while gated it shows a disabled button + a hint naming what's missing, so the button
+   *  never silently vanishes. "Add drawings" (additive upload) and "Start over" stay available
+   *  regardless. */
   _buildActions() {
     const unassigned = this._unassignedBuildings();
     const needSiteplan = !this.site.file;
@@ -603,6 +639,7 @@ class ImportWizard {
       actions.push(Dom.el('button', { class: 'primary', onclick: () => this._build() },
         'Build facility map'));
     }
+    actions.push(Dom.el('button', { onclick: () => this._addDrawings() }, '+ Add drawings'));
     actions.push(Dom.el('button', { onclick: () => this._reset() }, 'Start over'));
     return Dom.el('div', { class: 'imp-actions' }, actions);
   }
@@ -754,14 +791,17 @@ class ImportWizard {
 
   _pdfCard(b, p) {
     const a = b.assign[p.stem];
+    // A replaced drawing's thumbnail is regenerated at the same path, so bust the browser cache.
+    const bust = p._rev ? ('?v=' + p._rev) : '';
     let thumb;
     if (p.thumb) {
-      const img = Dom.el('img', { src: ImportWizard._media(p.thumb), loading: 'lazy' });
+      const img = Dom.el('img', { src: ImportWizard._media(p.thumb) + bust, loading: 'lazy' });
       thumb = Dom.el('div', { class: 'imp-thumb' }, [img]);
       // Lazily swap the small scan thumbnail for the full-scale render the first time the
       // card is enlarged or zoomed — keeps the initial grid light, sharpens on demand.
       let hires = false;
-      const upgrade = () => { if (!hires) { hires = true; img.src = ImportWizard._previewUrl(p.pdf); } };
+      const upgrade = () => { if (!hires) { hires = true;
+        img.src = ImportWizard._previewUrl(p.pdf) + (p._rev ? '&v=' + p._rev : ''); } };
       this._cards.push({ upgrade });
       this._attachZoomPan(thumb, img, b.frame[p.stem],
         { onClick: () => this._lightbox(p), onZoom: upgrade });
@@ -769,12 +809,49 @@ class ImportWizard {
       thumb = Dom.el('div', { class: 'imp-thumb imp-nothumb' }, p.file);
     }
     const body = Dom.el('div', { class: 'imp-cardbody' }, [
-      Dom.el('div', { class: 'imp-cardfile' }, p.file),
+      Dom.el('div', { class: 'imp-cardfile' }, [
+        Dom.el('span', { class: 'imp-cardname' }, p.file),
+        this._replaceControl(b, p),
+      ]),
       this._floorButtons(b, a),
     ]);
     // Flag a still-unassigned drawing so it stands out in the grid (and in the gated build hint).
     const cls = 'imp-card' + (a.type === 'unassigned' ? ' unassigned' : '');
     return Dom.el('div', { class: cls }, [thumb, body]);
+  }
+
+  /** Per-drawing "Replace" control: upload a newer PDF for this floor in place. The new bytes are
+   *  written to the EXISTING upload path (same folder + filename), so the drawing's stem — and
+   *  therefore its floor id and any rooms already drawn on that floor — are preserved. */
+  _replaceControl(b, p) {
+    const input = Dom.el('input', { type: 'file', accept: '.pdf', style: 'display:none',
+      onchange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) this._replacePdf(b, p, f); } });
+    const btn = Dom.el('button', { class: 'imp-replace',
+      title: 'Upload a newer drawing for this floor. Keeps the same floor assignment, so rooms '
+        + 'already drawn on it stay.',
+      onclick: () => input.click() }, 'Replace');
+    return Dom.el('span', { class: 'imp-replace-wrap' }, [btn, input]);
+  }
+
+  /** Overwrite one drawing's PDF in place, then re-scan to refresh its thumbnail. The upload path
+   *  is fixed to the existing filename (regardless of the picked file's name) so the floor id is
+   *  unchanged — id-preserving, so rooms drawn on that floor survive the next build. */
+  async _replacePdf(b, p, file) {
+    const apiBase = window.MAP ? window.MAP.api : '/api/';
+    const headers = {};
+    if (window.MAP && window.MAP.csrf) headers['X-CSRFToken'] = window.MAP.csrf;
+    try {
+      const fd = new FormData();
+      fd.append('file', file, p.file);
+      const r = await fetch(apiBase + 'import/upload?path=' + encodeURIComponent(b.folder + '/' + p.file),
+        { method: 'POST', headers, body: fd });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      try { const inv = await Api.post('/api/import/scan', {}); if (inv.ok) this.inv = inv; }
+      catch (_) { /* the existing thumbnail stays until the next scan */ }
+      p._rev = (p._rev || 0) + 1;
+      Toast.show('Replaced ' + p.file);
+      this._stepMap();
+    } catch (e) { Toast.show('Replace failed: ' + e.message, true); }
   }
 
   /** Floor selector for one drawing, as a row of buttons. In Location mode (the building's
@@ -978,6 +1055,33 @@ class ImportWizard {
       .map(b => b.name || b.folder);
   }
 
+  /** Floors that currently hold rooms but whose id won't exist after this build — i.e. the
+   *  rebuild would orphan their rooms. Compares the keys the build will produce
+   *  (`siteSlug/(abbr+token)`, mirroring `preprocess.build`) against the live manifest's floors
+   *  and their room counts. Returns `[{ key, label, count }]`; empty when nothing is at risk
+   *  (e.g. a pure PDF replacement, where the id is unchanged). */
+  async _orphanedFloors(map) {
+    const store = this.app.store;
+    if (!store || !store.manifest) return [];
+    const newKeys = new Set();
+    for (const folder in map.buildings) {
+      const mb = map.buildings[folder];
+      for (const stem in mb.floors) newKeys.add(mb.slug + '/' + (mb.abbr + mb.floors[stem]));
+    }
+    // Fetch annotations fresh so the room counts reflect the current DB, not a stale cache.
+    let anns = store.annotations || {};
+    try { anns = await Api.get('/api/annotations'); } catch (_) { /* fall back to the cache */ }
+    const out = [];
+    for (const b of store.manifest.buildings) {
+      for (const f of b.floors) {
+        const key = b.dir + '/' + f.id;
+        const n = (anns[key] && anns[key].rooms && anns[key].rooms.length) || 0;
+        if (n && !newKeys.has(key)) out.push({ key, label: b.name + ' / ' + f.label, count: n });
+      }
+    }
+    return out;
+  }
+
   // ---- step 3: build ----
   async _build() {
     const map = { siteplan: this.site.file
@@ -995,6 +1099,17 @@ class ImportWizard {
     }
     if (!Object.keys(map.buildings).length) { Toast.show('Assign at least one floor', true); return; }
 
+    // Re-assigning a drawing's floor or re-binding a building changes the floor id; rooms drawn
+    // on the old id are no longer in the rebuilt manifest. Warn before discarding them.
+    const orphaned = await this._orphanedFloors(map);
+    if (orphaned.length) {
+      const lines = orphaned.map(o => '  • ' + o.label + '  ('
+        + o.count + (o.count === 1 ? ' room' : ' rooms') + ')');
+      if (!confirm('This rebuild changes these floors’ ids, so the rooms drawn on them will be '
+          + 'removed:\n\n' + lines.join('\n') + '\n\nContinue and discard those rooms?'))
+        return this._stepMap();
+    }
+
     const view = this._stage('Building facility map…');
     view.append(Dom.el('div', { class: 'imp-spinner' },
       'Rendering ' + Object.keys(map.buildings).length + ' buildings — this can take a minute.'));
@@ -1002,6 +1117,13 @@ class ImportWizard {
       const r = await Api.post('/api/import/build', map);
       if (!r.ok) throw new Error(r.error || 'build failed');
       await this.app.store.load();
+      // Discard the rooms the user agreed to drop: removing the orphaned floors and re-saving
+      // routes the delete through the authoritative, permission-scoped `sync_rooms` (no new
+      // endpoint, no loosened scoping).
+      if (orphaned.length) {
+        for (const o of orphaned) delete this.app.store.annotations[o.key];
+        try { await this.app.store.saveAnnotations(); } catch (_) { /* best effort cleanup */ }
+      }
       Toast.show('Facility imported');
       this.app.go('#/'); this.app.router();
     } catch (e) {
@@ -1018,6 +1140,7 @@ class ImportWizard {
     this._autoMapDone = false;
     this._assignMode = null;
     this._ocrRegion = null;
+    this._mergeMode = false;
     this._stepUpload();
   }
 }

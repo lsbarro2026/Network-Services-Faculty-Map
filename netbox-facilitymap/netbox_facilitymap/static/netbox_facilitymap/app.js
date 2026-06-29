@@ -55,11 +55,12 @@ class App {
     stage.append(Dom.el('div', { class: 'settings-view' }, [
       Dom.el('h2', {}, 'Settings'),
       Dom.el('button', { class: 'primary', onclick: () => this.go('/import') },
-        'Import a facility from PDFs'),
+        'Import or edit a facility'),
       Dom.el('div', { class: 'hint' },
-        'Importing renders a folder of floor-plan PDFs into the map. Rack inventory is '
-        + 'pulled per room from the floor view: Edit → Place racks → open a datacenter '
-        + 'room → Refresh racks.'),
+        'Renders floor-plan PDFs into the map. Re-opening it resumes onto the current facility, '
+        + 'so you can add or replace drawings and fix building/floor assignments without starting '
+        + 'over. Rack inventory is pulled per room from the floor view: Edit → Place racks → open '
+        + 'a datacenter room → Refresh racks.'),
     ]));
   }
 

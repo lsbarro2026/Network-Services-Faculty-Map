@@ -3,6 +3,37 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.5.0 — Edit buildings & floors after a build (post-build re-import)
+- **Edit a built facility without "Start over".** A normal Build already leaves `uploads/` and
+  the draft in place, so re-opening the wizard resumes onto the current facility; this release
+  makes that **discoverable** and adds **granular, non-destructive editing** for three needs —
+  fix a mistake, replace a drawing, add a building/floor — version → `1.5.0`:
+  - **Entry points.** An *Edit buildings & floors* button on the siteplan view-mode toolbar
+    (`SiteplanEditor._toolbar`) and a relabelled *Import or edit a facility* button on the
+    Settings page, both routing to `#/import` (distinct from the destructive *Start over*).
+  - **Replace a floorplan in place.** A per-card **Replace** control (`_replaceControl`/
+    `_replacePdf`) uploads a newer drawing to the floor's existing `uploads/` path, so the
+    drawing stem — and therefore the floor id and any rooms drawn on it — are **preserved**
+    (id-preserving; rooms survive). A re-scan refreshes the thumbnail (cache-busted per `_rev`).
+  - **Add a building/floor.** A **+ Add drawings** action (`_addDrawings`/`_mergeUploads`) reuses
+    the upload step in "merge" mode (`_mergeMode`): it saves the current assignments as a draft,
+    accepts new folders/PDFs, then re-scans and **re-applies the draft** so existing assignments
+    survive and only the new drawings arrive unassigned. It re-runs the building auto-match for
+    any new unbound building. Adding only **re-points** at existing NetBox Sites/floor Locations —
+    the wizard never creates Locations.
+  - **Room-safety warning.** Re-assigning a drawing's floor or re-binding a building changes the
+    floor id, orphaning rooms keyed to the old id. `_build` now runs `_orphanedFloors` before a
+    rebuild: it diffs the about-to-build floor keys against the live manifest's floors-with-rooms
+    and **warns + confirms** (naming each affected floor + room count) before proceeding. On
+    confirm it discards those rooms through the authoritative, permission-scoped `sync_rooms`
+    path (an `/api/annotations` save with the orphaned keys removed) — **no new endpoint, no
+    loosened delete scoping**. Replacing a PDF with the same assignment is unaffected (id
+    unchanged, no warning).
+  - **No backend changes.** Replace/add reuse the existing `upload`/`upload-zip`/`scan` endpoints;
+    the room-safety check is computed in the browser from the manifest + annotations and the
+    discard reuses the existing annotations save. `imports.py`/`preprocess.py`/`frontend_api.py`
+    are untouched, so the security/data-safety posture is unchanged.
+
 ## 1.4.0 — Automatic floor assignment (offline OCR)
 - **Import.** The map step now opens on a choice between **Automatic** and **Manual** floor
   assignment (`_assignMode`), version → `1.4.0`:

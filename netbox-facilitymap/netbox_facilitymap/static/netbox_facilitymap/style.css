@@ -467,7 +467,11 @@ button.wide { width: 100%; margin-bottom: 6px; justify-content: center; }
 .imp-cardbody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px;
   padding: 10px 12px; }
 .imp-cardfile { font-family: var(--mono); font-size: 11px; color: var(--muted);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  display: flex; align-items: center; gap: 8px; }
+.imp-cardname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* Per-drawing "Replace" affordance — swap a floor's PDF for a newer drawing, id-preserving. */
+.imp-replace-wrap { margin-left: auto; flex: 0 0 auto; }
+.imp-replace { height: 22px; padding: 0 8px; font-size: 11px; font-family: inherit; }
 .imp-floors { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .imp-floor { height: 28px; padding: 0 10px; font-size: 12px; }
 /* A drawing the user hasn't assigned to a floor yet (Location mode) — flagged until they pick. */

@@ -509,9 +509,11 @@ NetBox → Map drawings to floors → Build**). Constructor state: `inv` (scan i
 `buildings` (per-folder model), `site` (chosen siteplan), `thumbWidth` (slider value),
 `_bIdx` (index of the building currently visible in the map step), `_autoMapDone` (the
 building→NetBox auto-match pass runs once per scan), `_assignMode` (`null`=ask /
-`'manual'`=assign each card by hand / `'auto'`=read floor codes by OCR), and `_ocrRegion`
-(the normalized 0..1 box the user dragged over the floor code in automatic mode). Both
-`_assignMode` and `_ocrRegion` persist in the draft.
+`'manual'`=assign each card by hand / `'auto'`=read floor codes by OCR), `_ocrRegion`
+(the normalized 0..1 box the user dragged over the floor code in automatic mode), and
+`_mergeMode` (when `true`, the upload step **adds** drawings to the current facility instead of
+starting fresh — see *Post-build editing* below). Both `_assignMode` and `_ocrRegion` persist in
+the draft.
 
 Each building object carries an `nbSite` field — `{id,slug,name,auto}` once bound to a NetBox
 Site in the buildings step (`auto:true` = an unconfirmed auto-match), else `null`. The bound
@@ -601,8 +603,13 @@ per card the first time it's wheel-zoomed (`onZoom`) or when the size slider pas
 PDF iframe — see §10; dismiss: backdrop / ✕ / Esc), showing a brief "Rendering preview…" state
 until the render resolves.
 Cards render **one per row** (`imp-grid` is a single column): the thumbnail sits on the left
-(sized by the `--imp-card-w`/`--imp-thumb-h` vars) and the file name + floor selector on the
-right (`imp-cardbody`). The floor selector (`_floorButtons`) is a **button row**: in Location
+(sized by the `--imp-card-w`/`--imp-thumb-h` vars) and the file name + a **Replace** control +
+floor selector on the right (`imp-cardbody`). The **Replace** affordance (`_replaceControl`/
+`_replacePdf`) uploads a newer drawing for that floor **in place**: the new bytes are POSTed to
+the drawing's existing `uploads/<folder>/<file>` path (fixed to `p.file`, regardless of the
+picked file's name), so the stem — and therefore the floor id and any rooms drawn on it — are
+preserved (id-preserving; rooms survive). A re-scan regenerates the thumbnail and a per-PDF
+`_rev` counter busts the image cache. The floor selector (`_floorButtons`) is a **button row**: in Location
 mode one button per `nbFloors` Location (click writes its `slug`→`token`, `name`→`label`),
 otherwise a floor-type fallback (`— none —`/Basement/Ground/Level 1..N/Roof) that sets
 `type`/`num`. `— none —` is offered in both modes; assigning two sheets the **same** Location
@@ -637,13 +644,37 @@ back to hand assignment.
 **Build** (`_buildActions`/`_build`): the **Build facility map** button is gated — it stays a
 disabled button + hint (never silently hidden) until every building's drawings are assigned
 (`_unassignedBuildings()`, a cheap synchronous pass naming the offending buildings) **and** a
-site-plan image is chosen; "Start over" stays available throughout. `_build` then assembles
-`{siteplan, buildings}`, POSTs `/api/import/build`, then
-`store.load()` + `router()` to land on the new map. `_reset` clears via `/api/import/reset`
-(also deletes the draft) and resets `_bIdx = 0`. No modal helper exists, so each step replaces
-`#stage`. See §10 *In-app import*. (This file is identical to the tool's wizard except for the
-multipart upload and the `window.MAP.media` thumbnail rebasing — the plugin's upload endpoint
-streams the file off a multipart form rather than the raw body.)
+site-plan image is chosen; **+ Add drawings** and **Start over** stay available throughout.
+Before posting, `_build` runs `_orphanedFloors(map)` — a **room-safety check** (see §10 *Floor
+ids and rooms*): it computes the floor keys the rebuild will produce
+(`siteSlug/(abbr+token)`, mirroring `preprocess.build`) and compares them against the live
+manifest's floors and their room counts (fetched fresh from `/api/annotations`). Any current
+floor that **holds rooms but whose key won't survive** the rebuild (because a drawing was
+re-assigned or a building re-bound, changing its id) is listed in a `confirm()` dialog; cancel
+returns to the map step. On confirm, `_build` assembles `{siteplan, buildings}`, POSTs
+`/api/import/build`, then `store.load()`. It then **discards** the agreed-upon orphaned floors
+by deleting their keys from `store.annotations` and calling `store.saveAnnotations()` — the
+delete rides the authoritative, permission-scoped `sync_rooms` path (no new endpoint, no
+loosened scoping) — before `router()` lands on the new map. `_reset` clears via
+`/api/import/reset` (also deletes the draft) and resets `_bIdx = 0` + `_mergeMode = false`.
+
+**Post-build editing** (re-import without "Start over"): a normal Build never clears `uploads/`
+or the draft (only `_reset`/`ResetView` does), so **re-opening the wizard resumes onto the
+current facility** — the discoverable entry points are the siteplan view-mode toolbar's *Edit
+buildings & floors* button (`SiteplanEditor._toolbar`) and the Settings page's *Import or edit a
+facility* button, both routing to `#/import`. From the resumed map step the user can: **fix a
+mistake** (re-bind a building in `_stepBuildings`, or re-assign a floor button — guarded by the
+room-safety warning above); **replace a floorplan** in place (the per-card *Replace* control,
+id-preserving); or **add a building/floor** via **+ Add drawings** (`_addDrawings`): it saves the
+current state as a draft, sets `_mergeMode = true`, and reuses `_stepUpload` so the same
+folder/zip upload UI runs in "merge" mode. `_mergeUploads` then re-scans, rebuilds the model, and
+**re-applies the draft** (so existing assignments survive — unlike `_scanAndMap`, which starts
+fresh), re-runs the building auto-match for any new unbound building, and returns to
+`_stepBuildings`. Adding a building only **re-points** at an existing NetBox Site/floor Locations
+— the wizard never creates Locations. No modal helper exists, so each step replaces `#stage`. See
+§10 *In-app import*. (This file is identical to the tool's wizard except for the multipart upload
+and the `window.MAP.media` thumbnail rebasing — the plugin's upload endpoint streams the file off
+a multipart form rather than the raw body.)
 
 ### app.js — `App` (orchestrator + entry)
 Owns singletons `store`, `netbox`, `grid`, and cross-view state `mode`
@@ -1200,6 +1231,16 @@ point at the deep treatment.
   (and floors absent entirely) are deleted — but **scoped to `restrict(user,'delete')`**, so
   a save can't silently remove rooms the caller lacks delete permission over. Don't drop that
   scope on the editor path (the trusted import command passes `user=None` deliberately).
+- **Editing a built facility can change a floor id, which orphans its rooms.** `Room.floor_key`
+  is `"<site.slug>/<floorId>"` and the floor id is `abbr+token` (== the bound `Location.slug` in
+  Location mode). So re-assigning a drawing's floor **or** re-binding a building to a different
+  Site rewrites the manifest with a **new** floor id, leaving any `Room` rows on the **old** key
+  with no floor to display on. **Replacing a PDF while keeping the same assignment is safe** (id
+  unchanged). The wizard's `_build` guards this: `_orphanedFloors` diffs the about-to-build keys
+  against the live manifest's floors-with-rooms and **warns + confirms** before a rebuild that
+  would orphan rooms; on confirm it discards them through the authoritative, permission-scoped
+  `sync_rooms` (an `/api/annotations` save with those keys removed) — **not** a new delete path.
+  If you change how floor ids are derived, preserve this check or rooms will be silently lost.
 - Coordinates are stored **normalized 0..1** to the image — keep them
   resolution-independent (§6).
 - `App.mode` has **three** values (`'edit' | 'view' | 'racks'`); anything reading it

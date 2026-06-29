@@ -42,7 +42,8 @@ tool or external build step.
 The plugin ships with **no facility content**; you build it from your drawings:
 
 1. Open **Facility Map** (an empty install lands on the import wizard; otherwise use
-   **Settings → Import a facility from PDFs**).
+   **Settings → Import or edit a facility**, or the siteplan's **Edit buildings & floors**
+   button).
 2. **Upload** a folder of building drawings — one sub-folder per building, each holding its
    floor PDFs — or a single **`.zip`** of that folder (a wrapper folder inside the zip is
    stripped automatically). The overall siteplan image comes from either a PDF dropped **loose
@@ -56,6 +57,15 @@ The plugin ships with **no facility content**; you build it from your drawings:
    assign each card yourself.
 4. **Build** — the plugin renders the images + manifest and opens the map. Then draw rooms
    and bind each to its NetBox Location.
+
+**Editing a built facility.** Re-opening the wizard resumes onto the current facility (no
+"Start over" needed), so you can **fix** a building/floor assignment, **replace** a single
+floorplan in place (the per-drawing *Replace* button — keeps the same floor, so rooms already
+drawn on it stay), or **add** a building/floor (*+ Add drawings* — existing assignments are
+preserved; only the new drawings need assigning). Adding a building re-points at an existing
+NetBox Site/Location — create the Location in NetBox first. Re-assigning a drawing's floor or
+re-binding a building **changes that floor's id**, so any rooms drawn on it are dropped; the
+wizard warns and asks you to confirm before discarding them.
 
 Rendered images, thumbnails, the manifest, and uploaded PDFs live under a writable working
 directory — `<MEDIA_ROOT>/netbox_facilitymap/` by default (override with the `work_dir`

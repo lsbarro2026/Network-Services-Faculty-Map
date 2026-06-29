@@ -78,8 +78,14 @@ class SiteplanEditor extends Editor {
     const editBtn = Dom.el('button', { class: this.editing() ? 'active' : '',
       html: Icons.edit + '<span>' + (this.editing() ? 'Editing areas' : 'Edit building areas') + '</span>' });
     editBtn.onclick = () => { this.app.siteEdit = !this.app.siteEdit; this.show(); };
-    if (!this.editing())
-      return [editBtn, Dom.el('span', { class: 'hint' }, 'Click a building, or use the index →')];
+    if (!this.editing()) {
+      // Re-enter the import wizard to add/replace drawings or fix a building/floor assignment
+      // (it resumes onto the current facility — distinct from the destructive Start over).
+      const importBtn = Dom.el('button', { onclick: () => this.app.go('/import') },
+        'Edit buildings & floors');
+      return [editBtn, importBtn,
+        Dom.el('span', { class: 'hint' }, 'Click a building, or use the index →')];
+    }
 
     const addBtn = Dom.el('button', { onclick: () => this.beginDraw(
       'Click to outline a building · Backspace undoes a point · Enter/double-click to close'),
