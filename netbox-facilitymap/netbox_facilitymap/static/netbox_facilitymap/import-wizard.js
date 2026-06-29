@@ -333,10 +333,7 @@ class ImportWizard {
     if (!buildings.length) return this._stepMap();   // siteplan-only import — nothing to bind
 
     const view = this._stage('Map buildings to NetBox');
-    view.append(Dom.el('p', { class: 'hint' },
-      'Bind each building to its NetBox site so rooms can be linked to Locations later. We '
-      + 'matched them automatically where we could — confirm those and pick a site for any '
-      + 'left unbound.'));
+    view.append(Dom.el('p', { class: 'hint' }, 'Bind each building to its NetBox site.'));
 
     if (!this._autoMapDone) {
       view.append(Dom.el('p', { class: 'imp-progress' }, 'Matching buildings to NetBox…'));
@@ -413,13 +410,13 @@ class ImportWizard {
     const choose = (mode) => async () => { this._assignMode = mode; await this._saveDraft(); this._stepMap(); };
     const auto = Dom.el('div', { class: 'imp-choice' }, [
       Dom.el('h3', {}, 'Automatic'),
-      Dom.el('p', {}, 'Mark once where the floor code sits on a drawing; we read that spot on '
-        + 'every drawing and assign the floors for you. You confirm anything we’re unsure about.'),
+      Dom.el('p', {}, 'Mark the floor code once; we read it on every drawing and assign floors '
+        + 'for you.'),
       Dom.el('button', { class: 'primary', onclick: choose('auto') }, 'Read floor codes for me'),
     ]);
     const manual = Dom.el('div', { class: 'imp-choice' }, [
       Dom.el('h3', {}, 'Manual'),
-      Dom.el('p', {}, 'Assign each drawing to its floor yourself, one card at a time.'),
+      Dom.el('p', {}, 'Assign each drawing yourself, one at a time.'),
       Dom.el('button', { onclick: choose('manual') }, 'Assign them myself'),
     ]);
     view.append(Dom.el('div', { class: 'imp-choices' }, [auto, manual]));
@@ -438,8 +435,7 @@ class ImportWizard {
 
     const view = this._stage('Mark the floor code');
     view.append(Dom.el('p', { class: 'hint' },
-      'Drag a tight box around the floor code on this sample drawing. We’ll read the same spot '
-      + 'on every drawing to assign its floor.'));
+      'Drag a box around the floor code on this sample.'));
 
     const img = Dom.el('img', { class: 'imp-region-img', src: ImportWizard._previewUrl(p.pdf) });
     const sel = Dom.el('div', { class: 'imp-region-sel hidden' });
@@ -594,9 +590,7 @@ class ImportWizard {
     const view = this._stage('Map drawings to floors');
     this._mapView = view;
     this._cards = [];   // {upgrade()} per card — lets the size slider swap in hi-res renders
-    view.append(Dom.el('p', { class: 'hint' },
-      'Name each building and assign every drawing to a floor. Click a card for a full '
-      + 'preview, or drag the size slider to enlarge every thumbnail at once.'));
+    view.append(Dom.el('p', { class: 'hint' }, 'Assign every drawing to a floor.'));
     if (this._assignMode === 'auto') view.append(this._autoBanner());
 
     view.append(this._sizer());
@@ -631,8 +625,7 @@ class ImportWizard {
       actions.push(blocked);
       const reasons = [];
       if (unassigned.length)
-        reasons.push('Assign every drawing to a floor first — still unassigned in: '
-          + unassigned.join(', ') + '.');
+        reasons.push('Unassigned drawings in: ' + unassigned.join(', ') + '.');
       if (needSiteplan) reasons.push('Choose a site-plan image above.');
       actions.push(Dom.el('span', { class: 'hint' }, reasons.join(' ')));
     } else {

@@ -57,10 +57,8 @@ class App {
       Dom.el('button', { class: 'primary', onclick: () => this.go('/import') },
         'Import or edit a facility'),
       Dom.el('div', { class: 'hint' },
-        'Renders floor-plan PDFs into the map. Re-opening it resumes onto the current facility, '
-        + 'so you can add or replace drawings and fix building/floor assignments without starting '
-        + 'over. Rack inventory is pulled per room from the floor view: Edit → Place racks → open '
-        + 'a datacenter room → Refresh racks.'),
+        'Render floor-plan PDFs into the map. Re-open it to add, replace, or reassign drawings '
+        + 'without starting over.'),
     ]));
   }
 

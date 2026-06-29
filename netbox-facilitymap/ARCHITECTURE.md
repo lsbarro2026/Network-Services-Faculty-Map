@@ -1487,3 +1487,11 @@ canvas gets the whole viewport, matching the standalone tool.
   is `grab`, `svg.panning` is `grabbing`, `svg.draw-active` is `crosshair`.
 - Class names are load-bearing (the JS builds DOM with them) — restyle freely but
   do not rename.
+- **Instructional copy is terse** (matches NetBox's own `help_text` convention): a `.hint`
+  (or wizard `.imp-choice`/`.imp-automode`) string is a label plus **at most one short line**,
+  never narration of what the UI already shows. Per-control detail (rotate/resize handles, snap
+  shortcuts) rides the control via `title=`; transient how-to (drawing a polygon/route, arranging
+  sheets) rides the contextual `beginDraw` banner or a `Toast`, shown **only during** the action;
+  deeper "how it works" detail lives in these docs, not always-on UI prose. A gated hint still
+  has to name what's missing (e.g. the Build gate lists unassigned buildings) — shorten the
+  wording, keep the information.

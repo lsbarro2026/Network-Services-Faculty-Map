@@ -669,7 +669,7 @@ class FloorEditor extends Editor {
         html: Icons.edit + '<span>Edit label</span>' }));
 
     body.append(Dom.el('div', { class: 'hint' },
-      'Drag a node to bend the route · drag a midpoint to add a turn · right-click a node to remove it.'));
+      'Drag a node to bend · midpoint adds a turn · right-click removes.'));
     body.append(Dom.el('button', { class: 'wide danger', onclick: () => this.deleteArrow(arrow) }, 'Delete arrow'));
   }
 
@@ -819,9 +819,8 @@ class FloorEditor extends Editor {
     const placedKey = new Set(mine().map(p => p.kind + ':' + p.id));
 
     body.append(Dom.el('div', { class: 'hint' },
-      'Click a rack or device to drop it in the room, then drag it into place. A selected '
-      + 'marker has a top handle to rotate and a corner handle to resize; Delete removes it. '
-      + 'Click a placed (✓) item below to remove it.'));
+      'Click an item to drop it in the room, then drag to place. Click a placed (✓) item to '
+      + 'remove it.'));
 
     const section = (heading, items, kind) => {
       body.append(Dom.el('div', { class: 'field' }, Dom.el('label', {}, heading + ' (' + items.length + ')')));
@@ -895,8 +894,8 @@ class FloorEditor extends Editor {
     ]));
 
     body.append(Dom.el('div', { class: 'hint' },
-      'Drag the marker to move (snaps to grid), the top handle to rotate (' + ANGLE_STEP
-      + '°), the corner to resize. Hold Alt to bypass snapping.'));
+      'Drag to move (snaps to grid) · top handle rotates (' + ANGLE_STEP
+      + '°) · corner resizes · Alt bypasses snapping.'));
 
     body.append(Dom.el('button', { class: 'wide', onclick: () => this.editLabel(p, room),
       html: Icons.edit + '<span>Edit label</span>' }));

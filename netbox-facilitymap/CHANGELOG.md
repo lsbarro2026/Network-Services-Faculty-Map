@@ -3,6 +3,16 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.5.1 — Concise instructional copy
+- **Tightened the in-app help text** to match NetBox's terse `help_text` convention — a label
+  plus at most one short line, no narration of what the UI already shows. No behaviour change;
+  copy only. Import wizard: the *Map buildings*, *assign-choice*, *region-pick*, and *map* step
+  hints, plus the gated Build reason (still names the unassigned buildings, just shorter).
+  Settings: the import blurb. Floor/label/rack panels: the place-racks, marker-manipulation,
+  route-node, and label hints (per-control detail no longer repeated across panels). Contextual
+  draw banners and `title=` tooltips are unchanged (already the right pattern). New §11 doc
+  convention records the rule so future strings stay terse — version → `1.5.1`.
+
 ## 1.5.0 — Edit buildings & floors after a build (post-build re-import)
 - **Edit a built facility without "Start over".** A normal Build already leaves `uploads/` and
   the draft in place, so re-opening the wizard resumes onto the current facility; this release

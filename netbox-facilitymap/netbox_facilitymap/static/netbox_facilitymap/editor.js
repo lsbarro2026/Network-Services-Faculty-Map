@@ -533,8 +533,8 @@ class Editor {
     const body = Dom.$('#panel-body'); body.innerHTML = '';
 
     body.append(Dom.el('div', { class: 'hint' },
-      'Drag the label to move (snaps to grid), the top handle to rotate (' + ANGLE_STEP
-      + '°), the corner to resize. Hold Alt to bypass snapping.'));
+      'Drag to move (snaps to grid) · top handle rotates (' + ANGLE_STEP
+      + '°) · corner resizes · Alt bypasses snapping.'));
 
     const field = (label, ctl) => Dom.el('div', { class: 'field' }, [Dom.el('label', {}, label), ctl]);
 
