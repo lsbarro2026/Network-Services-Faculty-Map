@@ -570,7 +570,9 @@ Level 1..N; also seeds `nbSite = null` and a per-PDF `frame` `{scale,x,y}`), res
 `_bIdx = 0` + `_autoMapDone = false`, and calls `_stepBuildings` (the NetBox-binding step
 above, which then continues to `_stepMap`). The map step shows **one building at a time**
 (`buildings[_bIdx]`); when there are multiple buildings a nav row (`_buildingNav` — ← Previous /
-Next → with a "Building N of M" label) appears above the building section. Navigating calls
+Next → with a "Building N of M" label) appears **both above and below** the building section
+(the bottom copy spares the user a scroll back up after assigning a building's drawings; each
+render rebuilds both, keeping them in sync). Navigating calls
 `_saveDraft()` (POST to `api/import/save-draft`, writes `import-map.draft.json` under the working
 dir), steps `_bIdx`, and re-renders. `_applyDraft()` (GET `api/import/load-draft`) merges a saved draft into the
 freshly-built model by `folder` key (`name`/`slug`/`abbr`/`nbSite` + per-stem `assign`/`frame`)
@@ -595,10 +597,18 @@ mode one button per `nbFloors` Location (click writes its `slug`→`token`, `nam
 otherwise a floor-type fallback (`— none —`/Basement/Ground/Level 1..N/Roof) that sets
 `type`/`num`. `— none —` is offered in both modes; assigning two sheets the **same** Location
 groups them into one multi-sheet floor (same token). On entering Location mode,
-`_normalizeToLocations` marks any token-less drawing `none` so it stays unassigned until a
-Location is picked. `_resolveFloors` turns the assignments into the `{stem: token}` table
-(`token` passed through directly; legacy `same` reuses the previous token → multi-page).
-**Build** (`_build`): assembles `{siteplan, buildings}`, POSTs `/api/import/build`, then
+`_normalizeToLocations` marks any token-less drawing **`unassigned`** — a state distinct from a
+deliberate `— none —` (`type:'none'`): `unassigned` gates the build until a Location is picked,
+whereas `— none —` is a real choice that excludes the drawing and passes the gate. An
+`unassigned` card is flagged (`.imp-card.unassigned` + a "⚠ pick a floor" badge).
+`_resolveFloors` turns the assignments into the `{stem: token}` table (`token` passed through
+directly; `unassigned`/`none` contribute no floor; legacy `same` reuses the previous token →
+multi-page).
+**Build** (`_buildActions`/`_build`): the **Build facility map** button is gated — it stays a
+disabled button + hint (never silently hidden) until every building's drawings are assigned
+(`_unassignedBuildings()`, a cheap synchronous pass naming the offending buildings) **and** a
+site-plan image is chosen; "Start over" stays available throughout. `_build` then assembles
+`{siteplan, buildings}`, POSTs `/api/import/build`, then
 `store.load()` + `router()` to land on the new map. `_reset` clears via `/api/import/reset`
 (also deletes the draft) and resets `_bIdx = 0`. No modal helper exists, so each step replaces
 `#stage`. See §10 *In-app import*. (This file is identical to the tool's wizard except for the

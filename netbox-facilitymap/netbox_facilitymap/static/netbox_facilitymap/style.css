@@ -468,8 +468,11 @@ button.wide { width: 100%; margin-bottom: 6px; justify-content: center; }
   padding: 10px 12px; }
 .imp-cardfile { font-family: var(--mono); font-size: 11px; color: var(--muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.imp-floors { display: flex; flex-wrap: wrap; gap: 6px; }
+.imp-floors { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .imp-floor { height: 28px; padding: 0 10px; font-size: 12px; }
+/* A drawing the user hasn't assigned to a floor yet (Location mode) — flagged until they pick. */
+.imp-card.unassigned { border-color: var(--warn); box-shadow: inset 3px 0 0 var(--warn); }
+.imp-floor-warn { font-size: 12px; font-weight: 600; color: var(--warn); }
 /* "Map buildings to NetBox" step — one bind card per building folder. */
 .imp-bind { background: var(--panel); border: 1px solid var(--line);
   border-radius: var(--radius-lg); padding: 14px; margin-bottom: 14px; box-shadow: var(--shadow); }

@@ -378,12 +378,37 @@ class ImportWizard {
     view.append(this._buildingSection(b));
     this._applyThumbSize();   // re-apply now cards exist, so a large size upgrades them to hi-res
 
-    const buildBtn = Dom.el('button', { class: 'primary', onclick: () => this._build() },
-      'Build facility map');
-    view.append(Dom.el('div', { class: 'imp-actions' }, [
-      buildBtn,
-      Dom.el('button', { onclick: () => this._reset() }, 'Start over'),
-    ]));
+    // A second nav at the bottom so the user isn't forced back to the top after assigning a
+    // building's drawings. Re-rendering rebuilds both bars each switch, keeping them in sync.
+    if (this.buildings.length > 1) view.append(this._buildingNav());
+
+    view.append(this._buildActions());
+  }
+
+  /** The Build / Start-over action row. Build is gated until every drawing is assigned to a
+   *  floor (no building left with an `unassigned` drawing) and a site-plan image is chosen;
+   *  while gated it shows a disabled button + a hint naming what's missing, so the button never
+   *  silently vanishes. "Start over" stays available regardless. */
+  _buildActions() {
+    const unassigned = this._unassignedBuildings();
+    const needSiteplan = !this.site.file;
+    const actions = [];
+    if (unassigned.length || needSiteplan) {
+      const blocked = Dom.el('button', { class: 'primary' }, 'Build facility map');
+      blocked.disabled = true;
+      actions.push(blocked);
+      const reasons = [];
+      if (unassigned.length)
+        reasons.push('Assign every drawing to a floor first — still unassigned in: '
+          + unassigned.join(', ') + '.');
+      if (needSiteplan) reasons.push('Choose a site-plan image above.');
+      actions.push(Dom.el('span', { class: 'hint' }, reasons.join(' ')));
+    } else {
+      actions.push(Dom.el('button', { class: 'primary', onclick: () => this._build() },
+        'Build facility map'));
+    }
+    actions.push(Dom.el('button', { onclick: () => this._reset() }, 'Start over'));
+    return Dom.el('div', { class: 'imp-actions' }, actions);
   }
 
   /** Building paging: ← Previous / Next → with a "Building N of M" label. Navigating saves the
@@ -440,13 +465,15 @@ class ImportWizard {
     return floors.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
   }
 
-  /** Entering Location mode: a drawing with no Location token yet is treated as unassigned
-   *  (`none`) so it contributes no floor until the user picks a Location button — the
-   *  auto Level 1..N defaults only apply to the floor-type fallback. */
+  /** Entering Location mode: a drawing with no Location token yet is marked `unassigned` so it
+   *  contributes no floor and gates the build until the user picks a Location button — the auto
+   *  Level 1..N defaults only apply to the floor-type fallback. `unassigned` is distinct from a
+   *  deliberate `— none —` (`type:'none'`), which is a real choice and passes the build gate
+   *  (see `_unassignedBuildings`). */
   _normalizeToLocations(b) {
     for (const p of b.pdfs) {
       const a = b.assign[p.stem];
-      if (!a.token) a.type = 'none';
+      if (!a.token) a.type = 'unassigned';
     }
   }
 
@@ -538,7 +565,9 @@ class ImportWizard {
       Dom.el('div', { class: 'imp-cardfile' }, p.file),
       this._floorButtons(b, a),
     ]);
-    return Dom.el('div', { class: 'imp-card' }, [thumb, body]);
+    // Flag a still-unassigned drawing so it stands out in the grid (and in the gated build hint).
+    const cls = 'imp-card' + (a.type === 'unassigned' ? ' unassigned' : '');
+    return Dom.el('div', { class: cls }, [thumb, body]);
   }
 
   /** Floor selector for one drawing, as a row of buttons. In Location mode (the building's
@@ -552,6 +581,8 @@ class ImportWizard {
       row.append(Dom.el('span', { class: 'hint' }, 'Loading floors…'));
       return row;
     }
+    if (a.type === 'unassigned')
+      row.append(Dom.el('span', { class: 'imp-floor-warn' }, '⚠ pick a floor'));
     const btn = (label, active, onClick) =>
       Dom.el('button', { class: 'imp-floor' + (active ? ' active' : ''), onclick: onClick }, label);
     // "— none —" excludes a drawing from the floor set in either mode.
@@ -718,6 +749,17 @@ class ImportWizard {
       if (tok) { floors[p.stem] = tok; last = tok; }
     }
     return floors;
+  }
+
+  /** Names of buildings that still hold an `unassigned` drawing (Location mode, untouched —
+   *  see `_normalizeToLocations`). The build gate lists these so the user knows where to look.
+   *  A cheap synchronous pass over the in-memory model — `_stepMap` recomputes it every render.
+   *  Buildings the user hasn't visited keep their `_modelFromInventory` level defaults (never
+   *  `unassigned`), so they don't gate the build; only visited Location-mode buildings can. */
+  _unassignedBuildings() {
+    return this.buildings
+      .filter(b => b.pdfs.some(p => b.assign[p.stem].type === 'unassigned'))
+      .map(b => b.name || b.folder);
   }
 
   // ---- step 3: build ----
