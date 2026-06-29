@@ -14,6 +14,7 @@
 
 class ImportWizard {
   static HIRES_AT = 260;   // card width (px) at/above which the size slider upgrades to hi-res
+  static OCR_MIN_CONF = 0.5;  // OCR results below this confidence are left for manual review
 
   constructor(app) {
     this.app = app;
@@ -23,6 +24,11 @@ class ImportWizard {
     this.thumbWidth = 170;  // map-step card width (px); the size slider drives it
     this._bIdx = 0;         // index of the building currently visible in the map step
     this._autoMapDone = false;  // the building→NetBox auto-match pass runs once per scan
+    // Floor-assignment mode for the map step: null = ask, 'manual' = assign each card by hand,
+    // 'auto' = read the floor code by OCR. `_ocrRegion` is the normalized 0..1 box the user
+    // dragged over the floor code, applied to every drawing. Both persist in the draft.
+    this._assignMode = null;
+    this._ocrRegion = null;
   }
 
   // ---- helpers ----
@@ -360,13 +366,203 @@ class ImportWizard {
     ]);
   }
 
+  // ---- step 2a: choose automatic vs manual floor assignment ----
+
+  /** First thing in the map step: pick how every drawing gets assigned to a floor. Automatic
+   *  reads the floor code off each drawing by OCR — the user marks where the code sits once,
+   *  and we read that same spot everywhere; Manual is the assign-each-card flow. The choice is
+   *  remembered in the draft, and the user can switch to manual at any time afterwards. */
+  _stepAssignChoice() {
+    const view = this._stage('Map drawings to floors');
+    view.append(Dom.el('p', { class: 'hint' }, 'How do you want to assign each drawing to a floor?'));
+    const choose = (mode) => async () => { this._assignMode = mode; await this._saveDraft(); this._stepMap(); };
+    const auto = Dom.el('div', { class: 'imp-choice' }, [
+      Dom.el('h3', {}, 'Automatic'),
+      Dom.el('p', {}, 'Mark once where the floor code sits on a drawing; we read that spot on '
+        + 'every drawing and assign the floors for you. You confirm anything we’re unsure about.'),
+      Dom.el('button', { class: 'primary', onclick: choose('auto') }, 'Read floor codes for me'),
+    ]);
+    const manual = Dom.el('div', { class: 'imp-choice' }, [
+      Dom.el('h3', {}, 'Manual'),
+      Dom.el('p', {}, 'Assign each drawing to its floor yourself, one card at a time.'),
+      Dom.el('button', { onclick: choose('manual') }, 'Assign them myself'),
+    ]);
+    view.append(Dom.el('div', { class: 'imp-choices' }, [auto, manual]));
+    view.append(Dom.el('div', { class: 'imp-actions' }, [
+      Dom.el('button', { onclick: () => this._reset() }, 'Start over'),
+    ]));
+  }
+
+  /** Automatic mode marks where the floor code sits: the user drags one box over the code on a
+   *  sample drawing, stored normalized 0..1 so it maps onto every drawing's render. "Read all
+   *  drawings" runs the OCR pass; the user can drop to manual at any point. */
+  _stepRegionPick() {
+    const b = this.buildings.find(x => x.pdfs && x.pdfs.length);
+    const p = b && b.pdfs[0];
+    if (!p) { this._assignMode = 'manual'; return this._stepMap(); }  // nothing to OCR
+
+    const view = this._stage('Mark the floor code');
+    view.append(Dom.el('p', { class: 'hint' },
+      'Drag a tight box around the floor code on this sample drawing. We’ll read the same spot '
+      + 'on every drawing to assign its floor.'));
+
+    const img = Dom.el('img', { class: 'imp-region-img', src: ImportWizard._previewUrl(p.pdf) });
+    const sel = Dom.el('div', { class: 'imp-region-sel hidden' });
+    const stage = Dom.el('div', { class: 'imp-region-stage' }, [img, sel]);
+    this._attachRegionDrag(img, sel);
+    view.append(stage);
+
+    const go = Dom.el('button', { class: 'primary', onclick: () => this._runOcr() }, 'Read all drawings');
+    go.disabled = !this._ocrRegion;
+    this._regionGo = go;
+    view.append(Dom.el('div', { class: 'imp-actions' }, [
+      go,
+      Dom.el('button', { onclick: () => { this._assignMode = 'manual'; this._stepMap(); } }, 'Assign manually instead'),
+      Dom.el('button', { onclick: () => this._reset() }, 'Start over'),
+    ]));
+  }
+
+  /** Drag a selection box over the sample image, storing it normalized 0..1 on `_ocrRegion`.
+   *  The overlay shares the <img>'s box (the image fills it, no letterboxing), so pointer
+   *  positions map straight to image space via `getBoundingClientRect()`. */
+  _attachRegionDrag(img, sel) {
+    const draw = (r) => {
+      sel.classList.remove('hidden');
+      sel.style.left = (r.x * 100) + '%'; sel.style.top = (r.y * 100) + '%';
+      sel.style.width = (r.w * 100) + '%'; sel.style.height = (r.h * 100) + '%';
+    };
+    if (this._ocrRegion) draw(this._ocrRegion);
+    img.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const rect = img.getBoundingClientRect();
+      const nx = (c) => Math.max(0, Math.min(1, (c - rect.left) / rect.width));
+      const ny = (c) => Math.max(0, Math.min(1, (c - rect.top) / rect.height));
+      const x0 = nx(e.clientX), y0 = ny(e.clientY);
+      let pending = null;
+      try { img.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+      const move = (ev) => {
+        const x1 = nx(ev.clientX), y1 = ny(ev.clientY);
+        pending = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+        draw(pending);
+      };
+      const up = () => {
+        img.removeEventListener('pointermove', move);
+        img.removeEventListener('pointerup', up);
+        if (pending && pending.w > 0.005 && pending.h > 0.005) {
+          this._ocrRegion = pending;
+          if (this._regionGo) this._regionGo.disabled = false;
+        }
+      };
+      img.addEventListener('pointermove', move);
+      img.addEventListener('pointerup', up);
+    });
+  }
+
+  /** A small banner shown atop the map step in automatic mode: confirms floors were read and
+   *  offers an escape back to re-reading the region or to manual assignment. */
+  _autoBanner() {
+    return Dom.el('div', { class: 'imp-automode' }, [
+      Dom.el('span', {}, 'Floors read automatically — confirm any flagged drawings below.'),
+      Dom.el('button', { onclick: () => { this._ocrRegion = null; this._stepMap(); } }, 'Re-read region'),
+      Dom.el('button', { onclick: () => { this._assignMode = 'manual'; this._stepMap(); } }, 'Switch to manual'),
+    ]);
+  }
+
+  /** Run the OCR pass: preload every building's floor Locations (so the text→floor match has
+   *  its vocabulary), send the marked region to the server, then map the recognized text to a
+   *  floor and pre-fill the assignments. Confident matches land in `b.assign[*]`; the rest are
+   *  left `unassigned` for the user to confirm via the normal cards. */
+  async _runOcr() {
+    if (!this._ocrRegion) return;
+    const view = this._stage('Reading floor codes…');
+    view.append(Dom.el('div', { class: 'imp-spinner' },
+      'Reading the floor code on every drawing — this can take a minute.'));
+    await Promise.all(this.buildings.map(b => this._loadFloors(b)));
+    let res;
+    try {
+      res = await Api.post('/api/import/ocr-assign', { region: this._ocrRegion });
+      if (!res.ok) throw new Error(res.error || 'OCR failed');
+    } catch (e) {
+      Toast.show('Auto-assign failed: ' + e.message, true);
+      this._ocrRegion = null;
+      return this._stepRegionPick();
+    }
+    const s = this._applyOcr(res.results || []);
+    await this._saveDraft();
+    Toast.show(`Auto-assigned ${s.assigned} of ${s.total} drawings`
+      + (s.review ? ` — confirm ${s.review} we weren’t sure about` : ''));
+    this._stepMap();
+  }
+
+  /** Map each OCR result to a floor and write confident matches into `b.assign[*]` (the same
+   *  shape `_floorButtons` writes). A drawing already excluded (`type:'none'`) or already
+   *  assigned to a Location (`token`) is left untouched. Low-confidence / unmatched / ambiguous
+   *  drawings are marked `unassigned`, which the existing build gate forces the user to
+   *  confirm. Returns a small summary for the toast. */
+  _applyOcr(results) {
+    const byFolder = new Map(this.buildings.map(b => [b.folder, b]));
+    let assigned = 0, review = 0, total = 0;
+    for (const r of results) {
+      const b = byFolder.get(r.folder);
+      if (!b || !(r.stem in b.assign)) continue;
+      const a = b.assign[r.stem];
+      if (a.type === 'none' || a.token) continue;   // siteplan excludes / already assigned
+      total++;
+      const match = (r.confidence >= ImportWizard.OCR_MIN_CONF) ? this._matchFloor(b, r.text) : null;
+      if (match) { Object.assign(a, match); assigned++; }
+      else { a.token = null; a.label = ''; a.type = 'unassigned'; review++; }
+    }
+    return { assigned, review, total };
+  }
+
+  /** Find the floor a drawing's OCR text names, as an assign-shaped patch, or null when there's
+   *  no confident, unambiguous match. In Location mode it matches the recognized code against
+   *  the building's floor Locations (by name or slug); otherwise it resolves to the floor-type
+   *  vocabulary. */
+  _matchFloor(b, text) {
+    const key = ImportWizard._floorKey(text);
+    if (!key) return null;
+    if (Array.isArray(b.nbFloors) && b.nbFloors.length) {
+      const hits = b.nbFloors.filter(loc =>
+        ImportWizard._floorKey(loc.name) === key || ImportWizard._floorKey(loc.slug) === key);
+      if (hits.length !== 1) return null;   // none or ambiguous → leave for review
+      const loc = hits[0];
+      return { token: loc.slug, label: loc.name, type: 'level', num: 1 };
+    }
+    if (key === 'r') return { token: null, label: '', type: 'roof', num: 1 };
+    if (key === 'g') return { token: null, label: '', type: 'ground', num: 1 };
+    const m = key.match(/^([bl])(\d+)$/);
+    if (m) return { token: null, label: '', type: m[1] === 'b' ? 'basement' : 'level', num: parseInt(m[2], 10) };
+    return null;
+  }
+
+  /** Reduce a floor label/code to a canonical key for matching OCR text against floor names:
+   *  'Level 2'/'L2'/'FL 02'/'2' → 'l2', 'Ground'/'G' → 'g', 'Basement 1'/'B1' → 'b1',
+   *  'Roof'/'RF' → 'r'. Returns '' when nothing floor-like is found. */
+  static _floorKey(s) {
+    const t = (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    if (!t) return '';
+    let m;
+    if (/\b(?:roof|rf|r)\b/.test(t) && !/\d/.test(t)) return 'r';
+    if ((m = t.match(/\b(?:basement|bsmt|sub|b)\s*0*(\d+)\b/))) return 'b' + m[1];
+    if (/\b(?:ground|grd|gf|g)\b/.test(t) && !/\d/.test(t)) return 'g';
+    if ((m = t.match(/\b(?:level|lvl|floor|flr|fl|l)\s*0*(\d+)\b/))) return 'l' + m[1];
+    if ((m = t.match(/^0*(\d+)$/))) return 'l' + m[1];   // a bare number = that level
+    return '';
+  }
+
   _stepMap() {
+    // First entry: pick automatic (OCR) vs manual assignment; automatic then marks the region.
+    if (!this._assignMode) return this._stepAssignChoice();
+    if (this._assignMode === 'auto' && !this._ocrRegion) return this._stepRegionPick();
+
     const view = this._stage('Map drawings to floors');
     this._mapView = view;
     this._cards = [];   // {upgrade()} per card — lets the size slider swap in hi-res renders
     view.append(Dom.el('p', { class: 'hint' },
       'Name each building and assign every drawing to a floor. Click a card for a full '
       + 'preview, or drag the size slider to enlarge every thumbnail at once.'));
+    if (this._assignMode === 'auto') view.append(this._autoBanner());
 
     view.append(this._sizer());
     this._applyThumbSize();
@@ -430,20 +626,31 @@ class ImportWizard {
    *  which drives the floor-type fallback. */
   _ensureFloors(b) {
     if (b.nbFloors !== undefined) return;
+    this._loadFloors(b).then(() => {
+      if (this._mapView && this.buildings[this._bIdx] === b) this._stepMap();
+    });
+  }
+
+  /** Fetch and cache a building's NetBox floor Locations (idempotent). Resolves once
+   *  `b.nbFloors` is settled to an array — empty when unbound or the site has none (driving the
+   *  floor-type fallback). Shared by the lazy per-building load (`_ensureFloors`) and the OCR
+   *  auto-assign pass, which preloads every building so the text→floor match has its
+   *  vocabulary. */
+  async _loadFloors(b) {
+    if (Array.isArray(b.nbFloors)) return;   // already loaded
     const slug = (b.slug || '').trim();
     if (!slug) { b.nbFloors = []; return; }
     b.nbFloors = 'loading';
     // The building Location is named after the bound NetBox site, so match on that (not the
     // user-editable `b.name`); fall back to `b.name` when unbound.
     const siteName = (b.nbSite && b.nbSite.name) || b.name;
-    const settle = (floors) => {
-      b.nbFloors = floors;
-      if (floors.length) this._normalizeToLocations(b);
-      if (this._mapView && this.buildings[this._bIdx] === b) this._stepMap();
-    };
-    this.app.netbox.locations(slug)
-      .then((res) => settle(this._floorsFromLocations(res.rooms || [], siteName)))
-      .catch(() => settle([]));
+    let floors = [];
+    try {
+      const res = await this.app.netbox.locations(slug);
+      floors = this._floorsFromLocations(res.rooms || [], siteName);
+    } catch (_) { floors = []; }
+    b.nbFloors = floors;
+    if (floors.length) this._normalizeToLocations(b);
   }
 
   /** Pick the floor Locations out of a site's flat Location list using the parent tree. The
@@ -704,7 +911,8 @@ class ImportWizard {
       if (window.MAP && window.MAP.csrf) headers['X-CSRFToken'] = window.MAP.csrf;
       await fetch(apiBase + 'import/save-draft', {
         method: 'POST', headers,
-        body: JSON.stringify({ buildings: this.buildings, site: this.site }),
+        body: JSON.stringify({ buildings: this.buildings, site: this.site,
+          assignMode: this._assignMode, ocrRegion: this._ocrRegion }),
       });
     } catch (e) { console.warn('Draft save failed:', e); }
   }
@@ -732,6 +940,8 @@ class ImportWizard {
           if (stem in b.frame) b.frame[stem] = f;
       }
       if (draft.site?.file) this.site = draft.site;
+      if (draft.assignMode) this._assignMode = draft.assignMode;
+      if (draft.ocrRegion) this._ocrRegion = draft.ocrRegion;
     } catch (e) { console.warn('Draft load failed:', e); }
   }
 
@@ -800,6 +1010,8 @@ class ImportWizard {
     this.inv = null; this.buildings = []; this.site = { folder: '', file: '' };
     this._bIdx = 0;
     this._autoMapDone = false;
+    this._assignMode = null;
+    this._ocrRegion = null;
     this._stepUpload();
   }
 }

@@ -50,6 +50,10 @@ The plugin ships with **no facility content**; you build it from your drawings:
 3. **Map** each drawing to a floor (the PDFs carry no text layer, so floor identity is
    assigned here), confirm each building's NetBox **site slug** and floor-id prefix. Click a
    card to preview the PDF; scroll or drag a thumbnail to frame the part that names the floor.
+   Choose **Automatic** to have the wizard read the floor codes for you — drag a box once over
+   where the code sits on a sample drawing and it reads that spot on every drawing, flagging
+   anything uncertain for you to confirm (all offline; see *Security model*) — or **Manual** to
+   assign each card yourself.
 4. **Build** — the plugin renders the images + manifest and opens the map. Then draw rooms
    and bind each to its NetBox Location.
 
@@ -73,6 +77,13 @@ Accepting and rasterizing uploaded PDFs is an attack surface, so it is contained
   A PDFium exploit cannot reach the NetBox worker's memory or DB. The renderer is
   [`pypdfium2`](https://github.com/pypdfium2-team/pypdfium2) (Google's PDFium as a
   self-contained wheel) — no system Ghostscript/poppler.
+- **Offline OCR, isolated too.** The wizard can read floor codes off drawings to auto-assign
+  floors (the "Automatic" option in the map step). That OCR runs in a **separate** isolated
+  subprocess (`ocr.py`, same timeout + resource limits) over the **already-rendered images** —
+  it never opens a PDF, so it adds no new parsing surface. The engine is
+  [`rapidocr-onnxruntime`](https://github.com/RapidAI/RapidOCR); its models ship inside the
+  wheel, so recognition is **fully offline** — no network and no system OCR binary (e.g.
+  Tesseract) to install.
 - **Authorization.** Every import endpoint and every map **write** requires the
   `netbox_facilitymap.change_facilitymapblob` permission (not merely a login). Grant it to
   the users who maintain the map. Reads require a login (same access as the map).
@@ -103,8 +114,10 @@ PLUGINS_CONFIG = {
 ## Install (into a NetBox instance)
 
 Run as the NetBox service user, **inside NetBox's virtualenv** (default `/opt/netbox/venv`).
-Installing pulls the runtime deps `pypdfium2` + `Pillow` automatically. NetBox's
-`MEDIA_ROOT` must be writable by the service (it already is for NetBox's own uploads).
+Installing pulls the runtime deps `pypdfium2` + `Pillow` + `rapidocr-onnxruntime`
+automatically (the last bundles its offline OCR models in the wheel — no extra download).
+NetBox's `MEDIA_ROOT` must be writable by the service (it already is for NetBox's own
+uploads).
 
 The plugin lives in the `netbox-facilitymap/` subdirectory of the
 [Network-Services-Faculty-Map](https://github.com/lsbarro2026/Network-Services-Faculty-Map)
@@ -183,6 +196,7 @@ netbox_facilitymap/
   frontend_api.py    AnnotationsView (compose/decompose) + blob GET/POST + ORM netbox reads
   imports.py         PDF import (upload/scan/build/reset) + authenticated manifest/media serving
   preprocess.py      PDF render engine (run as an isolated subprocess; pypdfium2 + Pillow)
+  ocr.py             offline OCR engine over rendered PNGs (isolated subprocess; rapidocr-onnxruntime)
   storage.py         work_dir() / safe_path() / media_url() helpers (MEDIA_ROOT working dir)
   api/               DRF REST API for Room (serializers, viewset, router) → /api/plugins/facilitymap/
   models.py          FacilityMapBlob (JSON docs) + Room (NetBoxModel, FK → dcim.Location)

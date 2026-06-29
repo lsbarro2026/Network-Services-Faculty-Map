@@ -3,6 +3,31 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.4.0 — Automatic floor assignment (offline OCR)
+- **Import.** The map step now opens on a choice between **Automatic** and **Manual** floor
+  assignment (`_assignMode`), version → `1.4.0`:
+  - **Automatic.** The user drags one box over where the floor code sits on a sample drawing
+    (`_stepRegionPick`/`_attachRegionDrag`, stored **normalized 0..1** in `_ocrRegion`); the
+    wizard reads that same region on every drawing and pre-fills each floor. Results below
+    `OCR_MIN_CONF`, unmatched, or ambiguous are left `unassigned` for the user to confirm — OCR
+    pre-fills, the human still owns the final assignment. A banner offers re-reading the region
+    or switching to manual at any time. `_assignMode`/`_ocrRegion` persist in the draft.
+  - **Offline OCR engine.** A new `POST api/import/ocr-assign` (`OcrAssignView`) OCRs the
+    region on every drawing's rendered image and returns `{results:[{folder,stem,text,
+    confidence}]}`; the frontend matches each code to a floor (`_matchFloor`/`_floorKey`,
+    handling Location mode and the floor-type fallback). OCR runs in a **new sibling
+    subprocess** `ocr.py` (`FloorCodeReader`) over **already-rendered, trusted PNGs** — it
+    never opens a PDF, so PDF parsing stays solely in `preprocess.py`. Same isolation as the
+    renderer (file-path invocation, timeout, POSIX rlimits) and `change_facilitymapblob`-gated;
+    lock-free like `preview`.
+  - **New dependency `rapidocr-onnxruntime`.** Its OCR models ship inside the wheel, so
+    recognition is **fully offline** — no network, no system OCR binary. Pulled automatically
+    by `pip install`. `preprocess.py` stays stdlib + pypdfium2/Pillow; `ocr.py` is stdlib +
+    Pillow + rapidocr.
+  - **Refactors.** `_run_preprocess` generalized to `_run_script` (+ `_run_ocr`);
+    `_ensure_preview` factored out of `PreviewView` and shared with the OCR pass; `_ensureFloors`
+    split so the awaitable `_loadFloors` can preload every building's floors before matching.
+
 ## 1.3.2 — Sharp import previews; cursor-anchored zoom/pan
 - **Import.** The map step's thumbnails/preview no longer blur when enlarged or zoomed,
   version → `1.3.2`:

@@ -490,6 +490,27 @@ button.wide { width: 100%; margin-bottom: 6px; justify-content: center; }
   max-height: 220px; overflow-y: auto; }
 .imp-actions { display: flex; gap: 10px; margin-top: 8px; align-items: center; }
 .imp-spinner { padding: 30px; text-align: center; color: var(--text2); font-size: 14px; }
+/* Automatic-vs-manual floor-assignment chooser (map step entry). */
+.imp-choices { display: flex; gap: 16px; flex-wrap: wrap; margin: 6px 0 14px; }
+.imp-choice { flex: 1 1 300px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); padding: 16px; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; gap: 8px; }
+.imp-choice h3 { margin: 0; font-size: 15px; }
+.imp-choice p { margin: 0; flex: 1; color: var(--text2); font-size: 13px; line-height: 1.5; }
+.imp-choice button { align-self: flex-start; }
+/* Automatic mode: drag a box over the floor code on a sample drawing. */
+.imp-region-stage { position: relative; display: inline-block; max-width: 100%;
+  margin: 6px 0 12px; background: #fff; border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: hidden; touch-action: none; cursor: crosshair; }
+.imp-region-img { display: block; max-width: 100%; max-height: 70vh; user-select: none;
+  -webkit-user-drag: none; }
+.imp-region-sel { position: absolute; border: 2px solid var(--accent, #2f80ed);
+  background: rgba(47, 128, 237, .18); pointer-events: none; }
+/* Banner atop the map step in automatic mode. */
+.imp-automode { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 8px 12px; margin-bottom: 10px; font-size: 13px; color: var(--text2); }
+.imp-automode span { flex: 1; min-width: 200px; }
 .imp-lightbox { position: fixed; inset: 0; z-index: 1000; display: flex;
   align-items: center; justify-content: center; padding: 24px; background: rgba(0, 0, 0, .55); }
 .imp-lightbox-panel { display: flex; flex-direction: column; width: min(900px, 92vw);

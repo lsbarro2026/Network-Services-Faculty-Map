@@ -124,6 +124,7 @@ netbox-facilitymap/                      # distribution root
                                          # (page-mount views; named to not shadow the api/ REST package)
     imports.py                           # PDF import endpoints + authenticated manifest/media serving (§7)
     preprocess.py                        # PDF render engine, run as an isolated subprocess (§7)
+    ocr.py                               # offline OCR engine over rendered PNGs, isolated subprocess (§7)
     storage.py                           # work_dir()/safe_path()/media_url() (MEDIA_ROOT working dir)
     models.py                            # FacilityMapBlob; Room(NetBoxModel) FK → dcim.Location
     filtersets.py  tables.py  forms.py   # RoomFilterSet / RoomTable / Room*Form
@@ -257,7 +258,7 @@ name = "netbox-facilitymap"
 version = "1.1.0"
 description = "Facility map plugin for NetBox"
 requires-python = ">=3.10"
-dependencies = ["pypdfium2", "Pillow"]   # PDF render engine; Django/DRF come from NetBox
+dependencies = ["pypdfium2", "Pillow", "rapidocr-onnxruntime"]   # PDF render + offline OCR; Django/DRF from NetBox
 readme = "README.md"
 license = { text = "MIT" }
 
@@ -275,10 +276,13 @@ recursive-include netbox_facilitymap/static *
 ```
 
 **Key packaging rules**
-- **Runtime deps are `pypdfium2` + `Pillow`** (the PDF render engine, §7). NetBox supplies
-  Django/DRF. `pypdfium2` bundles PDFium as a self-contained wheel (no system
-  Ghostscript/poppler); it is loaded only by the render **subprocess**, never the NetBox
-  worker, so the native-code surface stays out of the long-lived process.
+- **Runtime deps are `pypdfium2` + `Pillow` + `rapidocr-onnxruntime`** (the PDF render engine
+  and the offline OCR engine, §7). NetBox supplies Django/DRF. `pypdfium2` bundles PDFium as a
+  self-contained wheel (no system Ghostscript/poppler); `rapidocr-onnxruntime` bundles its OCR
+  models inside the wheel, so floor-code recognition is **fully offline** (no network, no
+  system binary like Tesseract). Both are loaded only by their respective **subprocesses**
+  (`preprocess.py` / `ocr.py`), never the NetBox worker, so the native-code surface stays out
+  of the long-lived process.
 - **Ship the static + template files**, not just `.py` — that is what `package-data` /
   `MANIFEST.in` guarantee. The plugin ships with **no facility content**: floor images +
   `manifest.json` are rendered at runtime under `MEDIA_ROOT` (§7), not packaged.
@@ -336,20 +340,31 @@ a login — importing rewrites the whole map and `reset` wipes it:
   it renders a single file to a distinct cache path **without the import lock**, so a preview
   never 409s against an in-flight scan (a racing `reset` just 404s). The `.full.png` cache sits
   under `.thumbs`, which `scan` skips and `reset` wipes — no extra cleanup.
+- `POST api/import/ocr-assign` — auto-fill floor assignments. Body `{region:{x,y,w,h}}`
+  (normalized 0..1, the spot the user dragged over the floor code). The server ensures a
+  full-scale PNG per drawing (reusing the `preview` render — the only PDF-touching step), then
+  runs the **`ocr.py`** subprocess over those PNGs and returns
+  `{results:[{folder,stem,text,confidence}]}`; the wizard maps each code to a floor and leaves
+  low-confidence/ambiguous ones for the user to confirm. `EDIT_PERM` + subprocess isolation,
+  and **lock-free** like `preview` (it only reads already-rendered PNGs).
 - `POST api/import/reset` — clear the working dir.
 - `GET api/manifest` (login) — serve the rendered manifest, or the empty stub.
 - `GET api/media/<path>` (login) — stream a rendered image / thumbnail / uploaded PDF from
   the working dir; traversal-guarded and confined to `images/`/`uploads/`. Floor plans are
   **not** exposed at a public static URL.
 
-**Renderer isolation + limits.** `_run_preprocess` spawns
-`python preprocess.py <mode> --base <workdir>` **by file path** (not `-m`, so the package's
+**Renderer/OCR isolation + limits.** `_run_script(script, mode, …)` spawns
+`python <script> <mode> --base <workdir>` **by file path** (not `-m`, so the package's
 NetBox-importing `__init__` never loads into the child), with `timeout=render_timeout_s` and
-a POSIX `preexec_fn` setting `RLIMIT_CPU` + `RLIMIT_AS` (`render_mem_mb`). `preprocess.py`
-stays stdlib + `pypdfium2`/`Pillow` only and only rasterizes page 1 — no PDF text/JS/embedded
-content is executed. A working-dir lockfile (`_acquire_lock`, with stale-lock recovery)
-serializes **scan/build** renders across worker processes, since the tool's thread lock could
-not; the single-file `preview` render skips the lock by design (it writes its own cache path).
+a POSIX `preexec_fn` setting `RLIMIT_CPU` + `RLIMIT_AS` (`render_mem_mb`). Two children share
+this isolation: `preprocess.py` (`_run_preprocess`) stays stdlib + `pypdfium2`/`Pillow` only
+and only rasterizes page 1 — no PDF text/JS/embedded content is executed; `ocr.py`
+(`_run_ocr`) stays stdlib + `Pillow` + `rapidocr-onnxruntime` and reads **only
+already-rendered PNGs**, never a PDF, so adding OCR introduces **no new untrusted-input parse
+path** (PDF parsing stays solely in `preprocess.py`, the OCR models are bundled and run
+offline). A working-dir lockfile (`_acquire_lock`, with stale-lock recovery) serializes
+**scan/build** renders across worker processes, since the tool's thread lock could not; the
+single-file `preview` render and the read-only `ocr-assign` pass skip the lock by design.
 
 `manifest.json` encodes the load-bearing conventions (`dir == Site slug`,
 `floorSlug == Location slug`, image filenames) that the `Room` FKs must honour; it is served
@@ -419,7 +434,10 @@ Hash routing (`app.js router()`) is already prefix-agnostic — no change.
    the parser in a short-lived, resource-limited **subprocess** (never the NetBox worker),
    `%PDF-` + size/count validation, permission-gating, and `pypdfium2` (hardened PDFium,
    no system Ghostscript/poppler). Residual risk is a PDFium CVE inside the sandboxed child;
-   keep `pypdfium2` patched. Large facilities also produce many PNGs under `MEDIA_ROOT` —
+   keep `pypdfium2` patched. **OCR (`ocr.py`) does not widen this surface:** it runs in its own
+   isolated subprocess over the **already-rendered, trusted PNGs** and never opens a PDF, and
+   its `rapidocr-onnxruntime` models are bundled (no network), so it parses no untrusted input
+   and reaches nothing offline. Large facilities also produce many PNGs under `MEDIA_ROOT` —
    served on-demand by `MediaView`, so no `collectstatic` bloat, but watch disk.
    `.zip` uploads are unpacked in the worker (only PDF *rendering* stays in the subprocess);
    the zip-bomb / traversal surface that adds is bounded by streamed size caps

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netbox-facilitymap"
-version = "1.3.2"
+version = "1.4.0"
 description = "Facility map plugin for NetBox — siteplan → building → floor → room, linked to Locations"
 requires-python = ">=3.10"
 readme = "README.md"
@@ -15,9 +15,15 @@ authors = [{ name = "Facility Map" }]
 # — no system Ghostscript/poppler. It is invoked as a *subprocess* (see imports.py), so
 # this native code never loads into a long-lived NetBox worker; these are still declared
 # runtime deps because the subprocess shares the NetBox virtualenv.
+#
+# rapidocr-onnxruntime reads the floor code off rendered drawings for the import wizard's
+# automatic floor assignment. Its OCR models ship inside the wheel, so recognition is fully
+# offline (no system binary, no network). Like pypdfium2 it runs only in an isolated
+# subprocess (`ocr.py`), never in the NetBox worker, and only over already-rendered PNGs.
 dependencies = [
     "pypdfium2",
     "Pillow",
+    "rapidocr-onnxruntime",
 ]
 
 [tool.setuptools.packages.find]
