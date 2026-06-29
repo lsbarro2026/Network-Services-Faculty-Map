@@ -1,6 +1,6 @@
-"""Import the standalone tool's JSON files into the plugin's stores.
+"""Import a legacy JSON export (from the retired standalone tool) into the plugin's stores.
 
-    python manage.py facilitymap_import --src /path/to/tool
+    python manage.py facilitymap_import --src /path/to/legacy-export
 
 `siteplan` / `placements` / `layouts` each map to one `FacilityMapBlob` row (kind,
 key=''), round-tripping losslessly. `annotations.json` is decomposed (Phase 4): its room
@@ -33,7 +33,8 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             '--src', required=True,
-            help='Path to the tool/ directory holding the JSON files.')
+            help='Path to a directory holding the legacy JSON export '
+                 '(siteplan/placements/layouts/annotations).')
 
     def _read(self, src, fname):
         path = src / fname

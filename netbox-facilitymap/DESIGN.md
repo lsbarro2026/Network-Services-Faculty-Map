@@ -5,13 +5,13 @@ How `netbox-facilitymap` repackages the standalone facility-map tool
 package layout, the packaging mechanics, and the import/build pipeline.
 
 This is the deep design reference. For **install/operate** steps see `README.md`;
-for the **release history** see `CHANGELOG.md`; for the standalone tool's internals
-see `../tool/ARCHITECTURE.md`.
+for the **release history** see `CHANGELOG.md`. (The standalone tool that this plugin grew
+out of was retired at `1.2.0`; its sources and docs no longer exist in the repo.)
 
 > Status: **built** in this directory — all phases (skeleton → read-only map →
 > editing/save → ORM racks/devices + auth hardening → relational `Room` +
 > NetBox-native render → full Room UI + REST → **in-app PDF import**) are implemented and
-> shipped as `1.2.0`. As of `1.2.0` the plugin is **self-contained**: the standalone tool's
+> were first shipped as `1.2.0` (current: `1.5.0`). As of `1.2.0` the plugin is **self-contained**: the standalone tool's
 > PDF-import pipeline was folded in (§7) and the tool retired, so this directory is the
 > whole project. References to `../tool/` below are historical (where the code came from).
 
@@ -187,7 +187,7 @@ class FacilityMapConfig(PluginConfig):
     name = 'netbox_facilitymap'
     verbose_name = 'Facility Map'
     description = 'Navigable siteplan → building → floor → room map linked to Locations'
-    version = '1.2.0'
+    version = '1.5.0'              # keep in lockstep with pyproject.toml; see CHANGELOG
     author = 'Facility Map'
     base_url = 'facilitymap'
     min_version = '4.1.7'     # pinned to the tested range; NetBox enforces at load
@@ -255,7 +255,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netbox-facilitymap"
-version = "1.1.0"
+version = "1.5.0"
 description = "Facility map plugin for NetBox"
 requires-python = ">=3.10"
 dependencies = ["pypdfium2", "Pillow", "rapidocr-onnxruntime"]   # PDF render + offline OCR; Django/DRF from NetBox

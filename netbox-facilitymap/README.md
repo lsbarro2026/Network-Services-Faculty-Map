@@ -138,8 +138,8 @@ source /opt/netbox/venv/bin/activate
 
 # Straight from GitHub (no clone needed) — note the subdirectory pin:
 pip install "git+https://github.com/lsbarro2026/Network-Services-Faculty-Map.git#subdirectory=netbox-facilitymap"
-# …or pin to a release tag (once tagged):
-# pip install "git+https://github.com/lsbarro2026/Network-Services-Faculty-Map.git@v1.2.0#subdirectory=netbox-facilitymap"
+# …or pin to a release tag — use the latest tag (currently v1.5.0):
+# pip install "git+https://github.com/lsbarro2026/Network-Services-Faculty-Map.git@v1.5.0#subdirectory=netbox-facilitymap"
 
 # …or, from a local checkout (dev): editable install from this directory
 # pip install -e /path/to/Network-Services-Faculty-Map/netbox-facilitymap
