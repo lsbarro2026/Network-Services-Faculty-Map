@@ -537,7 +537,11 @@ building in **Location mode**: each PDF's per-stem `assign` entry gains a `token
 slug) + `label` (its name), and a non-null `token` takes precedence over `type`/`num` in
 `_resolveFloors`. In Location mode the **floor prefix (`abbr`) is forced empty** on build (and
 its field hidden), because the floor id is `abbr + token` (preprocess) and must equal the real
-`Location.slug` for `NbRoomsView` to match it.
+`Location.slug` for `NbRoomsView` to match it. In the floor-type **fallback** mode (no bound
+Locations) the building head instead shows the `abbr` field plus a **"Number floors 1…N"**
+button (`_autoNumber`): a bulk shortcut that assigns each PDF a sequential
+`{type:'level', num:i+1}` in drawing order, then re-renders. It is hidden in Location mode,
+where the floor id comes from the Location slug rather than `type`/`num`.
 
 **Smart resume** — `show()` is async: on open it POSTs `/api/import/scan`; if uploads already
 exist (`folders.length > 0`) it calls `_modelFromInventory()` + `_applyDraft()`, then jumps
@@ -798,7 +802,7 @@ access as the map).
   `import-map.json`/`.stub.json`/`.draft.json`, `ocr-job.json`, and the lockfile.
 - **`SaveDraftView`** (POST `api/import/save-draft`) / **`LoadDraftView`** (GET
   `api/import/load-draft`) — lightweight wizard-state persistence. `SaveDraftView` writes
-  the wizard's current `{buildings, site, assignMode, ocrRegion}` model JSON to
+  the wizard's current `{buildings, site, assignMode, ocrRegion, bIdx}` model JSON to
   `import-map.draft.json` under the working dir (called on every Prev/Next navigation).
   `LoadDraftView` reads it back (returning every stored key verbatim); returns
   `{ok: false}` if no draft exists. The draft survives across browser sessions so `show()`
