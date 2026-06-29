@@ -912,7 +912,7 @@ class ImportWizard {
       await fetch(apiBase + 'import/save-draft', {
         method: 'POST', headers,
         body: JSON.stringify({ buildings: this.buildings, site: this.site,
-          assignMode: this._assignMode, ocrRegion: this._ocrRegion }),
+          assignMode: this._assignMode, ocrRegion: this._ocrRegion, bIdx: this._bIdx }),
       });
     } catch (e) { console.warn('Draft save failed:', e); }
   }
@@ -942,6 +942,12 @@ class ImportWizard {
       if (draft.site?.file) this.site = draft.site;
       if (draft.assignMode) this._assignMode = draft.assignMode;
       if (draft.ocrRegion) this._ocrRegion = draft.ocrRegion;
+      // Resume on the building the user last viewed. Clamp — folders can be added/removed
+      // between sessions, and `_stepMap` indexes `buildings[_bIdx]` with no bounds check.
+      if (this.buildings.length) {
+        const n = Number.isInteger(draft.bIdx) ? draft.bIdx : 0;
+        this._bIdx = Math.max(0, Math.min(n, this.buildings.length - 1));
+      }
     } catch (e) { console.warn('Draft load failed:', e); }
   }
 

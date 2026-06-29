@@ -584,8 +584,10 @@ render rebuilds both, keeping them in sync). Navigating calls
 `_saveDraft()` (POST to `api/import/save-draft`, writes `import-map.draft.json` under the working
 dir), steps `_bIdx`, and re-renders. `_applyDraft()` (GET `api/import/load-draft`) merges a saved draft into the
 freshly-built model by `folder` key (`name`/`slug`/`abbr`/`nbSite` + per-stem `assign`/`frame`),
-plus the top-level `assignMode`/`ocrRegion` — new folders not in the draft keep their
-`_modelFromInventory` defaults; removed PDF stems are ignored. A global **size slider** (`_sizer`/`_applyThumbSize`,
+plus the top-level `assignMode`/`ocrRegion`/`bIdx` — new folders not in the draft keep their
+`_modelFromInventory` defaults; removed PDF stems are ignored. `bIdx` (the paged-building index)
+is restored **clamped** to `[0, buildings.length-1]` so the user resumes on the building they
+last viewed even though folders can change between sessions. A global **size slider** (`_sizer`/`_applyThumbSize`,
 backed by `thumbWidth`) resizes every card at once by setting `--imp-card-w`/`--imp-thumb-h`
 CSS vars on the map view. Each PDF gets a thumbnail (its `src` rebased onto `window.MAP.media`)
 wired by `_attachZoomPan` for **cursor-anchored** scroll-to-zoom / drag-to-pan (clamped to the
