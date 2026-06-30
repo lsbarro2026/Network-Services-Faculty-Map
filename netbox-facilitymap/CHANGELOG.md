@@ -3,6 +3,19 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.28.0 — Room-page embed spotlights only its own room
+- **The map panel on a room's Location page now dims the rest of the floor.** The cropped
+  single-room embed already drew a green overlay on only the bound room, but the zoomed crop
+  (`room_embed_zoom`, default 2.0) pulls neighbouring rooms into the raster floor image — so it
+  could still read as "other rooms shown". The cropped view now draws a **spotlight mask**: the
+  floor *outside* the room's own polygon is dimmed (a full-canvas dark rect masked to a hole the
+  shape of the room), so it's unambiguous which room you're on. Surrounding context stays visible
+  but de-emphasised, at any zoom. The green highlight polygon and rack/device markers stay crisp
+  (drawn over the mask). Only the cropped single-room view dims — the whole-floor panel is
+  unchanged.
+- Touches `template_content.py` (Python) + `floor_rooms.html` (template), so **restart the NetBox
+  workers** (no `collectstatic` needed — the template isn't a static asset).
+
 ## 1.27.0 — Dashboard widget sizes itself to the map's aspect ratio
 - **The Facility Map dashboard widget now fits the card with no scrolling.** Previously the
   widget's iframe had a fixed pixel **height** (separate from the gridstack card height), so when

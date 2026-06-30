@@ -86,6 +86,15 @@ class FloorRooms(PluginTemplateExtension):
 
         markers = placement_markers(floor_key, w, h, {r.room_id for r in rooms})
 
+        # On the cropped single-room embed, dim the floor outside the room's own polygon
+        # (a spotlight mask, drawn in the template) so the room reads unambiguously even
+        # though the zoomed crop pulls neighbouring rooms into the raster image. Scaled by
+        # the same combined-canvas w×h as the shapes; only set when cropping to a room with
+        # geometry — the whole-floor view never dims.
+        spotlight = ''
+        if crop_to and crop_to.polygon:
+            spotlight = ' '.join(f'{x * w:.1f},{y * h:.1f}' for x, y in crop_to.polygon)
+
         # Deep-link the panel title into the SPA's floor view (`#/f/<dir>/<fid>`). The hash
         # router decodes each segment (`decodeURIComponent` per part, app.js), so encode
         # `dir`/`fid` to match; partition guards a stray key with no '/'.
@@ -104,6 +113,7 @@ class FloorRooms(PluginTemplateExtension):
             # The cropped room embed honours the configurable zoom; the whole-floor view
             # (crop_to=None) passes no viewBox, so the setting never affects floor views.
             'viewbox': room_viewbox(crop_to.polygon, w, h, zoom=room_embed_zoom()) if crop_to else None,
+            'spotlight': spotlight,
             'map_url': map_url,
         })
 

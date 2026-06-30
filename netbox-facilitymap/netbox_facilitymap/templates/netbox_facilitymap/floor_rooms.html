@@ -15,6 +15,23 @@
          preserveAspectRatio="xMidYMid meet"
          style="width:100%;height:auto;border:1px solid #ccc;background:#f4f5f7">
       {% include 'netbox_facilitymap/inc/floor_sheets.html' %}
+      {% comment %}
+        Spotlight: on the cropped single-room embed, dim the floor outside the room's own
+        polygon so it's unambiguous which room you're on (the zoomed crop shows neighbouring
+        rooms in the raster image). A full-canvas dark rect, masked to a hole the shape of the
+        room. Only `spotlight` (the scaled room points) is set when cropping; the whole-floor
+        view never dims. Drawn over the sheets but under the green highlight + markers.
+      {% endcomment %}
+      {% if spotlight %}
+        <defs>
+          <mask id="room-spotlight">
+            <rect x="0" y="0" width="{{ vw }}" height="{{ vh }}" fill="#fff"/>
+            <polygon points="{{ spotlight }}" fill="#000"/>
+          </mask>
+        </defs>
+        <rect x="0" y="0" width="{{ vw }}" height="{{ vh }}"
+              fill="#000" opacity="0.45" mask="url(#room-spotlight)"/>
+      {% endif %}
       {% for s in shapes %}
         {% if s.url %}<a href="{{ s.url }}" target="_blank">{% endif %}
         <polygon points="{{ s.points }}"

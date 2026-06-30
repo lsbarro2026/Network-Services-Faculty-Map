@@ -1524,6 +1524,14 @@ point at the deep treatment.
   page: `_panel` passes `zoom=previews.room_embed_zoom()`, which reads the `settings` blob's
   `room_embed_zoom` (clamped to `1.0–5.0`, default `2.0` when unset). Only the cropped room view
   uses it — the whole-floor panel passes `viewbox=None`, so the setting never affects floor views.
+  Because the zoomed crop shows neighbouring rooms in the raster floor image (no green overlay,
+  but still visibly present), the cropped view also **spotlights its room**: `_panel` passes a
+  `spotlight` points string (the room's polygon scaled by the combined `w×h`) and
+  `floor_rooms.html` draws a full-canvas dark `<rect>` (opacity ~0.45) masked to a hole the shape
+  of that polygon, so the floor *outside* the room is dimmed and it reads unambiguously which room
+  you're on. The mask is drawn over the sheets but under the green highlight polygon + markers, so
+  those stay crisp. Only the cropped single-room view dims — the whole-floor panel passes an empty
+  `spotlight`, so it never masks.
 
 ### Node editing (`Editor.drawVertices`)
 
