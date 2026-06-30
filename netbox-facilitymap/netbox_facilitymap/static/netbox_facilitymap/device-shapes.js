@@ -35,20 +35,23 @@ class DeviceShapes {
 
   /** Default footprint (display px) per type, picked so the shapes read at different
    *  sizes at a glance: a rack is a tall cabinet, a PDU/switch a thin strip, a UPS a
-   *  chunky box. Used when a placement has no user-set w/h. */
+   *  chunky box. A rack is the largest object (a full cabinet); every unracked device
+   *  is sized to read as *smaller than a rack* — none is wider than the rack's 30px, so
+   *  a lone outlet/switch never out-sizes a cabinet. Used when a placement has no
+   *  user-set w/h. */
   static box(type) {
     return ({
       rack:       { w: 30, h: 40 },
-      switch:     { w: 46, h: 16 },
-      router:     { w: 32, h: 24 },
-      server:     { w: 42, h: 20 },
-      firewall:   { w: 30, h: 24 },
-      ups:        { w: 24, h: 32 },
-      pdu:        { w: 54, h: 12 },
-      storage:    { w: 34, h: 26 },
-      patchpanel: { w: 50, h: 18 },
-      generic:    { w: 34, h: 22 },
-    })[type] || { w: 34, h: 22 };
+      switch:     { w: 30, h: 11 },
+      router:     { w: 22, h: 16 },
+      server:     { w: 28, h: 14 },
+      firewall:   { w: 22, h: 17 },
+      ups:        { w: 18, h: 26 },
+      pdu:        { w: 26, h: 9 },
+      storage:    { w: 24, h: 18 },
+      patchpanel: { w: 30, h: 13 },
+      generic:    { w: 22, h: 15 },
+    })[type] || { w: 22, h: 15 };
   }
 
   /** Build the glyph for a type as an array of SVG children, centered at origin and

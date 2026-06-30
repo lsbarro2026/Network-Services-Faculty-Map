@@ -147,7 +147,9 @@ when `window.MAP` is absent).
   the device's NetBox **role** (slug/name) then its own name (so it degrades to a
   name-based guess when the role is unset) → `switch | router | server | firewall | ups
   | pdu | storage | patchpanel | generic`. `box(type)` → a default `{w,h}` (display px)
-  so the types read at distinct sizes (rack tall, pdu/switch strips, …). `glyph(type,
+  so the types read at distinct sizes (rack tall, pdu/switch strips, …); the rack (30px
+  wide) is the largest object and every device default is sized *below* it, so a lone
+  device never out-sizes a cabinet (a user-resized marker stores its own `w/h`). `glyph(type,
   wpx,hpx)` → an array of `Dom.svg` children **centered at the origin** (the marker `<g>`
   supplies translate+rotate), built from classed primitives `dev-body` (unit outline),
   `dev-line` (rails/bays/bricks), `dev-port` (ports/outlets), `dev-led` (status dots).

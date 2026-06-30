@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netbox-facilitymap"
-version = "1.15.0"
+version = "1.16.0"
 description = "Facility map plugin for NetBox — siteplan → building → floor → room, linked to Locations"
 requires-python = ">=3.10"
 readme = "README.md"

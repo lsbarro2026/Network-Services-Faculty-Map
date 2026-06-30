@@ -3,6 +3,18 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.16.0 — Smaller, more coherent device markers
+- **Unracked device glyphs are re-sized so none out-sizes a rack.** Several device
+  defaults used to be *wider than a whole rack cabinet* — most visibly the **PDU/outlet**
+  glyph (`54px` wide, 1.8× the rack). `DeviceShapes.box()` defaults are re-tuned so every
+  device footprint reads as smaller than the rack (≤ its 30px width) while keeping each
+  type's distinctive proportions (PDU/switch thin strips, UPS a chunky upright, …). The
+  glyph drawing math is unchanged — it scales to the new boxes (e.g. a PDU now shows three
+  clearly-spaced outlets).
+- **Limitation:** markers a user *manually resized* store their own normalized `w/h` and
+  keep that size; only markers using the per-type default pick up the new footprints.
+- Re-run `collectstatic` to pick up the static change.
+
 ## 1.15.0 — Siteplan building labels hidden by default
 - **Building-name labels on the siteplan are now hidden by default.** A new **Show/Hide
   labels** toggle in the siteplan toolbar (both view and edit mode) flips every building
