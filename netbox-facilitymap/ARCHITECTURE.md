@@ -643,14 +643,18 @@ read-only summary (`_siteplanSummary` — "Site plan: … · **Change**", which 
 
 **Automatic vs manual floor assignment** (`_assignMode`): after the site-plan step the map step
 shows a chooser (`_stepAssignChoice`) — **Manual** (`_assignMode='manual'`, the per-card flow
-above) or **Automatic** (`_assignMode='auto'`). Automatic first marks where the floor code sits
-(`_stepRegionPick`): the user drags one box over the code on a sample drawing's hi-res
-preview; `_attachRegionDrag` stores it on `_ocrRegion` **normalized 0..1** (the overlay shares
-the `<img>`'s box, so pointer coords map straight to image space — correct at any zoom, since it
-reads the image's live `getBoundingClientRect()`) so it applies to every drawing's render
-regardless of size. The sample sits in a scrollable viewport with a **−/Fit/+ zoom bar**
-(`_regionZoomBar`/`_applyRegionZoom` widen the canvas; scroll to pan) so a small code can be boxed
-accurately. "Read all drawings" (`_runOcr`) preloads every building's
+above) or **Automatic** (`_assignMode='auto'`). Automatic first marks where the floor designation sits
+(`_stepRegionPick`): the user drags one box over the **whole title caption** (the line naming the
+floor) on a sample drawing's hi-res preview; `_attachRegionDrag` stores it on `_ocrRegion`
+**normalized 0..1** (the overlay shares the `<img>`'s box, so pointer coords map straight to image
+space — correct at any zoom, since it reads the image's live `getBoundingClientRect()`) so it
+applies to every drawing's render regardless of size. The box should capture the **caption**, not
+a tight crop of the code: `_floorKey` pulls the code out of the recognized caption, and the code's
+exact position drifts with caption length (a long building name pushes it sideways), whereas the
+title-block caption sits at a stable spot — so a caption-sized box is position-tolerant across
+buildings. The sample sits in a scrollable viewport with a **−/Fit/+ zoom bar**
+(`_regionZoomBar`/`_applyRegionZoom` widen the canvas; scroll to pan) so a small caption can be
+boxed accurately. "Read all drawings" (`_runOcr`) preloads every building's
 floor Locations (`_loadFloors`), POSTs `{region}` to **`api/import/ocr-assign`**, and gets back
 `[{folder, stem, text, confidence}]` per drawing. `_applyOcr` maps each result to a floor via
 `_matchFloor`: `_floorKey` canonicalizes both the OCR text and each candidate floor's
@@ -669,6 +673,13 @@ nothing floor-like or matches no Location records `a.ocrReason` (`no floor match
 read`) for the card; already-`none`/already-`token` drawings are never clobbered. The mode then
 drops into the normal map step with a banner (`_autoBanner`) offering **Re-read region** (clears
 `_ocrRegion`) or **Switch to manual** — so the user can always fall back to hand assignment.
+**Per-building re-read:** for an outlier whose title block sits elsewhere than the global sample,
+`_buildingSection` shows a **"Re-read this building's floor codes"** button (auto mode, only while
+the building still has an `unassigned` drawing). It re-enters `_stepRegionPick(b)`, and "Read this
+building" runs `_runOcr(b)` — a **folder-scoped** pass: it POSTs `{region, folder}` so
+`OcrAssignView` OCRs only that building's drawings, and `_applyOcr` (keyed by `folder`) updates
+just that building. A scoped pass keeps `_ocrRegion` on error (so the user can retry) and lands
+back on that building (`_bIdx`).
 
 **Build** (`_buildActions`/`_build`): the **Build facility map** button is gated — it stays a
 disabled button + hint (never silently hidden) until every building's drawings are assigned
@@ -844,8 +855,10 @@ access as the map).
   skips and `reset` wipes, so no extra cleanup is needed. `_ensure_preview(pdf_rel)` factors
   out the "render-if-stale-and-return-cache-path" step, shared with `OcrAssignView`.
 - **`OcrAssignView`** (POST `api/import/ocr-assign`) — reads the floor code off **every**
-  uploaded drawing so the wizard can auto-assign floors. Body `{region:{x,y,w,h}}` (normalized
-  0..1, validated in-bounds → 400 otherwise). It enumerates `uploads/`, ensures a full-scale
+  uploaded drawing so the wizard can auto-assign floors. Body `{region:{x,y,w,h}, folder?}`
+  (region normalized 0..1, validated in-bounds → 400 otherwise; an optional `folder` scopes the
+  pass to one building — the per-building re-read — matched against existing dir names, unknown →
+  400). It enumerates `uploads/` (or just `folder`), ensures a full-scale
   PNG per drawing via `_ensure_preview` (the **only** PDF-touching step — the existing trusted
   `preview` render), writes `ocr-job.json` (`{region, images:[{folder,stem,image}]}`), runs the
   **`ocr.py`** subprocess (`_run_ocr`), and returns `{results:[{folder,stem,text,confidence}]}`.
@@ -988,7 +1001,7 @@ read-only at runtime), so it lives under NetBox's `MEDIA_ROOT`.
 | POST | `api/import/upload-zip` | `imports.UploadZipView` (extract `.zip` → `uploads/`) | **EDIT_PERM** |
 | POST | `api/import/scan` | `imports.ScanView` (thumbnails + inventory) | **EDIT_PERM** |
 | GET | `api/import/preview?path=<rel>` | `imports.PreviewView` (on-demand full-scale PNG, cached) | **EDIT_PERM** |
-| POST | `api/import/ocr-assign` | `imports.OcrAssignView` (OCR a region on every drawing → floor codes) | **EDIT_PERM** |
+| POST | `api/import/ocr-assign` | `imports.OcrAssignView` (OCR a region on every drawing, or one `folder` → floor codes) | **EDIT_PERM** |
 | POST | `api/import/build` | `imports.BuildView` (save map, render images + manifest) | **EDIT_PERM** |
 | POST | `api/import/reset` | `imports.ResetView` (clear the import) | **EDIT_PERM** |
 | POST | `api/import/save-draft` | `imports.SaveDraftView` (persist wizard model as draft) | **EDIT_PERM** |
@@ -1313,7 +1326,13 @@ point at the deep treatment.
   filled in two ways: **manually** (the user clicks a floor per card) or **automatically** —
   the wizard's OCR pass (`api/import/ocr-assign` → `ocr.py`) reads the floor *code* off the
   **rendered image** of a user-marked region and the frontend matches it to a floor
-  (`_matchFloor`/`_floorKey`). The raw read is shown on every card (`a.ocrText`/`a.ocrConf` →
+  (`_matchFloor`/`_floorKey`). **Box the caption, not the code:** mark the whole floor-designation
+  caption (e.g. "… SECOND BASEMENT LEVEL (B2) PLAN …"), not a tight crop of "(B2)". `_floorKey`
+  extracts the code from the caption, and the code's exact spot drifts with caption length while
+  the caption block stays put — so a caption-sized box survives across buildings. For the rare
+  building whose title block is in another corner, the per-building **"Re-read this building's
+  floor codes"** button runs a `folder`-scoped pass over just that building. The raw read is shown
+  on every card (`a.ocrText`/`a.ocrConf` →
   `_ocrReadout`), so a drawing that *wasn't* auto-assigned shows **why** (what OCR saw and how
   confidently) instead of a blank floor row. A parsed match below `OCR_MIN_CONF` is **not thrown
   away** — it's kept as `a.ocrSuggest`, the drawing stays `unassigned` (the build gate still

@@ -3,6 +3,22 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.9.0 — Auto floor assignment reads the caption, not the code
+- **Mark the whole floor caption, not a tight box on the code.** The region step now asks the
+  user to box the entire floor-designation caption (e.g. "… SECOND BASEMENT LEVEL (B2) PLAN …")
+  rather than just "(B2)". `_floorKey` already pulls the code out of a full caption, and the
+  code's exact position **drifts with caption length** (a long building name pushes it sideways)
+  while the title-block caption sits at a stable spot — so a caption-sized box is
+  position-tolerant across buildings. This was the real reason most buildings came back
+  unassigned: the tight code-box, drawn on one sample, landed on *building-name* text on other
+  sheets (it read fragments like "CMMS"/"MATERIAL", never the code).
+- **Per-building re-read for the odd building whose title block is in another corner.** A
+  **"Re-read this building's floor codes"** button (auto mode, shown only while a building still
+  has an unassigned drawing) re-opens the region picker on a sample from *that* building and runs
+  a **folder-scoped** OCR pass — `OcrAssignView` accepts an optional `folder` so it OCRs only that
+  building's drawings, and the results update just it. The global **Re-read region** /
+  **Switch to manual** escapes are unchanged. Version → `1.9.0`.
+
 ## 1.8.0 — Auto floor assignment shows its work and stops throwing away near-misses
 - **The automatic pass now shows what OCR read on every card.** `_applyOcr` stashes the raw
   read (`a.ocrText`/`a.ocrConf`) on every processed drawing, and each card renders a small

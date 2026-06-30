@@ -53,10 +53,14 @@ The plugin ships with **no facility content**; you build it from your drawings:
    the **site plan** on its own step (it's the overall site map and has no floor code, so it's
    chosen apart from floor assignment). Then click a card to preview the PDF; scroll or drag a
    thumbnail to frame the part that names the floor. Choose **Automatic** to have the wizard read
-   the floor codes for you — drag a box once over where the code sits on a sample drawing (zoom
-   in with **−/Fit/+** and scroll to pan if it's small) and it reads that spot on every drawing,
-   flagging anything uncertain for you to confirm (all offline; see *Security model*) — or
-   **Manual** to assign each card yourself.
+   the floor codes for you — drag a box once over the whole **floor-designation caption** (e.g.
+   "… SECOND BASEMENT LEVEL (B2) PLAN …"), not just the code; the wizard picks the floor out of
+   it, and a caption-sized box stays accurate across buildings even when the code's position
+   shifts (zoom in with **−/Fit/+** and scroll to pan if it's small). It reads that spot on every
+   drawing, shows what it read on each card, and flags anything uncertain for you to confirm; for
+   an odd building whose title block sits elsewhere, **Re-read this building's floor codes**
+   re-marks just that one (all offline; see *Security model*) — or **Manual** to assign each card
+   yourself.
 4. **Build** — the plugin renders the images + manifest and opens the map. Then draw rooms
    and bind each to its NetBox Location.
 

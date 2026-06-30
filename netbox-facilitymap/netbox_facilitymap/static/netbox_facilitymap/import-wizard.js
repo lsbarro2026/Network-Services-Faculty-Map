@@ -430,19 +430,30 @@ class ImportWizard {
     ]));
   }
 
-  /** Automatic mode marks where the floor code sits: the user drags one box over the code on a
-   *  sample drawing, stored normalized 0..1 so it maps onto every drawing's render. "Read all
-   *  drawings" runs the OCR pass; the user can drop to manual at any point. */
-  _stepRegionPick() {
+  /** Automatic mode marks where the floor designation sits: the user drags one box over the
+   *  whole title **caption** (the line naming the floor) on a sample drawing, stored normalized
+   *  0..1 so it maps onto every drawing's render. `_floorKey` then pulls the code out of the
+   *  recognized caption, so the box only needs to *contain* the caption — not a tight crop of the
+   *  code, whose exact spot drifts with caption length (a long building name pushes it sideways).
+   *  "Read all drawings" runs the OCR pass. Passing a `building` re-reads just that one — for an
+   *  outlier whose title block sits elsewhere than the global sample. The user can drop to manual
+   *  at any point. */
+  _stepRegionPick(building) {
+    const scoped = !!building;
     // Sample on a real floor drawing, never the site plan (it's `type:'none'` and has no code).
     const real = (x, pp) => x.assign[pp.stem] && x.assign[pp.stem].type !== 'none';
-    const b = this.buildings.find(x => x.pdfs && x.pdfs.some(pp => real(x, pp)));
+    const b = building || this.buildings.find(x => x.pdfs && x.pdfs.some(pp => real(x, pp)));
     const p = b && b.pdfs.find(pp => real(b, pp));
-    if (!p) { this._assignMode = 'manual'; return this._stepMap(); }  // nothing to OCR
+    if (!p) {   // nothing to OCR
+      if (scoped) { Toast.show('No floor drawing to re-read in ' + (b.name || b.folder), true); return this._stepMap(); }
+      this._assignMode = 'manual'; return this._stepMap();
+    }
 
-    const view = this._stage('Mark the floor code');
+    const view = this._stage(scoped ? 'Re-read ' + (b.name || b.folder) : 'Mark the floor caption');
     view.append(Dom.el('p', { class: 'hint' },
-      'Drag a box around the floor code on this sample. Zoom in if it’s small; scroll to pan.'));
+      'Drag a box around the whole floor-designation caption — the line that names the floor '
+      + '(e.g. “… SECOND BASEMENT LEVEL (B2) PLAN …”). Extra title text is fine; we pick the floor '
+      + 'out of it. Zoom in if it’s small; scroll to pan.'));
 
     // Zoom widens the canvas inside a scrollable viewport (scroll to pan); the image fills the
     // canvas and the overlay is positioned by % of it, so the box tracks the image at any zoom.
@@ -455,14 +466,19 @@ class ImportWizard {
     view.append(viewport);
     this._applyRegionZoom(canvas);
 
-    const go = Dom.el('button', { class: 'primary', onclick: () => this._runOcr() }, 'Read all drawings');
+    const go = Dom.el('button', { class: 'primary', onclick: () => this._runOcr(building) },
+      scoped ? 'Read this building' : 'Read all drawings');
     go.disabled = !this._ocrRegion;
     this._regionGo = go;
-    view.append(Dom.el('div', { class: 'imp-actions' }, [
-      go,
-      Dom.el('button', { onclick: () => { this._assignMode = 'manual'; this._stepMap(); } }, 'Assign manually instead'),
-      Dom.el('button', { onclick: () => this._reset() }, 'Start over'),
-    ]));
+    const actions = [go];
+    // A scoped re-read is a refinement, so it offers a plain Cancel back to the map (not the
+    // global picker's manual/start-over escapes, which would discard the whole pass).
+    if (scoped) actions.push(Dom.el('button', { onclick: () => this._stepMap() }, 'Cancel'));
+    else {
+      actions.push(Dom.el('button', { onclick: () => { this._assignMode = 'manual'; this._stepMap(); } }, 'Assign manually instead'));
+      actions.push(Dom.el('button', { onclick: () => this._reset() }, 'Start over'));
+    }
+    view.append(Dom.el('div', { class: 'imp-actions' }, actions));
   }
 
   /** Drag a selection box over the sample image, storing it normalized 0..1 on `_ocrRegion`.
@@ -534,25 +550,31 @@ class ImportWizard {
   /** Run the OCR pass: preload every building's floor Locations (so the text→floor match has
    *  its vocabulary), send the marked region to the server, then map the recognized text to a
    *  floor and pre-fill the assignments. Confident matches land in `b.assign[*]`; the rest are
-   *  left `unassigned` for the user to confirm via the normal cards. */
-  async _runOcr() {
+   *  left `unassigned` for the user to confirm via the normal cards. With a `building` the pass
+   *  is **scoped** to that one folder (the per-building re-read), so only its drawings change. */
+  async _runOcr(building) {
     if (!this._ocrRegion) return;
+    const scoped = !!building;
     const view = this._stage('Reading floor codes…');
     view.append(Dom.el('div', { class: 'imp-spinner' },
-      'Reading the floor code on every drawing — this can take a minute.'));
+      scoped ? 'Reading the caption on every drawing in ' + (building.name || building.folder) + '…'
+        : 'Reading the floor caption on every drawing — this can take a minute.'));
     await Promise.all(this.buildings.map(b => this._loadFloors(b)));
     let res;
     try {
-      res = await Api.post('/api/import/ocr-assign', { region: this._ocrRegion });
+      const body = scoped ? { region: this._ocrRegion, folder: building.folder } : { region: this._ocrRegion };
+      res = await Api.post('/api/import/ocr-assign', body);
       if (!res.ok) throw new Error(res.error || 'OCR failed');
     } catch (e) {
       Toast.show('Auto-assign failed: ' + e.message, true);
-      this._ocrRegion = null;
-      return this._stepRegionPick();
+      if (!scoped) this._ocrRegion = null;   // a scoped re-read keeps the box so the user can retry
+      return this._stepRegionPick(building);
     }
     const s = this._applyOcr(res.results || []);
+    if (scoped) this._bIdx = Math.max(0, this.buildings.indexOf(building));   // land back on it
     await this._saveDraft();
-    Toast.show(`Auto-assigned ${s.assigned} of ${s.total} drawings`
+    const where = scoped ? ' in ' + (building.name || building.folder) : '';
+    Toast.show(`Auto-assigned ${s.assigned} of ${s.total} drawings${where}`
       + (s.review ? ` — confirm ${s.review} we weren’t sure about` : ''));
     this._stepMap();
   }
@@ -887,6 +909,11 @@ class ImportWizard {
       fields.push(Dom.el('button', { class: 'imp-auto',
         onclick: () => this._autoNumber(b) }, 'Number floors 1…N'));
     }
+    // Auto mode: if the global caption box missed this building (its title block sits elsewhere),
+    // offer a re-mark scoped to just it — re-reads only this folder's drawings.
+    if (this._assignMode === 'auto' && b.pdfs.some(p => b.assign[p.stem].type === 'unassigned'))
+      fields.push(Dom.el('button', { class: 'imp-auto',
+        onclick: () => this._stepRegionPick(b) }, 'Re-read this building’s floor codes'));
     const head = Dom.el('div', { class: 'imp-bhead' }, fields);
     const grid = Dom.el('div', { class: 'imp-grid' });
     for (const p of b.pdfs) grid.append(this._pdfCard(b, p));

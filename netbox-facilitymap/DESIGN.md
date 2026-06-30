@@ -187,7 +187,7 @@ class FacilityMapConfig(PluginConfig):
     name = 'netbox_facilitymap'
     verbose_name = 'Facility Map'
     description = 'Navigable siteplan → building → floor → room map linked to Locations'
-    version = '1.8.0'              # keep in lockstep with pyproject.toml; see CHANGELOG
+    version = '1.9.0'              # keep in lockstep with pyproject.toml; see CHANGELOG
     author = 'Facility Map'
     base_url = 'facilitymap'
     min_version = '4.1.7'     # pinned to the tested range; NetBox enforces at load
@@ -345,10 +345,11 @@ a login — importing rewrites the whole map and `reset` wipes it:
   it renders a single file to a distinct cache path **without the import lock**, so a preview
   never 409s against an in-flight scan (a racing `reset` just 404s). The `.full.png` cache sits
   under `.thumbs`, which `scan` skips and `reset` wipes — no extra cleanup.
-- `POST api/import/ocr-assign` — auto-fill floor assignments. Body `{region:{x,y,w,h}}`
-  (normalized 0..1, the spot the user dragged over the floor code). The server ensures a
-  full-scale PNG per drawing (reusing the `preview` render — the only PDF-touching step), then
-  runs the **`ocr.py`** subprocess over those PNGs and returns
+- `POST api/import/ocr-assign` — auto-fill floor assignments. Body `{region:{x,y,w,h}, folder?}`
+  (region normalized 0..1, the spot the user dragged over the floor-designation caption; an
+  optional `folder` scopes the pass to one building — the wizard's per-building re-read). The
+  server ensures a full-scale PNG per drawing (reusing the `preview` render — the only
+  PDF-touching step), then runs the **`ocr.py`** subprocess over those PNGs and returns
   `{results:[{folder,stem,text,confidence}]}`; the wizard maps each code to a floor and leaves
   low-confidence/ambiguous ones for the user to confirm. `EDIT_PERM` + subprocess isolation,
   and **lock-free** like `preview` (it only reads already-rendered PNGs).

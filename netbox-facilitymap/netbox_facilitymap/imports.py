@@ -423,16 +423,18 @@ class PreviewView(_ImportView):
 
 class OcrAssignView(_ImportView):
     """Read the floor code off every uploaded drawing so the wizard can auto-assign floors.
-    The user drags one rectangle over the floor code on a sample drawing; this OCRs that same
-    normalized region on every drawing and returns the recognized text + confidence per
-    drawing (the wizard maps text → floor).
+    The user drags one rectangle over the floor-designation caption on a sample drawing; this
+    OCRs that same normalized region on every drawing and returns the recognized text +
+    confidence per drawing (the wizard maps text → floor). An optional ``folder`` restricts the
+    pass to a single building — the wizard's per-building "re-read" for an outlier whose title
+    block sits in a different spot than the global sample.
 
     OCR runs in the isolated `ocr.py` subprocess over **already-rendered, trusted PNGs** — the
     only PDF-touching step is reusing the existing `preview` render to make sure each drawing
     has a full-scale PNG. Like `PreviewView` it runs lock-free (it only reads images), so it
     never 409s an in-flight scan.
 
-    POST {"region": {"x": .., "y": .., "w": .., "h": ..}}  (all normalized 0..1)"""
+    POST {"region": {"x": .., "y": .., "w": .., "h": ..}, "folder"?: "<name>"}  (region 0..1)"""
 
     def post(self, request):
         try:
@@ -447,6 +449,7 @@ class OcrAssignView(_ImportView):
         # Allow a hair over 1 for rounding; require a positive, in-bounds box.
         if not (x >= 0 and y >= 0 and w > 0 and h > 0 and x + w <= 1.001 and y + h <= 1.001):
             return HttpResponseBadRequest('region must lie within 0..1')
+        only_folder = (data.get('folder') or '').strip()   # optional: scope to one building
 
         base = work_dir().resolve()
         uploads = base / 'uploads'
@@ -460,6 +463,12 @@ class OcrAssignView(_ImportView):
         images = []
         folders = sorted(p.name for p in uploads.iterdir()
                          if p.is_dir() and p.name != THUMBS_DIRNAME)
+        # A `folder` scope is matched against the existing directory names only (never joined
+        # with user input), so it adds no traversal surface; an unknown name is a 400.
+        if only_folder:
+            if only_folder not in folders:
+                return JsonResponse({'ok': False, 'error': 'unknown folder'}, status=400)
+            folders = [only_folder]
         for folder in folders:
             pdfs = sorted(p for p in (uploads / folder).iterdir()
                           if p.is_file() and p.suffix.lower() == '.pdf')
