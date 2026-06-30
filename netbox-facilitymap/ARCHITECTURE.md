@@ -83,7 +83,7 @@ netbox-facilitymap/
     preprocess.py           # NEW here: render engine (Preprocessor; scan|build|preview) — run as a SUBPROCESS
     storage.py              # NEW: work_dir() / safe_path() / media_url() (working-dir + traversal guard)
     models.py               # FacilityMapBlob (editor JSON) + Room (NetBoxModel: room polygon → Location)
-    template_content.py     # FloorRooms PluginTemplateExtension: rooms panel on the Location page
+    template_content.py     # PluginTemplateExtensions: FloorRooms (rooms panel on the Location page) + SiteFloors (floor-picker grid on the Site page)
     previews.py             # Location preview helpers: floor_sheets() (sheet tiling) + placement_markers() + room_viewbox()
     navigation.py           # plugin menu item (Facility Map)
     filtersets.py           # RoomFilterSet (used by the DRF REST API)
@@ -1441,6 +1441,18 @@ point at the deep treatment.
   both the room-page and floor cases get it since both resolve `floor_key`. The in-SVG room
   polygons keep their own separate cross-links — this title link is additive. (A room-focused
   deep-link would need a new hash segment + a live `PanZoom` focus entry point; not built.)
+- **A second extension, `SiteFloors`, renders a floor picker on the `dcim.Site` page.** Here a
+  Site *is* one building, so `full_width_page` mirrors the SPA's `App.renderBuilding`: it reads
+  `manifest.json` fresh (best-effort; missing/unreadable → no panel), filters `buildings[]` to
+  those whose `siteSlug == site.slug` (filter, not assume-unique), and emits one card per
+  rendered floor — thumbnail (`media_url`), label, a room-count badge
+  (`Room.objects.restrict(...).filter(floor_key="<site.slug>/<floor.id>").count()`), and a
+  sheet-count badge when `len(pages) > 1`. Each card links to that floor's **NetBox Location
+  page** (the Location under the Site whose `slug` is the floor id, looked up once and
+  `.restrict(...)`-scoped; no link when none exists yet) — staying in NetBox, where `FloorRooms`
+  then draws the plan. Returns `''` (no panel) when no building matches or no card is produced.
+  The template (`site_floors.html`) is inline-styled like `floor_rooms.html` (no plugin CSS on
+  dcim pages). Both extensions are listed in `template_extensions`.
 - **Native previews also draw rack/device markers, server-side (`previews.py`).** The panel
   overlays `previews.placement_markers(...)` — one **MVP** box per placement (rack vs device,
   positioned/rotated/sized from the `placements` blob, scaled by `w×h`), via the shared

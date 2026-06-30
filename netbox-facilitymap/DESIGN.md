@@ -57,6 +57,9 @@ it is surfaced on its bound Location, so `Room.get_absolute_url()` resolves to t
 (or the map app when unbound). Both variants also overlay the rack/device **placement markers**
 (MVP styled boxes — `previews.placement_markers`; not the JS `DeviceShapes` glyphs), built
 server-side from the `placements` blob and permission-scoped to the visible room(s).
+A second extension (`template_content.SiteFloors`) embeds a **floor picker** on the `dcim.Site`
+page (here a Site = one building): a grid of floor cards mirroring the SPA's building view,
+read fresh from the manifest, each card linking to that floor's NetBox Location page.
 `Room` also carries a NetBox-native **DRF REST API** (`api/`, registered at `rooms`), with **no
 schema change** beyond the `0002_room` table. (The standalone Room browse UI — list/detail/edit/
 bulk, table, forms, global-search index, and the **Rooms** nav item — was removed in `1.18.0`
@@ -137,7 +140,7 @@ netbox-facilitymap/                      # distribution root
     storage.py                           # work_dir()/safe_path()/media_url() (MEDIA_ROOT working dir)
     models.py                            # FacilityMapBlob; Room(NetBoxModel) FK → dcim.Location
     filtersets.py                        # RoomFilterSet (used by the DRF REST API)
-    template_content.py                  # FloorRooms (room panel on the floor Location page)
+    template_content.py                  # FloorRooms (room panel on the Location page) + SiteFloors (floor picker on the Site page)
     previews.py                          # room/Location preview helpers (placement markers + room-crop viewBox)
     api/                                 # DRF REST API for Room
       serializers.py  views.py  urls.py  # RoomSerializer + RoomViewSet + NetBoxRouter

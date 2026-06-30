@@ -3,6 +3,18 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.21.0 — Embed a building's floor picker on its NetBox Site page
+- **A Site's detail page now embeds a floor picker.** A second `PluginTemplateExtension`
+  (`template_content.SiteFloors`, on `dcim.site`) renders a grid of floor cards mirroring the
+  SPA's building view — thumbnail, label, a room-count badge and a sheet-count badge — one per
+  rendered floor of the building(s) whose manifest `siteSlug` matches the Site's slug. Each card
+  links to that floor's NetBox **Location** page (where `FloorRooms` then draws the plan).
+- Reads `manifest.json` fresh (best-effort: a missing/unreadable manifest, no matching building,
+  or no rendered floor → no panel, never an empty grid). Room counts and the floor-Location
+  lookup are `.restrict(...)`-scoped; floor thumbnails are served through the authenticated
+  `media_url`. The template (`site_floors.html`) is inline-styled (no plugin CSS on dcim pages).
+  No `collectstatic` needed (no static files changed); **restart the NetBox workers** after upgrading.
+
 ## 1.20.0 — Link the Location-page map panel's title into the facility map tool
 - **The "Facility Map — Rooms" panel title is now a link.** On a floor or room Location page,
   clicking the panel's card-header opens the facility map SPA deep-linked to that floor

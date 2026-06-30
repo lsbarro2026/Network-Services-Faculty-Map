@@ -1,4 +1,10 @@
-"""Render the facility map's floor plan + room polygons natively on a NetBox Location page.
+"""Render the facility map natively on NetBox pages via `PluginTemplateExtension`s.
+
+`FloorRooms` injects a floor-plan + room-polygon panel on a `dcim.Location` page (below);
+`SiteFloors` injects a floor-picker grid on a `dcim.Site` page (mirroring the SPA's building
+view). Both read the same runtime render artifacts and degrade to no panel when absent.
+
+`FloorRooms` — floor plan + room polygons on a NetBox Location page.
 
 A `PluginTemplateExtension` injects a panel onto the `dcim.Location` detail page. When the
 Location is a *floor* — i.e. `floor_key == "<site.slug>/<location.slug>"` has a rendered
@@ -13,13 +19,16 @@ any rooms are drawn, and `floor_sheets(...) is None` is the gate for "this Locat
 rendered plan" (so we emit nothing rather than an empty SVG).
 """
 
+import json
 from urllib.parse import quote
 
 from django.urls import reverse
+from dcim.models import Location
 from netbox.plugins import PluginTemplateExtension
 
 from .models import Room
 from .previews import floor_sheets, placement_markers, room_viewbox
+from .storage import MANIFEST_NAME, media_url, work_dir
 
 
 class FloorRooms(PluginTemplateExtension):
@@ -97,4 +106,57 @@ class FloorRooms(PluginTemplateExtension):
         })
 
 
-template_extensions = [FloorRooms]
+class SiteFloors(PluginTemplateExtension):
+    """Embed a building's floor picker on its NetBox `dcim.Site` page.
+
+    Here a Site *is* one building, so this mirrors the SPA's building view
+    (`App.renderBuilding`): a grid of floor cards — thumbnail, label, a room-count badge and a
+    sheet-count badge — one per rendered floor of the building(s) whose manifest `siteSlug`
+    matches `site.slug`. Each card links to that floor's NetBox Location page (the Location
+    whose `slug` is the floor id), keeping the user in NetBox where `FloorRooms` then draws the
+    plan. The manifest is a runtime render artifact, so a missing/unreadable manifest (or a
+    Site with no matching rendered building) yields no panel rather than an empty grid.
+    """
+
+    models = ['dcim.site']
+
+    def full_width_page(self):
+        site = self.context['object']
+        request = self.context['request']
+
+        try:
+            manifest = json.loads((work_dir() / MANIFEST_NAME).read_text())
+        except (OSError, ValueError):
+            return ''
+
+        # `siteSlug` could in principle repeat across `dir`s, so filter rather than assume one.
+        buildings = [b for b in manifest.get('buildings', [])
+                     if b.get('siteSlug') == site.slug]
+        if not buildings:
+            return ''
+
+        # Floor Locations under this Site, keyed by slug (== floor id), for the card links.
+        locs = {l.slug: l for l in
+                Location.objects.restrict(request.user, 'view').filter(site=site)}
+
+        cards = []
+        for building in buildings:
+            for floor in building.get('floors', []):
+                loc = locs.get(floor['id'])
+                rooms = (Room.objects.restrict(request.user, 'view')
+                         .filter(floor_key=f"{site.slug}/{floor['id']}").count())
+                cards.append({
+                    'image': media_url(floor.get('image')),
+                    'label': floor.get('label') or floor['id'],
+                    'url': loc.get_absolute_url() if loc else '',
+                    'rooms': rooms,
+                    'sheets': len(floor.get('pages') or []),
+                })
+        if not cards:
+            return ''
+
+        return self.render('netbox_facilitymap/site_floors.html',
+                           extra_context={'cards': cards})
+
+
+template_extensions = [FloorRooms, SiteFloors]
