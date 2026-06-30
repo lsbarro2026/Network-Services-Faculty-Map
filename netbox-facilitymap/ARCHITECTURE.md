@@ -51,9 +51,9 @@ app: the operator uploads one folder of floor-plan PDFs per building, the **impo
 endpoints** (`imports.py`) render them in an isolated `preprocess.py` **subprocess**, and
 the result is `images/` + `manifest.json` written under NetBox's `MEDIA_ROOT` and served
 back through authenticated views (§4). Because the PDFs have no text layer, each PDF's
-floor is **assigned in the import wizard** — by hand, or auto-filled by an offline OCR pass
-that reads the floor code off the rendered image (a sibling `ocr.py` subprocess) and that the
-operator then confirms.
+floor is **assigned by hand in the import wizard** — to make that fast, the operator marks
+where a drawing's identifying code sits on a sample, and every floor card then shows a
+close-up crop of just that spot so the floors are recognizable at a glance.
 
 Security posture (replacing the old "nothing leaves this machine" model): the app runs
 inside NetBox, so reads are **login-gated**, writes/imports require the
@@ -81,8 +81,6 @@ netbox-facilitymap/
                             # (named to avoid shadowing the api/ REST package — see §10)
     imports.py              # NEW: PDF import pipeline (Upload/Scan/Build/Reset) + Manifest/Media serving
     preprocess.py           # NEW here: render engine (Preprocessor; scan|build|preview) — run as a SUBPROCESS
-    ocr.py                  # OCR engine (FloorCodeReader; reads floor codes off rendered PNGs) — run as a SUBPROCESS
-    models/rec.onnx         # vendored PP-OCRv4 recognition model (Apache-2.0) used by ocr.py — offline, no OpenCV
     storage.py              # NEW: work_dir() / safe_path() / media_url() (working-dir + traversal guard)
     models.py               # FacilityMapBlob (editor JSON) + Room (NetBoxModel: room polygon → Location)
     template_content.py     # FloorRooms PluginTemplateExtension: rooms panel on the Location page
@@ -136,7 +134,7 @@ when `window.MAP` is absent).
 - **`Geom`** — `centroid(poly)`, `bounds(poly)` → `{minX,minY,maxX,maxY,w,h,cx,cy}` axis-aligned bbox + center (used to size/place siteplan labels), `projSeg(px,py,ax,ay,bx,by)` → `{x,y,d}` nearest point on a segment (displayed px), `pointInPoly(nx,ny,poly)` (ray-cast), `clampToPoly(nx,ny,poly)` (inside → unchanged, else nearest edge point — used to keep rack markers inside a room).
 - **`Toast`** — `show(msg,err?)` transient notification.
 - **`Icons`** — inline 13×13 SVG glyphs (`edit, draw, undo, snap, grid, move, dup, check, rack, settings, rightangle`) using `currentColor`, for icon buttons + chrome. Build buttons via `Dom.el('button',{html:Icons.x+'<span>Label</span>'})`.
-- **`Api`** — `get(path)`, `post(path,body)`; throw on non-2xx. On a non-OK response `_fail(r)` reads the body and throws the **server's own message** — `error` from a JSON `{ok:false, error}` (e.g. a 500 from the OCR subprocess) or the plain-text body (`HttpResponseBadRequest`), falling back to `HTTP <status>` — so callers surface the real cause, not a bare status code (and it's clear these are local NetBox calls, not the internet). **Mount-aware:** `_url(path)` rebases a logical `/api/<rest>` onto `window.MAP.api` (so `/api/annotations` → `/plugins/facilitymap/api/annotations`); `post` adds the `X-CSRFToken` header from `window.MAP.csrf` so Django's CSRF middleware accepts the write. With `window.MAP` absent both are passthroughs.
+- **`Api`** — `get(path)`, `post(path,body)`; throw on non-2xx. On a non-OK response `_fail(r)` reads the body and throws the **server's own message** — `error` from a JSON `{ok:false, error}` (e.g. a 500 from the render subprocess) or the plain-text body (`HttpResponseBadRequest`), falling back to `HTTP <status>` — so callers surface the real cause, not a bare status code (and it's clear these are local NetBox calls, not the internet). **Mount-aware:** `_url(path)` rebases a logical `/api/<rest>` onto `window.MAP.api` (so `/api/annotations` → `/plugins/facilitymap/api/annotations`); `post` adds the `X-CSRFToken` header from `window.MAP.csrf` so Django's CSRF middleware accepts the write. With `window.MAP` absent both are passthroughs.
 - Consts: `SVGNS`, `CLOSE_PX` (12), `SNAP_PX` (11), `ORTHO_PX` (9) — displayed-px
   thresholds. `ANGLE_STEP` (15) — label-rotation snap increment (°). `LABEL_SIZE_MIN`
   (6) / `LABEL_SIZE_MAX` (120) — label font-size clamp (px). `LABEL_FONTS` — the label
@@ -509,14 +507,15 @@ The in-app PDF import, in four steps rendered into `#stage` (**Upload → Map bu
 NetBox → Map drawings to floors → Build**). Constructor state: `inv` (scan inventory),
 `buildings` (per-folder model), `site` (chosen siteplan), `thumbWidth` (slider value),
 `_bIdx` (index of the building currently visible in the map step), `_autoMapDone` (the
-building→NetBox auto-match pass runs once per scan), `_assignMode` (`null`=ask /
-`'manual'`=assign each card by hand / `'auto'`=read floor codes by OCR), `_ocrRegion`
-(the normalized 0..1 box the user dragged over the floor code in automatic mode),
+building→NetBox auto-match pass runs once per scan), `_codeRegion` (the normalized 0..1 box the
+user dragged over a drawing's identifying code on a sample, applied as a crop to every card —
+`null` falls back to full-drawing thumbnails), `_codeRegionDone` (gates the code-region pick
+sub-step so it shows once — set when the user marks a region **or** skips it),
 `_siteplanDone` (gates the dedicated site-plan-selection sub-step so it shows once), `_regionZoom`
 (transient zoom factor for the region picker, a view aid — not persisted), and
 `_mergeMode` (when `true`, the upload step **adds** drawings to the current facility instead of
-starting fresh — see *Post-build editing* below). `_assignMode`, `_ocrRegion`, and `_siteplanDone`
-persist in the draft.
+starting fresh — see *Post-build editing* below). `_codeRegion`, `_codeRegionDone`, and
+`_siteplanDone` persist in the draft.
 
 Each building object carries an `nbSite` field — `{id,slug,name,auto}` once bound to a NetBox
 Site in the buildings step (`auto:true` = an unconfirmed auto-match), else `null`. The bound
@@ -527,8 +526,7 @@ later `NetBoxClient` lookups key off.
 It also carries `nbFloors` — the bound site's **floor Locations**, lazily fetched in the map
 step by `_ensureFloors` (which calls the awaitable `_loadFloors` — `netbox.locations(slug)`,
 then `_floorsFromLocations` walks the returned Locations' `parent` links to pick the floors —
-and re-renders on completion; the automatic-assignment pass reuses `_loadFloors` directly to
-preload **every** building's floors before matching). The **building Location** is the root
+and re-renders on completion). The **building Location** is the root
 named after the bound site (e.g. "CYCLOTRON VAULT"); its children are floors, and **every
 other root is also a floor** — some sites park a floor like "Roof" or "Level B2" at the top
 level as a sibling of the building. When no root matches the site name, the site has no
@@ -592,8 +590,8 @@ Next → with a "Building N of M" label) appears **both above and below** the bu
 render rebuilds both, keeping them in sync). Navigating calls
 `_saveDraft()` (POST to `api/import/save-draft`, writes `import-map.draft.json` under the working
 dir), steps `_bIdx`, and re-renders. `_applyDraft()` (GET `api/import/load-draft`) merges a saved draft into the
-freshly-built model by `folder` key (`name`/`slug`/`abbr`/`nbSite` + per-stem `assign`/`frame`),
-plus the top-level `assignMode`/`ocrRegion`/`bIdx`/`siteplanDone` — new folders not in the draft keep their
+freshly-built model by `folder` key (`name`/`slug`/`abbr`/`nbSite`/`codeRegion` + per-stem
+`assign`/`frame`), plus the top-level `codeRegion`/`codeRegionDone`/`bIdx`/`siteplanDone` — new folders not in the draft keep their
 `_modelFromInventory` defaults; removed PDF stems are ignored. `bIdx` (the paged-building index)
 is restored **clamped** to `[0, buildings.length-1]` so the user resumes on the building they
 last viewed even though folders can change between sessions. A global **size slider** (`_sizer`/`_applyThumbSize`,
@@ -609,6 +607,16 @@ per card the first time it's wheel-zoomed (`onZoom`) or when the size slider pas
 `HIRES_AT` (260px), and always in the popup. The popup image is therefore the full render (not a
 PDF iframe — see §10; dismiss: backdrop / ✕ / Esc), showing a brief "Rendering preview…" state
 until the render resolves.
+When a **code region** is marked (the default — see *Code-region pick* below), each card's
+thumbnail is instead a **close-up crop of that region** (`_codeCropThumb`): the hi-res preview
+`<img>` is widened to `1/region.w` of the card and translated by `-region.x`/`-region.y` of its
+own size inside an overflow-clipped box, so the region exactly fills it. Those are **percentages**,
+so the crop rescales for free when the size slider changes the card width; only the box's aspect
+ratio needs the render's intrinsic size, set once on the image's `load`. The region used is the
+building's own `codeRegion` override when set, else the global `_codeRegion`. Clicking the crop
+opens the full drawing in `_lightbox` — the escape hatch for an outlier whose code sits outside the
+marked spot. With **no** region (the user skipped the step), cards fall back to the scan thumbnail +
+lazy hi-res zoom/pan described above.
 Cards render **one per row** (`imp-grid` is a single column): the thumbnail sits on the left
 (sized by the `--imp-card-w`/`--imp-thumb-h` vars) and the file name + a **Replace** control +
 floor selector on the right (`imp-cardbody`). The **Replace** affordance (`_replaceControl`/
@@ -619,8 +627,7 @@ preserved (id-preserving; rooms survive). A re-scan regenerates the thumbnail an
 `_rev` counter busts the image cache. The floor selector (`_floorButtons`) is a **button row**: in Location
 mode one button per `nbFloors` Location (click writes its `slug`→`token`, `name`→`label`),
 otherwise a floor-type fallback (`— none —`/Basement/Ground/Level 1..N/Roof) that sets
-`type`/`num`. While a drawing is still `unassigned`, the floor an OCR pass guessed
-(`a.ocrSuggest`) is rendered `.suggested` (a dashed outline) for a one-click confirm. `— none —`
+`type`/`num`. `— none —`
 is offered in both modes; assigning two sheets the **same** Location
 groups them into one multi-sheet floor (same token). On entering Location mode,
 `_normalizeToLocations` marks any token-less drawing **`unassigned`** — a state distinct from a
@@ -632,54 +639,32 @@ directly; `unassigned`/`none` contribute no floor; legacy `same` reuses the prev
 multi-page).
 
 **Site plan, picked first** (`_stepSiteplan`, gated by `_siteplanDone`): the assign phase opens
-on its **own** site-plan step, before the assignment chooser — the site plan is the overall
+on its **own** site-plan step, before the code-region pick — the site plan is the overall
 site map and carries no floor code, so it's chosen apart from floor assignment. `_siteplanSelect`
 is the folder/file `<select>` of every drawing; choosing one routes through `_setSiteplan`, which
 records `this.site` **and** marks that drawing's `assign` `type:'none'` (`_setAssignNone`) so it's
-excluded from floor assignment and the OCR pass — a building drawing previously picked reverts to
-`unassigned`, while a dedicated `Site Plan` folder's drawing stays `none`. **Continue** sets
-`_siteplanDone` and proceeds. On the map step the inline picker is replaced by a compact
+excluded from floor assignment and the code-region sample — a building drawing previously picked
+reverts to `unassigned`, while a dedicated `Site Plan` folder's drawing stays `none`. **Continue**
+sets `_siteplanDone` and proceeds. On the map step the inline picker is replaced by a compact
 read-only summary (`_siteplanSummary` — "Site plan: … · **Change**", which jumps back).
 
-**Automatic vs manual floor assignment** (`_assignMode`): after the site-plan step the map step
-shows a chooser (`_stepAssignChoice`) — **Manual** (`_assignMode='manual'`, the per-card flow
-above) or **Automatic** (`_assignMode='auto'`). Automatic first marks where the floor designation sits
-(`_stepRegionPick`): the user drags one box over the **whole title caption** (the line naming the
-floor) on a sample drawing's hi-res preview; `_attachRegionDrag` stores it on `_ocrRegion`
-**normalized 0..1** (the overlay shares the `<img>`'s box, so pointer coords map straight to image
-space — correct at any zoom, since it reads the image's live `getBoundingClientRect()`) so it
-applies to every drawing's render regardless of size. The box should capture the **caption**, not
-a tight crop of the code: `_floorKey` pulls the code out of the recognized caption, and the code's
-exact position drifts with caption length (a long building name pushes it sideways), whereas the
-title-block caption sits at a stable spot — so a caption-sized box is position-tolerant across
-buildings. The sample sits in a scrollable viewport with a **−/Fit/+ zoom bar**
-(`_regionZoomBar`/`_applyRegionZoom` widen the canvas; scroll to pan) so a small caption can be
-boxed accurately. "Read all drawings" (`_runOcr`) preloads every building's
-floor Locations (`_loadFloors`), POSTs `{region}` to **`api/import/ocr-assign`**, and gets back
-`[{folder, stem, text, confidence}]` per drawing. `_applyOcr` maps each result to a floor via
-`_matchFloor`: `_floorKey` canonicalizes both the OCR text and each candidate floor's
-name/slug, pulling the code out of a longer caption (`'Third Basement Level (B3) Plan'`→`b3`,
-`'Level 2'`/`'L2'`/`'2'`/`'Second Floor'`→`l2`, `'Ground'`/`'G'`→`g`, `'Basement 1'`/`'B1'`→`b1`,
-`'Roof'`→`r`; spelled-out ordinals first–tenth are handled) and, in Location mode, a **unique** key match writes the Location's slug→`token`
-(else it's left for review); in fallback mode the key resolves to `type`/`num`. `_applyOcr`
-stashes the raw read on **every** processed drawing (`a.ocrText`/`a.ocrConf`) so each card shows
-what was seen via a small read-out chip (`_ocrReadout`) — a non-auto-assigned drawing explains
-itself (the recognized text + confidence) instead of going blank. A result at/above
-`OCR_MIN_CONF` (0.5) that matches a floor is auto-applied; a parsed match **below** that
-confidence is **not discarded** — it's kept as `a.ocrSuggest` and the drawing stays
-**`unassigned`** (so the build gate still forces a confirm) while `_floorButtons` pre-highlights
-the guessed floor (`.suggested`, a dashed outline) for a one-click accept. A read that parses to
-nothing floor-like or matches no Location records `a.ocrReason` (`no floor matched`/`nothing
-read`) for the card; already-`none`/already-`token` drawings are never clobbered. The mode then
-drops into the normal map step with a banner (`_autoBanner`) offering **Re-read region** (clears
-`_ocrRegion`) or **Switch to manual** — so the user can always fall back to hand assignment.
-**Per-building re-read:** for an outlier whose title block sits elsewhere than the global sample,
-`_buildingSection` shows a **"Re-read this building's floor codes"** button (auto mode, only while
-the building still has an `unassigned` drawing). It re-enters `_stepRegionPick(b)`, and "Read this
-building" runs `_runOcr(b)` — a **folder-scoped** pass: it POSTs `{region, folder}` so
-`OcrAssignView` OCRs only that building's drawings, and `_applyOcr` (keyed by `folder`) updates
-just that building. A scoped pass keeps `_ocrRegion` on error (so the user can retry) and lands
-back on that building (`_bIdx`).
+**Code-region pick** (`_stepRegionPick`, gated by `_codeRegionDone`): after the site-plan step the
+map step opens on a region pick — the user drags one box over the spot that **identifies each
+drawing** (the floor code/caption, e.g. "SECOND BASEMENT LEVEL (B2)") on a sample drawing's hi-res
+preview. `_attachRegionDrag` stores it **normalized 0..1** (the overlay shares the `<img>`'s box,
+so pointer coords map straight to image space — correct at any zoom, since it reads the image's
+live `getBoundingClientRect()`) on `_codeRegion`, or on the building's own `codeRegion` when the
+pick is **scoped** to one building. The sample sits in a scrollable viewport with a **−/Fit/+ zoom
+bar** (`_regionZoomBar`/`_applyRegionZoom` widen the canvas; scroll to pan) so a small code can be
+boxed accurately. **Use this region** records the box (sets `_codeRegionDone`) and drops into the
+normal map step, where every card now shows a `_codeCropThumb` close-up of that spot. The step is
+**skippable** — **Skip — show full drawings** sets `_codeRegion = null` (and `_codeRegionDone`),
+falling back to full-drawing thumbnails. **Per-building override:** for an outlier whose title
+block sits elsewhere than the global sample, `_buildingSection` shows a **"Mark this building's
+code"** button (shown once a global or per-building region exists). It re-enters
+`_stepRegionPick(b)` scoped to that building, writing its `codeRegion` (which takes precedence over
+the global for its cards); a scoped pick offers **Use the global region** (clears the override) and
+a plain **Cancel**, and lands back on that building (`_bIdx`).
 
 **Build** (`_buildActions`/`_build`): the **Build facility map** button is gated — it stays a
 disabled button + hint (never silently hidden) until every building's drawings are assigned
@@ -835,14 +820,14 @@ access as the map).
   `preprocess.py scan` (thumbnails + inventory). `BuildView` writes the posted import map
   to `<workdir>/import-map.json` (after a `max_pdfs` cap check) then runs `preprocess.py
   build` (images + manifest). `ResetView` wipes `uploads/`, `images/`, `manifest.json`,
-  `import-map.json`/`.stub.json`/`.draft.json`, `ocr-job.json`, and the lockfile.
+  `import-map.json`/`.stub.json`/`.draft.json`, and the lockfile.
 - **`SaveDraftView`** (POST `api/import/save-draft`) / **`LoadDraftView`** (GET
   `api/import/load-draft`) — lightweight wizard-state persistence. `SaveDraftView` writes
-  the wizard's current `{buildings, site, assignMode, ocrRegion, bIdx, siteplanDone}` model JSON to
+  the wizard's current `{buildings, site, codeRegion, codeRegionDone, bIdx, siteplanDone}` model JSON to
   `import-map.draft.json` under the working dir (called on every Prev/Next navigation).
   `LoadDraftView` reads it back (returning every stored key verbatim); returns
   `{ok: false}` if no draft exists. The draft survives across browser sessions so `show()`
-  can restore user-entered names/floor assignments (and the chosen assignment mode/region) on
+  can restore user-entered names/floor assignments (and the chosen code region) on
   resume. Both require `EDIT_PERM`.
 - **`PreviewView`** (GET `api/import/preview?path=uploads/<folder>/<file>.pdf`) — renders
   **one** uploaded PDF at full `RENDER_SCALE` on demand and streams the PNG, the wizard's
@@ -853,30 +838,20 @@ access as the map).
   distinct cache path, so opening a preview never 409s against an in-flight scan (a racing
   `reset` just yields a clean 404). The `.full.png` cache lives under `.thumbs`, which `scan`
   skips and `reset` wipes, so no extra cleanup is needed. `_ensure_preview(pdf_rel)` factors
-  out the "render-if-stale-and-return-cache-path" step, shared with `OcrAssignView`.
-- **`OcrAssignView`** (POST `api/import/ocr-assign`) — reads the floor code off **every**
-  uploaded drawing so the wizard can auto-assign floors. Body `{region:{x,y,w,h}, folder?}`
-  (region normalized 0..1, validated in-bounds → 400 otherwise; an optional `folder` scopes the
-  pass to one building — the per-building re-read — matched against existing dir names, unknown →
-  400). It enumerates `uploads/` (or just `folder`), ensures a full-scale
-  PNG per drawing via `_ensure_preview` (the **only** PDF-touching step — the existing trusted
-  `preview` render), writes `ocr-job.json` (`{region, images:[{folder,stem,image}]}`), runs the
-  **`ocr.py`** subprocess (`_run_ocr`), and returns `{results:[{folder,stem,text,confidence}]}`.
-  `EDIT_PERM`-gated and **lock-free** like `PreviewView` (it only reads already-rendered PNGs),
-  so it never 409s an in-flight scan.
-- **Render/OCR invocation** — `_run_script(script_name, mode, extra=None, json_stdout=False)`
+  out the "render-if-stale-and-return-cache-path" step; the wizard's code-crop thumbnails and the
+  popup both ride this same render (the crop itself is done client-side in CSS, so no new endpoint).
+- **Render invocation** — `_run_script(script_name, mode, extra=None, json_stdout=False)`
   spawns `python3 <script_name> <mode> --base <workdir> [extra…]` **by file path** (not `-m`),
   so the package `__init__` (which imports Django/NetBox) is never loaded into the child — the
   child stays minimal/isolated. It runs with `capture_output`, a `render_timeout_s` timeout,
   and (POSIX) a `preexec_fn` setting `RLIMIT_CPU` + `RLIMIT_AS` (`_rlimits`), so a
   runaway/malicious child is bounded; `json_stdout` reads stdout as the JSON result, else
-  stderr is returned as a log. Two thin wrappers target it: `_run_preprocess(mode, extra)` runs
+  stderr is returned as a log. A thin wrapper targets it: `_run_preprocess(mode, extra)` runs
   `preprocess.py` (`scan` reads stdout JSON; `build`/`preview` return the stderr log; `extra`
-  carries `--pdf`/`--out` for `preview`) and `_run_ocr(extra)` runs `ocr.py` (`--job …`, stdout
-  JSON). `_run_locked(mode)` wraps **scan/build** in a **working-dir lockfile** (`.import.lock`,
-  `_acquire_lock`/`O_CREAT|O_EXCL` with stale-lock recovery) so concurrent imports across
-  **worker processes** (a thread lock could not) return 409 instead of colliding; `preview` and
-  `ocr-assign` bypass the lock by design (single-file/read-only renders).
+  carries `--pdf`/`--out` for `preview`). `_run_locked(mode)` wraps **scan/build** in a
+  **working-dir lockfile** (`.import.lock`, `_acquire_lock`/`O_CREAT|O_EXCL` with stale-lock
+  recovery) so concurrent imports across **worker processes** (a thread lock could not) return 409
+  instead of colliding; `preview` bypasses the lock by design (single-file render).
 - **`ManifestView`** (GET `api/manifest`, `LoginRequiredMixin`) — streams the rendered
   `manifest.json` from the working dir, or `EMPTY_MANIFEST` (`{'siteplan':None,
   'buildings':[]}`) before any import. The frontend fetches the manifest from here (not a
@@ -937,36 +912,6 @@ The floor PDFs have **no text layer** (every label is vectorized), so a PDF's fl
   - `preview` — render the `--pdf` PDF at full scale to `--out` (the high-res preview cache);
     no stdout payload.
 
-### ocr.py — `FloorCodeReader` (the OCR engine, run as a subprocess)
-Reads the floor code off rendered drawings for the wizard's **automatic** floor assignment.
-A **sibling of `preprocess.py`** with the same isolation contract: invoked as a standalone
-subprocess by `imports.py` (`_run_ocr` → `_run_script('ocr.py', 'ocr', …)`, by file path),
-under the same timeout + POSIX rlimits (the OCR child gets its own `ocr_mem_mb` budget — onnxruntime
-reserves a large virtual-address space a render-sized `RLIMIT_AS` would kill), and it **never
-imports Django/NetBox**. It is stdlib + `Pillow` + `numpy` + `onnxruntime` only, running a
-**PP-OCRv4 text-recognition** ONNX model **vendored under `models/rec.onnx`** (Apache-2.0; charset
-embedded in the model's `character` metadata). Recognition is **fully offline** (model in the
-wheel) and uses **no OpenCV** — deliberately, since OpenCV's desktop build needs X11 system libs
-that headless servers lack; all preprocessing is `numpy`/`Pillow`, and onnxruntime's wheels depend
-only on base libc/libstdc++. Crucially it reads **only already-rendered, trusted PNGs** (the
-`.thumbs/*.full.png` previews) and **never opens a PDF**, so it adds no new untrusted-input parse
-path — PDF rasterization stays solely in `preprocess.py`.
-- **Input:** `--base <workdir> --job <ocr-job.json>`. The job is
-  `{region:{x,y,w,h} (0..1), images:[{folder,stem,image:<rel PNG>}]}`.
-- **Work:** load the recognizer **once** (`_Recognizer`, model init is the cost), then per image
-  crop to the normalized region (`round(x·W)…`), upscale tiny crops (`MIN_CROP_PX`/`UPSCALE_TO`) so
-  small codes stay legible, **split the crop into text lines** by numpy horizontal ink projection
-  (`_split_lines` — recognition is single-line, so a multi-line box must be cut), recognize each
-  line (`resize_norm_img`→net→CTC greedy decode, mirroring PaddleOCR; fullwidth glyphs folded to
-  ASCII), then join the lines into `(text, confidence=mean kept-char prob)`. A
-  missing/unreadable image or empty region degrades to `("", 0.0)` so one bad PNG never sinks the
-  batch. Because the user already boxes the code, there is **no detection model** (that's the part
-  that needs OpenCV).
-- **Output:** `{results:[{folder,stem,text,confidence}]}` to stdout. Library chatter is kept
-  off stdout (it carries only the JSON) by redirecting `sys.stdout`→stderr during OCR. If the deps
-  or the model are missing it exits with a message naming the real cause (surfaced to the user via
-  the 500 body).
-
 ### storage.py — working dir + path safety
 The import pipeline needs a **writable** directory (the package `static/` tree is
 read-only at runtime), so it lives under NetBox's `MEDIA_ROOT`.
@@ -1001,7 +946,6 @@ read-only at runtime), so it lives under NetBox's `MEDIA_ROOT`.
 | POST | `api/import/upload-zip` | `imports.UploadZipView` (extract `.zip` → `uploads/`) | **EDIT_PERM** |
 | POST | `api/import/scan` | `imports.ScanView` (thumbnails + inventory) | **EDIT_PERM** |
 | GET | `api/import/preview?path=<rel>` | `imports.PreviewView` (on-demand full-scale PNG, cached) | **EDIT_PERM** |
-| POST | `api/import/ocr-assign` | `imports.OcrAssignView` (OCR a region on every drawing, or one `folder` → floor codes) | **EDIT_PERM** |
 | POST | `api/import/build` | `imports.BuildView` (save map, render images + manifest) | **EDIT_PERM** |
 | POST | `api/import/reset` | `imports.ResetView` (clear the import) | **EDIT_PERM** |
 | POST | `api/import/save-draft` | `imports.SaveDraftView` (persist wizard model as draft) | **EDIT_PERM** |
@@ -1322,24 +1266,16 @@ point at the deep treatment.
 
 - The floor PDFs have **no text layer** — every label is a vectorized path, so the
   building/floor cannot be **text-extracted** off a sheet. Floor identity is therefore stored
-  in `import-map.json` as a `{drawing-stem: floor-token}` table, set in the wizard. It can be
-  filled in two ways: **manually** (the user clicks a floor per card) or **automatically** —
-  the wizard's OCR pass (`api/import/ocr-assign` → `ocr.py`) reads the floor *code* off the
-  **rendered image** of a user-marked region and the frontend matches it to a floor
-  (`_matchFloor`/`_floorKey`). **Box the caption, not the code:** mark the whole floor-designation
-  caption (e.g. "… SECOND BASEMENT LEVEL (B2) PLAN …"), not a tight crop of "(B2)". `_floorKey`
-  extracts the code from the caption, and the code's exact spot drifts with caption length while
-  the caption block stays put — so a caption-sized box survives across buildings. For the rare
-  building whose title block is in another corner, the per-building **"Re-read this building's
-  floor codes"** button runs a `folder`-scoped pass over just that building. The raw read is shown
-  on every card (`a.ocrText`/`a.ocrConf` →
-  `_ocrReadout`), so a drawing that *wasn't* auto-assigned shows **why** (what OCR saw and how
-  confidently) instead of a blank floor row. A parsed match below `OCR_MIN_CONF` is **not thrown
-  away** — it's kept as `a.ocrSuggest`, the drawing stays `unassigned` (the build gate still
-  forces a confirm), and `_floorButtons` pre-highlights the guess (`.suggested`) for a one-click
-  accept; truly unmatched/ambiguous reads stay `unassigned` with an `a.ocrReason`. OCR
-  **pre-fills**, the human still owns the final assignment. Note this is OCR on the **raster**,
-  not text extraction from the PDF (there is no text layer to extract).
+  in `import-map.json` as a `{drawing-stem: floor-token}` table, set **by hand** in the wizard
+  (the user clicks a floor per card). To make that fast without reading anything off the sheet,
+  the wizard shows a **code-crop thumbnail**: the user marks once where a drawing's identifying
+  code sits (`_codeRegion`, normalized 0..1), and every card then shows a CSS close-up of just
+  that spot (`_codeCropThumb`) so the floors are distinguishable at a glance. The crop is **pure
+  client-side CSS over the existing hi-res preview** — no OCR, no model, no new endpoint. Clicking
+  a card opens the full drawing in the lightbox (the escape hatch for an outlier whose code sits
+  outside the box). A building whose title block is in another corner gets a per-building
+  **"Mark this building's code"** override (`building.codeRegion`, takes precedence over the
+  global); the step is skippable (falls back to full-drawing thumbnails).
 - **Two drawings sharing a floor token = one multi-page floor** (ordered by drawing
   number) — that is how stacked sheets of one floor group. In the wizard the *“same floor
   (extra sheet)”* control reuses the previous token; in the map it's just the same token.
@@ -1358,17 +1294,9 @@ point at the deep treatment.
   processes); `preview` (single-file, distinct cache path) deliberately bypasses the lock so
   opening a preview never blocks a scan. `scan` prints its inventory JSON to **stdout** (keep
   progress on **stderr**, or the parse breaks); `build` reads `import-map.json` and writes
-  `manifest.json` (buildings with zero floors are dropped).
-- **OCR is a separate subprocess with the same isolation:** `_run_ocr` spawns the **sibling**
-  `ocr.py` (also by file path, same timeout/rlimits) — but it imports `onnxruntime`/`numpy` and a
-  **vendored PP-OCRv4 recognition model** (`models/rec.onnx`, bundled offline) instead of
-  pypdfium2, and reads **only already-rendered, trusted PNGs**, never a PDF. Keep these two clean:
-  `preprocess.py` stays stdlib + pypdfium2/Pillow (the untrusted-PDF parser), `ocr.py` stays stdlib
-  + Pillow + numpy + onnxruntime (no PDF parsing, **no OpenCV** — its X11 deps break headless
-  boxes). The OCR engine must never move into the NetBox worker, and it must never grow a PDF-open path —
-  that would breach the isolation `ocr.py` exists to preserve. `ocr-assign` is **lock-free**
-  (read-only over PNGs). `ocr.py` prints its results JSON to **stdout** (it redirects any
-  library chatter to stderr to keep that channel clean).
+  `manifest.json` (buildings with zero floors are dropped). Keep `preprocess.py` clean: stdlib +
+  pypdfium2/Pillow only (it is the untrusted-PDF parser), never importing Django/NetBox, so the
+  deps never load into the worker.
 - Uploads ride a **multipart form** (`file` field, so Django streams to disk) to
   `api/import/upload?path=<building>/<file>.pdf`; the endpoint enforces `.pdf`, the `%PDF-`
   magic bytes, a size cap (`max_pdf_mb`), and `safe_path` confinement to `uploads/`. Build

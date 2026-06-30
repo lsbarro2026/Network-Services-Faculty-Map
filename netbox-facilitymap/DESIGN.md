@@ -124,7 +124,6 @@ netbox-facilitymap/                      # distribution root
                                          # (page-mount views; named to not shadow the api/ REST package)
     imports.py                           # PDF import endpoints + authenticated manifest/media serving (§7)
     preprocess.py                        # PDF render engine, run as an isolated subprocess (§7)
-    ocr.py                               # offline OCR engine over rendered PNGs, isolated subprocess (§7)
     storage.py                           # work_dir()/safe_path()/media_url() (MEDIA_ROOT working dir)
     models.py                            # FacilityMapBlob; Room(NetBoxModel) FK → dcim.Location
     filtersets.py  tables.py  forms.py   # RoomFilterSet / RoomTable / Room*Form
@@ -196,7 +195,6 @@ class FacilityMapConfig(PluginConfig):
         'work_dir': None, 'max_pdf_mb': 50, 'max_pdfs': 400,
         'max_zip_mb': 200, 'max_zip_uncompressed_mb': 2048,   # .zip upload caps
         'render_timeout_s': 300, 'render_mem_mb': 4096,
-        'ocr_mem_mb': 0,          # RLIMIT_AS for the OCR child (0 = none); see §below
     }
 
 config = FacilityMapConfig
@@ -259,7 +257,7 @@ name = "netbox-facilitymap"
 version = "1.5.0"
 description = "Facility map plugin for NetBox"
 requires-python = ">=3.10"
-dependencies = ["pypdfium2", "Pillow", "onnxruntime", "numpy"]   # PDF render + offline OCR (no OpenCV); Django/DRF from NetBox
+dependencies = ["pypdfium2", "Pillow"]   # PDF render engine; Django/DRF from NetBox
 readme = "README.md"
 license = { text = "MIT" }
 
@@ -277,17 +275,11 @@ recursive-include netbox_facilitymap/static *
 ```
 
 **Key packaging rules**
-- **Runtime deps are `pypdfium2` + `Pillow` + `onnxruntime` + `numpy`** (the PDF render engine
-  and the offline OCR engine, §7). NetBox supplies Django/DRF. `pypdfium2` bundles PDFium as a
-  self-contained wheel (no system Ghostscript/poppler); OCR runs a **vendored PP-OCRv4
-  recognition model** (`models/rec.onnx`, Apache-2.0) on `onnxruntime`, so floor-code recognition
-  is **fully offline** (model in the wheel — no network, no system binary like Tesseract).
-  **Deliberately no OpenCV:** its desktop build needs X11 system libs (`libGL`/`libxcb`) that
-  headless servers lack, so the previous rapidocr engine failed to import on a bare box;
-  `onnxruntime` wheels depend only on base libc/libstdc++, and all image preprocessing is
-  `numpy`/`Pillow`, so a plain `pip install` works on any environment. Both native engines load
-  only in their respective **subprocesses** (`preprocess.py` / `ocr.py`), never the NetBox worker,
-  so the native-code surface stays out of the long-lived process.
+- **Runtime deps are `pypdfium2` + `Pillow`** (the PDF render engine, §7). NetBox supplies
+  Django/DRF. `pypdfium2` bundles PDFium as a self-contained wheel (no system
+  Ghostscript/poppler), so a plain `pip install` works on any environment, headless servers
+  included. The native renderer loads only in its **subprocess** (`preprocess.py`), never the
+  NetBox worker, so the native-code surface stays out of the long-lived process.
 - **Ship the static + template files**, not just `.py` — that is what `package-data` /
   `MANIFEST.in` guarantee. The plugin ships with **no facility content**: floor images +
   `manifest.json` are rendered at runtime under `MEDIA_ROOT` (§7), not packaged.
@@ -345,36 +337,22 @@ a login — importing rewrites the whole map and `reset` wipes it:
   it renders a single file to a distinct cache path **without the import lock**, so a preview
   never 409s against an in-flight scan (a racing `reset` just 404s). The `.full.png` cache sits
   under `.thumbs`, which `scan` skips and `reset` wipes — no extra cleanup.
-- `POST api/import/ocr-assign` — auto-fill floor assignments. Body `{region:{x,y,w,h}, folder?}`
-  (region normalized 0..1, the spot the user dragged over the floor-designation caption; an
-  optional `folder` scopes the pass to one building — the wizard's per-building re-read). The
-  server ensures a full-scale PNG per drawing (reusing the `preview` render — the only
-  PDF-touching step), then runs the **`ocr.py`** subprocess over those PNGs and returns
-  `{results:[{folder,stem,text,confidence}]}`; the wizard maps each code to a floor and leaves
-  low-confidence/ambiguous ones for the user to confirm. `EDIT_PERM` + subprocess isolation,
-  and **lock-free** like `preview` (it only reads already-rendered PNGs).
 - `POST api/import/reset` — clear the working dir.
 - `GET api/manifest` (login) — serve the rendered manifest, or the empty stub.
 - `GET api/media/<path>` (login) — stream a rendered image / thumbnail / uploaded PDF from
   the working dir; traversal-guarded and confined to `images/`/`uploads/`. Floor plans are
   **not** exposed at a public static URL.
 
-**Renderer/OCR isolation + limits.** `_run_script(script, mode, …, mem_mb, timeout_s)` spawns
+**Renderer isolation + limits.** `_run_script(script, mode, …, mem_mb, timeout_s)` spawns
 `python <script> <mode> --base <workdir>` **by file path** (not `-m`, so the package's
 NetBox-importing `__init__` never loads into the child), with `timeout=render_timeout_s` and
-a POSIX `preexec_fn` setting `RLIMIT_CPU` + `RLIMIT_AS`. Two children share
-this isolation: `preprocess.py` (`_run_preprocess`) stays stdlib + `pypdfium2`/`Pillow` only
-and only rasterizes page 1 — no PDF text/JS/embedded content is executed; `ocr.py`
-(`_run_ocr`) stays stdlib + `Pillow` + `numpy` + `onnxruntime` (a **vendored PP-OCRv4 recognition
-model**, no OpenCV) and reads **only already-rendered PNGs**, never a PDF, so adding OCR introduces
-**no new untrusted-input parse path** (PDF parsing stays solely in `preprocess.py`, the OCR model
-is bundled and runs offline). The two children get **different memory caps**: the render child is held to
-`render_mem_mb` (the tight cap that contains a malicious PDF parser), but the OCR child — which
-touches only trusted PNGs — gets `ocr_mem_mb` (default `0` = no `RLIMIT_AS`), because
-onnxruntime reserves a large virtual-address space that a render-sized `RLIMIT_AS` would kill;
-the CPU/timeout cap still applies. A working-dir lockfile (`_acquire_lock`, with stale-lock recovery) serializes
+a POSIX `preexec_fn` setting `RLIMIT_CPU` + `RLIMIT_AS`. The render child
+(`preprocess.py`, `_run_preprocess`) stays stdlib + `pypdfium2`/`Pillow` only and only
+rasterizes page 1 — no PDF text/JS/embedded content is executed — and is held to
+`render_mem_mb` (the tight cap that contains a malicious PDF parser) alongside the CPU/timeout
+caps. A working-dir lockfile (`_acquire_lock`, with stale-lock recovery) serializes
 **scan/build** renders across worker processes, since the tool's thread lock could not; the
-single-file `preview` render and the read-only `ocr-assign` pass skip the lock by design.
+single-file `preview` render skips the lock by design.
 
 `manifest.json` encodes the load-bearing conventions (`dir == Site slug`,
 `floorSlug == Location slug`, image filenames) that the `Room` FKs must honour; it is served
@@ -459,10 +437,7 @@ Hash routing (`app.js router()`) is already prefix-agnostic — no change.
    the parser in a short-lived, resource-limited **subprocess** (never the NetBox worker),
    `%PDF-` + size/count validation, permission-gating, and `pypdfium2` (hardened PDFium,
    no system Ghostscript/poppler). Residual risk is a PDFium CVE inside the sandboxed child;
-   keep `pypdfium2` patched. **OCR (`ocr.py`) does not widen this surface:** it runs in its own
-   isolated subprocess over the **already-rendered, trusted PNGs** and never opens a PDF, and
-   its vendored PP-OCRv4 model is bundled (no network, no OpenCV), so it parses no untrusted input
-   and reaches nothing online. Large facilities also produce many PNGs under `MEDIA_ROOT` —
+   keep `pypdfium2` patched. Large facilities also produce many PNGs under `MEDIA_ROOT` —
    served on-demand by `MediaView`, so no `collectstatic` bloat, but watch disk.
    `.zip` uploads are unpacked in the worker (only PDF *rendering* stays in the subprocess);
    the zip-bomb / traversal surface that adds is bounded by streamed size caps

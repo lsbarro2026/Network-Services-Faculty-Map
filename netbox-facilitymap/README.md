@@ -51,16 +51,17 @@ The plugin ships with **no facility content**; you build it from your drawings:
 3. **Map** each drawing to a floor (the PDFs carry no text layer, so floor identity is
    assigned here), confirm each building's NetBox **site slug** and floor-id prefix. First pick
    the **site plan** on its own step (it's the overall site map and has no floor code, so it's
-   chosen apart from floor assignment). Then click a card to preview the PDF; scroll or drag a
-   thumbnail to frame the part that names the floor. Choose **Automatic** to have the wizard read
-   the floor codes for you — drag a box once over the whole **floor-designation caption** (e.g.
-   "… SECOND BASEMENT LEVEL (B2) PLAN …"), not just the code; the wizard picks the floor out of
-   it, and a caption-sized box stays accurate across buildings even when the code's position
-   shifts (zoom in with **−/Fit/+** and scroll to pan if it's small). It reads that spot on every
-   drawing, shows what it read on each card, and flags anything uncertain for you to confirm; for
-   an odd building whose title block sits elsewhere, **Re-read this building's floor codes**
-   re-marks just that one (all offline; see *Security model*) — or **Manual** to assign each card
-   yourself.
+   chosen apart from floor assignment). Then comes a quick **region-pick** step: on a sample
+   drawing, drag one box over the spot that identifies each drawing — the **floor-designation
+   caption** (e.g. "… SECOND BASEMENT LEVEL (B2) PLAN …") or title-block code (zoom in with
+   **−/Fit/+** and scroll to pan if it's small). Each floor card on the mapping grid then shows a
+   **close-up crop of just that spot** of the drawing, so you can read off the floor and assign it
+   at a glance. Clicking a card opens the **whole drawing** in a lightbox (the escape hatch for an
+   outlier whose code sits outside the box). For a building whose title block sits elsewhere,
+   **Mark this building's code** overrides the crop region for just that building's cards. If the
+   code's position is too inconsistent to box, **Skip — show full drawings** falls back to
+   full-drawing thumbnails. The crop is drawn entirely in the browser over the images the plugin
+   already renders — no floor identity ever leaves your server.
 4. **Build** — the plugin renders the images + manifest and opens the map. Then draw rooms
    and bind each to its NetBox Location.
 
@@ -93,13 +94,6 @@ Accepting and rasterizing uploaded PDFs is an attack surface, so it is contained
   A PDFium exploit cannot reach the NetBox worker's memory or DB. The renderer is
   [`pypdfium2`](https://github.com/pypdfium2-team/pypdfium2) (Google's PDFium as a
   self-contained wheel) — no system Ghostscript/poppler.
-- **Offline OCR, isolated too.** The wizard can read floor codes off drawings to auto-assign
-  floors (the "Automatic" option in the map step). That OCR runs in a **separate** isolated
-  subprocess (`ocr.py`, same timeout + resource limits) over the **already-rendered images** —
-  it never opens a PDF, so it adds no new parsing surface. The engine is a **PP-OCRv4
-  recognition model** (Apache-2.0) bundled in the wheel and run on `onnxruntime`, so recognition
-  is **fully offline** — no network and no system OCR binary (e.g. Tesseract) to install — and it
-  uses **no OpenCV**, so there are no X11 system-library requirements on headless servers.
 - **Authorization.** Every import endpoint and every map **write** requires the
   `netbox_facilitymap.change_facilitymapblob` permission (not merely a login). Grant it to
   the users who maintain the map. Reads require a login (same access as the map).
@@ -123,10 +117,6 @@ PLUGINS_CONFIG = {
         "max_zip_uncompressed_mb": 2048,  # cumulative decompressed cap (zip-bomb guard)
         "render_timeout_s": 300,  # kill the render subprocess after this long
         "render_mem_mb": 4096,    # RLIMIT_AS for the render subprocess (POSIX)
-        "ocr_mem_mb": 0,          # RLIMIT_AS for the OCR subprocess; 0 = none. The OCR child
-                                  # reads only trusted PNGs, and onnxruntime reserves a large
-                                  # virtual-address space a render-sized cap would kill — so
-                                  # raise this (or leave 0) if auto floor assignment fails.
     },
 }
 ```
@@ -134,16 +124,10 @@ PLUGINS_CONFIG = {
 ## Install (into a NetBox instance)
 
 Run as the NetBox service user, **inside NetBox's virtualenv** (default `/opt/netbox/venv`).
-Installing pulls the runtime deps `pypdfium2` + `Pillow` + `onnxruntime` + `numpy`
-automatically. The automatic floor-code OCR uses a small PP-OCRv4 recognition model **bundled in
-the wheel** (no download, ever) running on `onnxruntime`, whose wheels are self-contained — so it
-works on **any environment, including headless servers, with no system packages**. (Earlier
-releases used rapidocr/OpenCV, which needed X11 system libs and broke on bare servers; that's
-gone.) NetBox's `MEDIA_ROOT` must be writable by the service (it already is for NetBox's own
-uploads).
-
-> **Upgrading with `pip --no-deps`?** Add `pip install onnxruntime numpy` so a newly-added runtime
-> dependency actually lands. Manual floor assignment needs none of this.
+Installing pulls the runtime deps `pypdfium2` + `Pillow` automatically — both ship as
+self-contained wheels, so the plugin works on **any environment, including headless servers, with
+no system packages**. NetBox's `MEDIA_ROOT` must be writable by the service (it already is for
+NetBox's own uploads).
 
 The plugin lives in the `netbox-facilitymap/` subdirectory of the
 [Network-Services-Faculty-Map](https://github.com/lsbarro2026/Network-Services-Faculty-Map)
@@ -222,8 +206,6 @@ netbox_facilitymap/
   frontend_api.py    AnnotationsView (compose/decompose) + blob GET/POST + ORM netbox reads
   imports.py         PDF import (upload/scan/build/reset) + authenticated manifest/media serving
   preprocess.py      PDF render engine (run as an isolated subprocess; pypdfium2 + Pillow)
-  ocr.py             offline OCR engine over rendered PNGs (isolated subprocess; onnxruntime + numpy, no OpenCV)
-  models/rec.onnx    vendored PP-OCRv4 recognition model (Apache-2.0) used by ocr.py
   storage.py         work_dir() / safe_path() / media_url() helpers (MEDIA_ROOT working dir)
   api/               DRF REST API for Room (serializers, viewset, router) → /api/plugins/facilitymap/
   models.py          FacilityMapBlob (JSON docs) + Room (NetBoxModel, FK → dcim.Location)

@@ -3,6 +3,26 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.10.0 — Drop OCR; show a close-up of each drawing's code instead
+- **Removed the offline OCR auto-assignment.** Reading the floor code off scanned title blocks
+  was never reliable enough to trust, so the whole engine is gone: `ocr.py`, the vendored
+  PP-OCRv4 model (`models/rec.onnx`), the `OcrAssignView` endpoint (`api/import/ocr-assign`),
+  the `ocr_mem_mb` setting, and the `onnxruntime` + `numpy` runtime dependencies. Installing now
+  pulls only `pypdfium2` + `Pillow`, and the wheel no longer bundles a 10.8 MB model. The
+  automatic/manual mode choice is gone — assignment is manual.
+- **Code-crop thumbnails make manual assignment fast.** The same "mark the code once" gesture
+  that used to feed OCR now drives a purely visual flow. Before the mapping grid the user drags a
+  box over the spot that identifies each drawing (`_codeRegion`, normalized 0..1) on a sample
+  drawing; every floor card then shows a **close-up crop of just that spot** (`_codeCropThumb`)
+  instead of the full drawing, so floors are recognizable at a glance. The crop is pure CSS over
+  the existing hi-res preview — no new backend. Clicking a card opens the whole drawing in the
+  lightbox for an outlier whose code sits elsewhere.
+- **Per-building override + skip.** A building whose title block sits in a different corner gets a
+  **"Mark this building's code"** button that overrides the crop region for just its cards
+  (`building.codeRegion`). The region step is skippable (**"Skip — show full drawings"**) to fall
+  back to full-drawing thumbnails. Both the global region and per-building overrides persist in the
+  draft. Version → `1.10.0`.
+
 ## 1.9.0 — Auto floor assignment reads the caption, not the code
 - **Mark the whole floor caption, not a tight box on the code.** The region step now asks the
   user to box the entire floor-designation caption (e.g. "… SECOND BASEMENT LEVEL (B2) PLAN …")

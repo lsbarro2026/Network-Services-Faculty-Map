@@ -70,11 +70,10 @@ def _rlimits(timeout_s, mem_mb):
 def _run_script(script_name, mode, extra=None, json_stdout=False, mem_mb=None, timeout_s=None):
     """Spawn `<script_name> <mode> --base <workdir> [extra...]` and shape its result. Invoked
     by file path (not `-m`) so the child stays minimal/isolated — no Django in-process. The
-    render (`preprocess.py`) and OCR (`ocr.py`) subprocesses share this isolation: a timeout
-    plus POSIX CPU/address-space rlimits cap a runaway or malicious child. `mem_mb`/`timeout_s`
-    default to the render caps; the OCR pass overrides `mem_mb` since it reads only trusted PNGs
-    (a render-sized RLIMIT_AS kills onnxruntime). `json_stdout` reads the child's stdout as the
-    JSON result (scan/ocr); otherwise stderr is returned as a log."""
+    render (`preprocess.py`) subprocess relies on this isolation: a timeout plus POSIX
+    CPU/address-space rlimits cap a runaway or malicious child. `mem_mb`/`timeout_s` default to
+    the render caps. `json_stdout` reads the child's stdout as the JSON result (`scan`);
+    otherwise stderr is returned as a log."""
     base = work_dir()
     base.mkdir(parents=True, exist_ok=True)
     script = str(Path(__file__).resolve().parent / script_name)
@@ -107,18 +106,11 @@ def _run_preprocess(mode, extra=None):
     return _run_script('preprocess.py', mode, extra, json_stdout=(mode == 'scan'))
 
 
-def _run_ocr(extra=None):
-    """Run the OCR subprocess (`ocr.py`) over already-rendered PNGs; returns its results from
-    stdout. Kept separate from `preprocess.py` so the render child never imports the OCR deps
-    and the OCR child never parses a PDF. Uses its own memory budget (`ocr_mem_mb`): it touches
-    only trusted PNGs, so the render-sized RLIMIT_AS — which would kill onnxruntime — is wrong."""
-    return _run_script('ocr.py', 'ocr', extra, json_stdout=True, mem_mb=_cfg('ocr_mem_mb'))
-
-
 def _ensure_preview(pdf_rel):
     """Ensure the full-scale PNG for an uploaded PDF exists (rendering it via `preprocess.py`
-    if missing/stale) and return its working-dir-relative cache path. Shared by the preview
-    endpoint and the OCR pass so both reuse the one `.thumbs/<...>.full.png` cache. `pdf_rel`
+    if missing/stale) and return its working-dir-relative cache path. Backs the preview
+    endpoint and the wizard's enlarged/cropped mapping cards via the `.thumbs/<...>.full.png`
+    cache. `pdf_rel`
     is working-dir-relative (`uploads/...`). Raises `Http404` when the PDF is absent; returns
     `None` on a render failure."""
     base = work_dir().resolve()
@@ -364,7 +356,7 @@ class ResetView(_ImportView):
         for d in ('uploads', 'images'):
             shutil.rmtree(base / d, ignore_errors=True)
         for f in (MANIFEST_NAME, 'import-map.json', 'import-map.stub.json',
-                  'import-map.draft.json', 'ocr-job.json', LOCK_NAME):
+                  'import-map.draft.json', LOCK_NAME):
             try:
                 (base / f).unlink()
             except FileNotFoundError:
@@ -419,70 +411,6 @@ class PreviewView(_ImportView):
         if cache_rel is None:
             return JsonResponse({'ok': False, 'error': 'preview render failed'}, status=500)
         return FileResponse(open(work_dir() / cache_rel, 'rb'), content_type='image/png')
-
-
-class OcrAssignView(_ImportView):
-    """Read the floor code off every uploaded drawing so the wizard can auto-assign floors.
-    The user drags one rectangle over the floor-designation caption on a sample drawing; this
-    OCRs that same normalized region on every drawing and returns the recognized text +
-    confidence per drawing (the wizard maps text → floor). An optional ``folder`` restricts the
-    pass to a single building — the wizard's per-building "re-read" for an outlier whose title
-    block sits in a different spot than the global sample.
-
-    OCR runs in the isolated `ocr.py` subprocess over **already-rendered, trusted PNGs** — the
-    only PDF-touching step is reusing the existing `preview` render to make sure each drawing
-    has a full-scale PNG. Like `PreviewView` it runs lock-free (it only reads images), so it
-    never 409s an in-flight scan.
-
-    POST {"region": {"x": .., "y": .., "w": .., "h": ..}, "folder"?: "<name>"}  (region 0..1)"""
-
-    def post(self, request):
-        try:
-            data = json.loads(request.body or b'{}')
-        except json.JSONDecodeError:
-            return HttpResponseBadRequest('invalid JSON')
-        region = data.get('region') or {}
-        try:
-            x, y, w, h = (float(region[k]) for k in ('x', 'y', 'w', 'h'))
-        except (KeyError, TypeError, ValueError):
-            return HttpResponseBadRequest('region needs numeric x/y/w/h')
-        # Allow a hair over 1 for rounding; require a positive, in-bounds box.
-        if not (x >= 0 and y >= 0 and w > 0 and h > 0 and x + w <= 1.001 and y + h <= 1.001):
-            return HttpResponseBadRequest('region must lie within 0..1')
-        only_folder = (data.get('folder') or '').strip()   # optional: scope to one building
-
-        base = work_dir().resolve()
-        uploads = base / 'uploads'
-        if not uploads.is_dir():
-            return JsonResponse({'ok': False, 'error': 'no uploads to read'}, status=400)
-        max_pdfs = _cfg('max_pdfs')
-        if _count_pdfs(base) > max_pdfs:
-            return JsonResponse(
-                {'ok': False, 'error': 'too many PDFs (limit %d)' % max_pdfs}, status=400)
-
-        images = []
-        folders = sorted(p.name for p in uploads.iterdir()
-                         if p.is_dir() and p.name != THUMBS_DIRNAME)
-        # A `folder` scope is matched against the existing directory names only (never joined
-        # with user input), so it adds no traversal surface; an unknown name is a 400.
-        if only_folder:
-            if only_folder not in folders:
-                return JsonResponse({'ok': False, 'error': 'unknown folder'}, status=400)
-            folders = [only_folder]
-        for folder in folders:
-            pdfs = sorted(p for p in (uploads / folder).iterdir()
-                          if p.is_file() and p.suffix.lower() == '.pdf')
-            for pdf in pdfs:
-                cache_rel = _ensure_preview('uploads/%s/%s' % (folder, pdf.name))
-                if cache_rel:   # skip a drawing whose preview render failed
-                    images.append({'folder': folder, 'stem': pdf.stem, 'image': cache_rel})
-        if not images:
-            return JsonResponse({'ok': False, 'error': 'nothing to read'}, status=400)
-
-        job = {'region': {'x': x, 'y': y, 'w': w, 'h': h}, 'images': images}
-        (base / 'ocr-job.json').write_text(json.dumps(job), encoding='utf-8')
-        result = _run_ocr(['--job', 'ocr-job.json'])
-        return JsonResponse(result, status=200 if result.get('ok') else 500)
 
 
 class ManifestView(LoginRequiredMixin, View):

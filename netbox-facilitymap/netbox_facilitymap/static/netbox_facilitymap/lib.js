@@ -171,7 +171,7 @@ class Api {
     return path;
   }
   /** Turn a non-OK response into an Error carrying the server's own message. These endpoints
-   *  fail in two shapes: a JSON body `{ok:false, error}` (e.g. a 500 from the OCR subprocess)
+   *  fail in two shapes: a JSON body `{ok:false, error}` (e.g. a 500 from the render subprocess)
    *  or a plain-text `HttpResponseBadRequest`. Surfacing the real text — not a bare
    *  "HTTP 500" — is what tells the user the actual cause (a missing dep, a bad input), and
    *  makes clear these are local NetBox calls, not the internet. */
