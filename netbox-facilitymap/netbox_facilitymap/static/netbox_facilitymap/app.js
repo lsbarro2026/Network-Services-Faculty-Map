@@ -57,7 +57,7 @@ class App {
     stage.append(Dom.el('div', { class: 'settings-view' }, [
       Dom.el('h2', {}, 'Settings'),
       Dom.el('button', { class: 'primary', onclick: () => this.go('/import') },
-        'Import or edit a facility'),
+        'Edit buildings & floors'),
       Dom.el('div', { class: 'hint' },
         'Render floor-plan PDFs into the map. Re-open it to add, replace, or reassign drawings '
         + 'without starting over.'),

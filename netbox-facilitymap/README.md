@@ -42,8 +42,7 @@ tool or external build step.
 The plugin ships with **no facility content**; you build it from your drawings:
 
 1. Open **Facility Map** (an empty install lands on the import wizard; otherwise use
-   **Settings → Import or edit a facility**, or the siteplan's **Edit buildings & floors**
-   button).
+   **Settings → Edit buildings & floors**).
 2. **Upload** a folder of building drawings — one sub-folder per building, each holding its
    floor PDFs — or a single **`.zip`** of that folder (a wrapper folder inside the zip is
    stripped automatically). The overall siteplan image comes from either a PDF dropped **loose

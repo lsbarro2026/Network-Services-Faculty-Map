@@ -87,11 +87,9 @@ class SiteplanEditor extends Editor {
     labelsBtn.onclick = () => { this.app.siteLabels = !this.app.siteLabels; this.show(); };
 
     if (!this.editing()) {
-      // Re-enter the import wizard to add/replace drawings or fix a building/floor assignment
-      // (it resumes onto the current facility — distinct from the destructive Start over).
-      const importBtn = Dom.el('button', { onclick: () => this.app.go('/import') },
-        'Edit buildings & floors');
-      return [editBtn, importBtn, labelsBtn,
+      // The wizard entry point lives in Settings now (App.showSettings) — the siteplan
+      // toolbar no longer carries a redundant shortcut to it.
+      return [editBtn, labelsBtn,
         Dom.el('span', { class: 'hint' }, 'Click a building, or use the index →')];
     }
 

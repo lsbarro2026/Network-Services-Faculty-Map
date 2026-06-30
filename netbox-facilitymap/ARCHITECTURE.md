@@ -737,9 +737,10 @@ loosened scoping) — before `router()` lands on the new map. `_reset` clears vi
 
 **Post-build editing** (re-import without "Start over"): a normal Build never clears `uploads/`
 or the draft (only `_reset`/`ResetView` does), so **re-opening the wizard resumes onto the
-current facility** — the discoverable entry points are the siteplan view-mode toolbar's *Edit
-buildings & floors* button (`SiteplanEditor._toolbar`) and the Settings page's *Import or edit a
-facility* button, both routing to `#/import`. From the resumed map step the user can: **fix a
+current facility** — the discoverable entry point is the Settings page's *Edit buildings &
+floors* button (`App.showSettings`), routing to `#/import`. (The siteplan view-mode toolbar used
+to carry a redundant shortcut to the same wizard; it was removed in favour of the single Settings
+entry point.) From the resumed map step the user can: **fix a
 mistake** (re-bind a building in `_stepBuildings`, or re-assign a floor button — guarded by the
 room-safety warning above); **replace a floorplan** in place (the per-card *Replace* control,
 id-preserving); or **add a building/floor** via **+ Add drawings** (`_addDrawings`): it saves the
@@ -765,8 +766,8 @@ visibility, default **false**), `highlight`, plus `current` (active Editor or nu
 - `showImport()` = the `ImportWizard` (no editor; `current=null`).
 - `renderBuilding(dir)` = floor-card grid (no editor; `current=null`). Building floor-card
   thumbnails rebase their `src` onto `window.MAP.media`.
-- `showSettings()` = settings view (no editor): an **Import a facility from PDFs** button
-  (→ `#/import`) plus a note. Rack inventory syncs per room from the floor's Place-racks
+- `showSettings()` = settings view (no editor): an **Edit buildings & floors** button
+  (→ `#/import`) plus a note — the single entry point to the import/edit wizard. Rack inventory syncs per room from the floor's Place-racks
   panel, so nothing rack-related is here.
 - Chrome: `crumbs(items)`, `setToolbar(nodes)`, `closePanel()` (calls
   `current.onPanelClosed()` if present — e.g. to restore the racks-mode room label),
