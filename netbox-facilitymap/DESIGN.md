@@ -48,11 +48,13 @@ Rather than a one-way projection, `Room` is authoritative: `api.AnnotationsView`
 the whole-document shape on GET (blob floors + `Room` rows merged back under `rooms`) and
 *decomposes* a POST (rooms → rows via `sync_rooms`, the rest → the blob), so the
 framework-free frontend and the JSON export round-trip unchanged. A `PluginTemplateExtension`
-(`template_content.FloorRooms`) draws the room polygons on the floor's `dcim.Location` page,
-and the native **Room** detail page (`RoomView`) draws the same polygon **cropped to that
-room**. Both pages also overlay the floor's rack/device **placement markers** (MVP styled
-boxes — `previews.placement_markers`; not the JS `DeviceShapes` glyphs), built server-side
-from the `placements` blob and permission-scoped to the visible room(s).
+(`template_content.FloorRooms`) draws room geometry on a `dcim.Location` page: on a **room**
+Location (one bound via `Room.location`) it shows that single room **cropped to its polygon**;
+on a **floor** Location it shows all the floor's rooms. The plugin's own native **Room** detail
+page (`RoomView`) shows the same cropped single-room view. Every variant also overlays the
+rack/device **placement markers** (MVP styled boxes — `previews.placement_markers`; not the JS
+`DeviceShapes` glyphs), built server-side from the `placements` blob and permission-scoped to
+the visible room(s).
 `Room` also carries the full NetBox-native surface — DRF REST API, UI list/detail/edit/delete
 + bulk, filterset, table, global search, and a **Rooms** nav item — all object-permission
 scoped, with **no schema change** beyond the `0002_room` table. The map editor's `sync_rooms`

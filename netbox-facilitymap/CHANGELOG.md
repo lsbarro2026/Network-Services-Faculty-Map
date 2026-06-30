@@ -4,16 +4,18 @@ All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
 ## 1.17.0 — Room-fitted preview with rack/device markers
-- **The Room detail page preview now crops to the room.** Instead of the whole floor with a
-  polygon outline, `RoomView` sets the SVG `viewBox` to the room polygon's (padded) bounding
-  box, so the page shows just that room's region of the plan zoomed in. Unbound/empty-polygon
-  rooms fall back to the full-floor view.
-- **Both native previews now draw the rack/device placements.** The Room page (that room's
-  markers) and the floor **Location** panel (`template_content.FloorRooms`, all visible rooms'
-  markers) overlay a marker per placement — a styled box (rack vs device) at the placement's
-  position/rotation/size with its label. These are an **MVP**: simple boxes rendered
+- **A room's NetBox Location page now shows its floor-plan geometry, cropped to the room.**
+  The `FloorRooms` panel (`template_content.py`) previously appeared only on a *floor*
+  Location (drawing all its rooms); it now also fires on a *room* Location (one bound via
+  `Room.location`) and renders just that room — the SVG `viewBox` is set to the room polygon's
+  (padded) bounding box, so the page shows that room's region of the plan zoomed in.
+- **The previews also draw the room's rack/device placements.** Each placement renders as a
+  styled box (rack vs device) at its position/rotation/size with its label — on the room
+  Location page (that room's markers), the floor Location panel (all visible rooms' markers),
+  and the plugin's own Room detail page. These are an **MVP**: simple boxes rendered
   server-side from the `placements` blob, *not* the schematic `DeviceShapes` glyphs (those
   live only in the JS editor). Markers are permission-scoped to the rooms the user may view.
+- The plugin's own **Room** detail page (`RoomView`) gets the same crop + markers.
 - New server-side helper module `previews.py` (`placement_markers` + `room_viewbox`), shared
   by `views.RoomView` and `template_content.FloorRooms`; markers render via the shared
   `templates/.../inc/placement_markers.html` partial. No new runtime dependencies; no

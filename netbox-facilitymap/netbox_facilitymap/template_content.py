@@ -18,7 +18,7 @@ import json
 from netbox.plugins import PluginTemplateExtension
 
 from .models import FacilityMapBlob, Room
-from .previews import placement_markers
+from .previews import placement_markers, room_viewbox
 from .storage import MANIFEST_NAME, media_url, work_dir
 
 
@@ -46,17 +46,33 @@ class FloorRooms(PluginTemplateExtension):
 
     def right_page(self):
         loc = self.context['object']
+        request = self.context['request']
+
+        # This Location *is* a room (bound via Room.location) → show just that room, cropped
+        # to its geometry. This is the per-room view the user lands on from a room's page.
+        room = (Room.objects.restrict(request.user, 'view')
+                .filter(location=loc).select_related('location').first())
+        if room:
+            return self._panel(room.floor_key, [room], crop_to=room)
+
+        # Otherwise this Location *is a floor* (its slug keys some rooms) → show every room
+        # on the floor, uncropped, each linking to its own room Location.
         site = getattr(loc, 'site', None)
         if not site:
             return ''
         floor_key = f'{site.slug}/{loc.slug}'
-        request = self.context['request']
         rooms = list(
             Room.objects.restrict(request.user, 'view')
             .filter(floor_key=floor_key).select_related('location'))
         if not rooms:
-            return ''  # not a floor (or none visible) → no panel
+            return ''  # neither a bound room nor a floor → no panel
+        return self._panel(floor_key, rooms, crop_to=None)
 
+    def _panel(self, floor_key, rooms, crop_to):
+        """Render the rooms panel for `rooms` over their floor's plan image. `crop_to` (a
+        single Room) zooms the SVG `viewBox` to that room's bounding box and drops the
+        per-room cross-links; `None` keeps the whole-floor view. `rooms` is already
+        `.restrict(...)`-scoped, so its room_ids keep the markers permission-bounded."""
         blob = FacilityMapBlob.objects.filter(kind='annotations', key='').first()
         floor = ((blob.data or {}).get(floor_key) if blob else None) or {}
         w = floor.get('w') or 1000
@@ -71,11 +87,11 @@ class FloorRooms(PluginTemplateExtension):
             shapes.append({
                 'points': pts,
                 'label': room.label or room.room_id,
-                'url': room.location.get_absolute_url() if room.location_id else '',
+                # Cross-link to the room's Location only on the floor view; on the room's own
+                # page a self-link would be noise.
+                'url': '' if crop_to else (room.location.get_absolute_url() if room.location_id else ''),
             })
 
-        # Markers for every visible room on this floor (the `rooms` queryset is already
-        # `.restrict(...)`-scoped, so passing its room_ids keeps the panel permission-bounded).
         markers = placement_markers(floor_key, w, h, {r.room_id for r in rooms})
 
         return self.render('netbox_facilitymap/floor_rooms.html', extra_context={
@@ -84,6 +100,7 @@ class FloorRooms(PluginTemplateExtension):
             'image_url': media_url(image),
             'shapes': shapes,
             'markers': markers,
+            'viewbox': room_viewbox(crop_to.polygon, w, h) if crop_to else None,
             'multisheet': _page_counts().get(floor_key, 0) > 1,
         })
 

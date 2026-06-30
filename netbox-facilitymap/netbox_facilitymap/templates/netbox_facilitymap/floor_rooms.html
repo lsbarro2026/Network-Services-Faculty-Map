@@ -4,7 +4,9 @@
 <div class="card">
   <h5 class="card-header">Facility Map — Rooms</h5>
   <div class="card-body">
-    <svg viewBox="0 0 {{ vw }} {{ vh }}" preserveAspectRatio="xMidYMid meet"
+    {# `viewbox` (set for a single bound room) crops to that room; otherwise show the whole floor. #}
+    <svg viewBox="{% if viewbox %}{{ viewbox }}{% else %}0 0 {{ vw }} {{ vh }}{% endif %}"
+         preserveAspectRatio="xMidYMid meet"
          style="width:100%;height:auto;border:1px solid #ccc;background:#f4f5f7">
       {% if image_url %}
         <image href="{{ image_url }}" x="0" y="0" width="{{ vw }}" height="{{ vh }}"/>

@@ -1420,18 +1420,27 @@ point at the deep treatment.
   scales room polygons by the floor's stored `w×h` over the page-1 image, so for a
   multi-sheet floor it shows sheet 1 with a note (a documented minimal-scope limitation — it
   does not reproduce the runtime tiling). Single-sheet floors are pixel-exact.
-- **Native previews also draw rack/device markers, server-side (`previews.py`).** Both the
-  panel and the **Room** detail page (`views.RoomView`) overlay `previews.placement_markers(...)`
-  — one **MVP** box per placement (rack vs device, positioned/rotated/sized from the
-  `placements` blob, scaled by `w×h`), via the shared `inc/placement_markers.html` partial.
-  These are deliberately *not* the JS `DeviceShapes` glyphs (those have no Python equivalent);
-  re-tune them there if fidelity matters. Markers are permission-scoped: the helper filters to
-  the caller's `room_ids` (the panel passes its `.restrict(...)`-scoped room set, the Room page
-  the single room). The **Room page additionally crops** to the room: `RoomView` sets the SVG
-  `viewBox` to `previews.room_viewbox(polygon, w, h)` (the polygon's padded bounding box) while
-  the `<image>` stays full-floor, so only the window zooms in — empty-polygon rooms fall back to
-  `0 0 vw vh`. The panel can't crop (it draws many rooms in one SVG), so it keeps the whole-floor
-  view. Markers inherit the same multi-sheet sheet-1 caveat as the polygons.
+- **`FloorRooms` fires on two kinds of Location.** Its `right_page` first checks whether the
+  Location *is a room* (something binds to it via `Room.location`) → it renders **just that
+  room, cropped** to its polygon (this is what shows on `/dcim/locations/<roomLoc>/`). Only if
+  no room binds to the Location does it fall back to the **floor** case (the Location's slug
+  keys some rooms' `floor_key`) → all rooms, uncropped, each cross-linking to its room Location.
+  Both go through the shared `_panel(floor_key, rooms, crop_to)` helper and the one
+  `floor_rooms.html` template (whose `viewBox` is the crop box when `crop_to` is set, else the
+  full floor).
+- **Native previews also draw rack/device markers, server-side (`previews.py`).** The panel
+  and the plugin's own **Room** detail page (`views.RoomView`) overlay
+  `previews.placement_markers(...)` — one **MVP** box per placement (rack vs device,
+  positioned/rotated/sized from the `placements` blob, scaled by `w×h`), via the shared
+  `inc/placement_markers.html` partial. These are deliberately *not* the JS `DeviceShapes`
+  glyphs (those have no Python equivalent); re-tune them there if fidelity matters. Markers are
+  permission-scoped: the helper filters to the caller's `room_ids` (the floor panel passes its
+  `.restrict(...)`-scoped room set; the single-room panel and the Room page pass the one room).
+- **The single-room views crop** via `previews.room_viewbox(polygon, w, h)` (the polygon's
+  padded bounding box) set as the SVG `viewBox` while the `<image>` stays full-floor, so only
+  the window zooms in — empty-polygon rooms fall back to `0 0 vw vh`. The whole-floor panel
+  can't crop (many rooms, one SVG). Markers inherit the same multi-sheet sheet-1 caveat as the
+  polygons.
 
 ### Node editing (`Editor.drawVertices`)
 
