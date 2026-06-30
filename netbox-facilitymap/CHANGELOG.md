@@ -3,6 +3,17 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.24.0 — Floor view-mode "all rooms" highlight, now the default
+- **New highlight mode `'all'` highlights every room on a floor in view mode**, drawn with the
+  standard `.room` look (rooms holding rack/device markers keep the blue `.room.placed` accent).
+  The view-mode toolbar's highlight `<select>` now offers three options — **Highlight: all rooms**,
+  **Highlight: rooms with devices** (`'placements'`), **Highlight: none**.
+- **`'all'` is the new default** (`App.highlight`), so a freshly opened floor highlights every room
+  instead of only those with devices. `highlight` is in-memory UI state, not persisted in the
+  URL/hash, so this only changes the initial mode; switching modes is unchanged.
+- Rooms not drawn under the active mode still fall back to invisible click-zones, so they stay
+  clickable to drill into their NetBox Location.
+
 ## 1.23.2 — Fix stray `{# … #}` comment text rendering in templates
 - **Multi-line `{# … #}` comments no longer render as visible text.** Django's `{# … #}` comment
   syntax is **single-line only** — a comment spanning two or more lines isn't recognized and is

@@ -404,9 +404,11 @@ else `null` → full `fit()`).
   `_remapLayout(oldGeom,newGeom)` re-projects every room point, **route-arrow point**,
   and placement from its old cell to the sheet's new cell so shapes follow their sheet —
   pure arithmetic on the combined-normalized coords (no schema/engine change). Esc exits.
-- `render()` — rooms; in **view mode** rooms are invisible `.clickzone`s that open
-  `location.url`, except rooms holding device markers (a placement in a bound room) when
-  `app.highlight==='placements'`, which get the `.room.placed` accent; in **racks mode**
+- `render()` — rooms; in **view mode** the `app.highlight` mode decides which rooms are
+  drawn: `'all'` (the **default**) draws every room (`.room`, with the `.room.placed` blue
+  accent on rooms holding device markers), `'placements'` draws only rooms holding device
+  markers (a placement in a bound room) as `.room.placed`, and `'none'` draws nothing.
+  Rooms not drawn fall back to invisible `.clickzone`s that open `location.url`; in **racks mode**
   **every** room is drawn/interactive (click → `openRackPanel`) so racks/devices can be
   placed on any room. Placement markers draw in view + racks modes.
   - **No room labels.** The floor-plan images already carry the printed room
@@ -769,8 +771,9 @@ a multipart form rather than the raw body.)
 Owns singletons `store`, `netbox`, `grid`, and cross-view state `mode`
 (floor `'edit'|'view'|'racks'`, default **`'view'`** — `showFloor` resets it to `'view'`
 on every floor entry so a prior floor's edit/racks mode never carries over), `siteEdit`,
-`siteLabels` (siteplan building-label visibility, default **false**), `highlight`, plus
-`current` (active Editor or null).
+`siteLabels` (siteplan building-label visibility, default **false**), `highlight`
+(floor view-mode highlight: `'all'`|`'placements'`|`'none'`, default **`'all'`** — draws
+every room), plus `current` (active Editor or null).
 - `init()` → `store.load()` then `_bindGlobal()` + `router()`.
 - `router()` parses the hash: `#/import` → `showImport()`, `#/settings` →
   `showSettings()`, `#/b/<dir>` → `renderBuilding()`, `#/f/<dir>/<fid>` → `showFloor()`,

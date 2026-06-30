@@ -158,7 +158,7 @@ class FloorEditor extends Editor {
       this.toolDivider(), saveBtn, this._badge];
 
     const hlSel = Dom.el('select', { title: 'Highlight in view mode' });
-    [['Highlight: rooms with devices', 'placements'], ['Highlight: none', 'none']].forEach(([l, v]) => {
+    [['Highlight: all rooms', 'all'], ['Highlight: rooms with devices', 'placements'], ['Highlight: none', 'none']].forEach(([l, v]) => {
       const o = Dom.el('option', { value: v }, l);
       if (v === this.app.highlight) o.selected = true;
       hlSel.append(o);
@@ -235,8 +235,10 @@ class FloorEditor extends Editor {
       const placed = placedRooms.has(room.id) && !!room.location;
       const pts = room.polygon.map(p => `${p[0] * W},${p[1] * H}`).join(' ');
       // Racks mode draws every room as a clickable target. View mode keeps rooms as
-      // invisible click-zones, except those highlighted because they hold markers.
-      const showShape = editing || racks || (placed && this.app.highlight === 'placements');
+      // invisible click-zones, except those highlighted: 'all' draws every room,
+      // 'placements' draws only rooms holding markers.
+      const showShape = editing || racks || this.app.highlight === 'all'
+        || (placed && this.app.highlight === 'placements');
       let cls;
       if (!showShape) cls = 'clickzone';
       else {

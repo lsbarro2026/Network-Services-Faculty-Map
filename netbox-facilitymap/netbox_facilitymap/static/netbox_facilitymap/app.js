@@ -1,7 +1,8 @@
 'use strict';
 /* app.js — App: top-level orchestrator and entry point. Owns the singletons
    (Store, NetBoxClient, GridController), cross-view UI state (edit/view mode,
-   siteplan-edit flag, siteplan-label visibility, view-mode highlight), the hash
+   siteplan-edit flag, siteplan-label visibility, view-mode highlight mode
+   (all rooms / rooms-with-devices / none, default all), the hash
    router, and global chrome
    (breadcrumbs, toolbar, side panel, keyboard). Loaded LAST. */
 
@@ -13,7 +14,7 @@ class App {
     this.mode = 'view';                 // floor editor: 'edit' | 'view' | 'racks' (showFloor resets to view per entry)
     this.siteEdit = false;              // siteplan: editing building areas
     this.siteLabels = false;            // siteplan: show building name labels (hidden by default)
-    this.highlight = 'placements';      // floor view-mode highlight: rooms with devices
+    this.highlight = 'all';             // floor view-mode highlight: 'all' rooms (default) | 'placements' (rooms with devices) | 'none'
     this.current = null;                // active Editor (or null on building view)
     // Embedded in a dashboard-widget iframe (?embed=1): chrome hidden + no navigation (drill-in
     // is gated in SiteplanEditor.openBuilding). Interactivity (pan/zoom + zoom controls +
