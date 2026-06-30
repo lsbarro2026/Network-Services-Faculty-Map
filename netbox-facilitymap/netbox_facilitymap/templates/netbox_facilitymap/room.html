@@ -1,6 +1,8 @@
-{# Room detail page (Phase 5). Extends NetBox's generic object scaffold (breadcrumbs,
-   edit/delete buttons, tags, changelog) and fills the content block with the room's
-   attributes plus a polygon-over-floor preview (context from RoomView.get_extra_context). #}
+{# Room detail page (Phase 5). Extends NetBox's generic object scaffold (breadcrumbs, #}
+{# edit/delete buttons, tags, changelog) and fills the content block with the room's #}
+{# attributes plus a polygon-over-floor preview (context from RoomView.get_extra_context). #}
+{# Kept as per-line comments on purpose: a comment-block tag here would count as a #}
+{# template node before extends, which Django rejects (extends must be the first tag). #}
 {% extends 'generic/object.html' %}
 {% load helpers %}
 
@@ -41,8 +43,10 @@
     <div class="card">
       <h5 class="card-header">Geometry</h5>
       <div class="card-body">
-        {# viewBox crops to the room's bounding box (RoomView emits `viewbox`); the image and
-           overlays stay in full-floor coords, so only the visible window zooms in. #}
+        {% comment %}
+          viewBox crops to the room's bounding box (RoomView emits `viewbox`); the image and
+          overlays stay in full-floor coords, so only the visible window zooms in.
+        {% endcomment %}
         <svg viewBox="{% if viewbox %}{{ viewbox }}{% else %}0 0 {{ vw }} {{ vh }}{% endif %}"
              preserveAspectRatio="xMidYMid meet"
              style="width:100%;height:auto;border:1px solid #ccc;background:#f4f5f7">

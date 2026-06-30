@@ -1,6 +1,8 @@
-{# Rack/device placement markers (MVP boxes), shared by room.html and floor_rooms.html.
-   Expects `markers` (from previews.placement_markers): pre-computed transform + centered
-   rect attrs + label. Styling is inline because neither host page loads the plugin CSS. #}
+{% comment %}
+  Rack/device placement markers (MVP boxes), shared by room.html and floor_rooms.html.
+  Expects `markers` (from previews.placement_markers): pre-computed transform + centered
+  rect attrs + label. Styling is inline because neither host page loads the plugin CSS.
+{% endcomment %}
 {% for m in markers %}
   <g transform="{{ m.transform }}">
     <rect x="{{ m.x }}" y="{{ m.y }}" width="{{ m.w }}" height="{{ m.h }}" rx="2"
