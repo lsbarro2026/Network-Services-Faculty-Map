@@ -13,6 +13,9 @@ any rooms are drawn, and `floor_sheets(...) is None` is the gate for "this Locat
 rendered plan" (so we emit nothing rather than an empty SVG).
 """
 
+from urllib.parse import quote
+
+from django.urls import reverse
 from netbox.plugins import PluginTemplateExtension
 
 from .models import Room
@@ -74,6 +77,15 @@ class FloorRooms(PluginTemplateExtension):
 
         markers = placement_markers(floor_key, w, h, {r.room_id for r in rooms})
 
+        # Deep-link the panel title into the SPA's floor view (`#/f/<dir>/<fid>`). The hash
+        # router decodes each segment (`decodeURIComponent` per part, app.js), so encode
+        # `dir`/`fid` to match; partition guards a stray key with no '/'.
+        dir_part, _, fid_part = floor_key.partition('/')
+        map_url = ''
+        if dir_part and fid_part:
+            map_url = (reverse('plugins:netbox_facilitymap:map')
+                       + f'#/f/{quote(dir_part, safe="")}/{quote(fid_part, safe="")}')
+
         return self.render('netbox_facilitymap/floor_rooms.html', extra_context={
             'vw': w,
             'vh': h,
@@ -81,6 +93,7 @@ class FloorRooms(PluginTemplateExtension):
             'shapes': shapes,
             'markers': markers,
             'viewbox': room_viewbox(crop_to.polygon, w, h) if crop_to else None,
+            'map_url': map_url,
         })
 
 

@@ -1435,7 +1435,12 @@ point at the deep treatment.
   keys some rooms' `floor_key`) → all rooms, uncropped, each cross-linking to its room Location.
   Both go through the shared `_panel(floor_key, rooms, crop_to)` helper and the one
   `floor_rooms.html` template (whose `viewBox` is the crop box when `crop_to` is set, else the
-  full floor).
+  full floor). The panel's **card-header title is a deep-link** into the SPA's floor view:
+  `_panel` builds `map_url = reverse('…:map') + '#/f/<dir>/<fid>'` (each segment `quote(...)`-d
+  to match the hash router's per-part `decodeURIComponent`, app.js), opened `target="_blank"`;
+  both the room-page and floor cases get it since both resolve `floor_key`. The in-SVG room
+  polygons keep their own separate cross-links — this title link is additive. (A room-focused
+  deep-link would need a new hash segment + a live `PanZoom` focus entry point; not built.)
 - **Native previews also draw rack/device markers, server-side (`previews.py`).** The panel
   overlays `previews.placement_markers(...)` — one **MVP** box per placement (rack vs device,
   positioned/rotated/sized from the `placements` blob, scaled by `w×h`), via the shared

@@ -3,6 +3,17 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.20.0 — Link the Location-page map panel's title into the facility map tool
+- **The "Facility Map — Rooms" panel title is now a link.** On a floor or room Location page,
+  clicking the panel's card-header opens the facility map SPA deep-linked to that floor
+  (`#/f/<dir>/<fid>`) in a new tab. `template_content._panel` builds the URL from
+  `reverse('…:map')` plus the hash, URL-encoding each segment to match the hash router's
+  per-part decode; it degrades to plain text if no floor key resolves.
+- The in-SVG room polygons keep their existing cross-links to each room's Location — this is
+  an additive title link, not a change to those. A room-focused/zoomed deep-link (extra hash
+  segment + live pan/zoom) was scoped out as net-new. No `collectstatic` needed (no static
+  files changed); **restart the NetBox workers** after upgrading.
+
 ## 1.19.0 — Embed the full (multi-sheet) floor plan on a floor's Location page
 - **A floor's NetBox Location page now embeds its whole floor plan.** The `FloorRooms` panel
   (`template_content.py`) previously rendered only when a floor had `Room` rows and drew just
