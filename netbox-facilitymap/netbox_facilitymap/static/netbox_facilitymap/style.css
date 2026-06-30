@@ -74,6 +74,11 @@ body {
   height: 52px; padding: 0 16px; background: var(--panel);
   border-bottom: 1px solid var(--line); flex: 0 0 auto;
 }
+#home-link {
+  color: var(--accent); text-decoration: none; font-weight: 600; font-size: 13px;
+  padding-right: 12px; margin-right: 4px; border-right: 1px solid var(--line);
+}
+#home-link:hover { text-decoration: underline; }
 #crumbs { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
 #crumbs a { color: var(--accent); cursor: pointer; text-decoration: none; }
 #crumbs a:hover { text-decoration: underline; }

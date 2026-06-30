@@ -757,6 +757,11 @@ Editor or null).
 - Chrome: `crumbs(items)`, `setToolbar(nodes)`, `closePanel()` (calls
   `current.onPanelClosed()` if present — e.g. to restore the racks-mode room label),
   `go(hash)`.
+- Persistent `#home-link` (leftmost in `#topbar`, defined in `index.html`, not wired by
+  JS): a plain anchor to `{% url 'home' %}` (resolved server-side so it respects a non-root
+  `SCRIPT_NAME`) — the only way back to NetBox chrome from the full-bleed map. Being a
+  full-document navigation it bypasses the `hashchange` guard, but `beforeunload` still warns
+  on `store.hasUnsaved()`.
 - `_bindGlobal()` wires the persistent `#settings-gear` button (→ `#/settings`),
   panel close, `beforeunload` (warns on `store.hasUnsaved()` — tab close/refresh),
   `hashchange`, and global `keydown` → `current.handleKey`. The `hashchange` handler
