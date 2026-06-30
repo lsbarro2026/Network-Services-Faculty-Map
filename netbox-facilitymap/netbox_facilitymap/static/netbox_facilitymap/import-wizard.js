@@ -424,7 +424,15 @@ class ImportWizard {
 
   /** Bind every floor-contributing building to a NetBox site. When the edit hub jumps here to fix
    *  one building, `focusBuilding` scrolls that bind row into view and highlights it, so the user
-   *  lands on the row they came to change instead of the top of the list. */
+   *  lands on the row they came to change instead of the top of the list.
+   *
+   *  The action row adapts to how the step was reached (the `store.hasContent()` edit-mode test
+   *  `show()` routes the hub on): re-editing a built facility offers **Save & back to hub** /
+   *  **← Back to hub** so a one-off re-bind returns where it came from, while a fresh import keeps
+   *  the linear **Continue to floor mapping →** (gated on every building being bound) plus the
+   *  destructive **Start over**. Leaving with an unbound building is allowed in edit mode — the hub
+   *  already flags the ⚠ row — and only the fresh row gates floor mapping, so a first import still
+   *  can't reach the build with a building unbound. */
   async _stepBuildings(focusBuilding) {
     const buildings = this._floorBuildings();
     if (!buildings.length) return this._stepMap();   // siteplan-only import — nothing to bind
@@ -446,14 +454,25 @@ class ImportWizard {
     }
     if (focusRow) focusRow.scrollIntoView({ block: 'center' });
 
-    const bound = this._allBuildingsBound();
-    const cont = Dom.el('button', { class: 'primary',
-      onclick: async () => { await this._saveDraft(); this._stepMap(); } },
-      'Continue to floor mapping →');
-    cont.disabled = !bound;
-    const actions = [cont, Dom.el('button', { onclick: () => this._reset() }, 'Start over')];
-    if (!bound) actions.push(Dom.el('span', { class: 'hint' },
-      'Bind every building to a NetBox site first.'));
+    let actions;
+    if (this.app.store.hasContent()) {
+      // Entered from the edit hub to retweak one binding: save and return there rather than walking
+      // the linear floor-mapping step. Leaving unbound is fine — the hub surfaces the ⚠ row.
+      actions = [
+        Dom.el('button', { class: 'primary',
+          onclick: async () => { await this._saveDraft(); this._stepHub(); } }, 'Save & back to hub'),
+        Dom.el('button', { onclick: () => this._stepHub() }, '← Back to hub'),
+      ];
+    } else {
+      const bound = this._allBuildingsBound();
+      const cont = Dom.el('button', { class: 'primary',
+        onclick: async () => { await this._saveDraft(); this._stepMap(); } },
+        'Continue to floor mapping →');
+      cont.disabled = !bound;
+      actions = [cont, Dom.el('button', { onclick: () => this._reset() }, 'Start over')];
+      if (!bound) actions.push(Dom.el('span', { class: 'hint' },
+        'Bind every building to a NetBox site first.'));
+    }
     view.append(Dom.el('div', { class: 'imp-actions' }, actions));
   }
 

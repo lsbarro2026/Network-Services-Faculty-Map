@@ -627,8 +627,13 @@ whose slug equals the folder-derived slug, whose name matches, or a lone result)
 `auto:true` for the operator to confirm. The step then renders one `_bindRow` per building — a
 search-autocomplete over `netbox.sites(q)` (reusing the `.room-item` list markup), with the
 current state shown as auto-matched / bound / "not bound". Picking a site calls `_bindSite`
-(stores `nbSite`, overwrites `slug`/`name`/`abbr`). Binding is **required**: the "Continue to
-floor mapping" button is disabled until `_allBuildingsBound()`. No build/manifest/preprocess
+(stores `nbSite`, overwrites `slug`/`name`/`abbr`). The action row adapts to how the step was
+reached (the `store.hasContent()` edit-mode test `show()` routes the hub on): re-editing a built
+facility shows **"Save & back to hub"** (`_saveDraft()` → `_stepHub()`) and a plain **"← Back to
+hub"**, so a one-off re-bind returns where it came from and may leave a building unbound (the hub
+flags the ⚠ row). A fresh import keeps the linear **"Continue to floor mapping →"** — disabled
+until `_allBuildingsBound()` — plus the destructive **"Start over"** (`_reset()`); the bind
+requirement before floor mapping is thus gated only on the fresh path. No build/manifest/preprocess
 change is needed — the binding is captured entirely by the slug.
 
 **Upload** (`_stepUpload`): a drag-drop zone (`imp-drop`) that is also **clickable** — the

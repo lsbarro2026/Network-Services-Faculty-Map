@@ -3,6 +3,21 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.35.0 — Bind step returns to the edit hub when re-editing
+- **The "Map buildings to NetBox" step now offers hub-aware actions in edit mode.** When the bind
+  step is reached from the non-linear edit hub (re-editing an already-built facility — the
+  `store.hasContent()` edit-mode test `show()` routes the hub on), its action row is now
+  **"Save & back to hub"** (saves the draft, returns to the hub) plus a plain **"← Back to hub"**,
+  instead of the fresh-import **"Continue to floor mapping →"** and the destructive **"Start over"**.
+  Retweaking one building's site binding now saves and returns where it came from rather than
+  pushing the user down the linear floor-mapping walk or offering a full-reset button.
+- A **fresh import** is unchanged: it still shows the gated "Continue to floor mapping →" (disabled
+  until every building is bound) and "Start over". The bind-before-floor-mapping gate therefore
+  still applies on first import; edit mode may leave a building unbound (the hub already flags the
+  ⚠ "not bound" row).
+- Frontend + docs only (`import-wizard.js` `_stepBuildings`, `ARCHITECTURE.md`): no backend,
+  security, endpoint, or coordinate changes.
+
 ## 1.34.0 — Build button reads "Rebuild map" when re-editing a built facility
 - **The map step's primary build button now relabels itself in edit mode.** When the import
   wizard is opened on an already-built facility (the *Settings → Edit buildings & floors* path
