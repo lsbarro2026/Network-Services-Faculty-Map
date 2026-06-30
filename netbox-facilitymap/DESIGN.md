@@ -70,8 +70,11 @@ off by default) append opt-in relaxations to the querystring: **pan/zoom** (`&in
 the **"All buildings" list** (`&legend=1`). `MapView` reads the flags into context; the legend and
 chrome are hidden by CSS, pan/zoom is gated in JS (the `App`/`Editor` consult `window.MAP.interactive`
 — CSS can't, because the pan `.catcher` carries an inline `pointer-events:all`), and in-widget
-navigation is suppressed at `SiteplanEditor.openBuilding`. The config also sets height and an
-optional deep-link hash.
+navigation is suppressed at `SiteplanEditor.openBuilding`. The iframe is sized to the map's own
+aspect ratio (the siteplan `w`/`h`, read server-side from the rendered manifest) via CSS
+`aspect-ratio`, so it fills the grid-sized card with no scroll and minimal dead space and re-fits
+on resize; before any facility is imported it falls back to a plain fill. The config also carries
+an optional deep-link hash.
 `Room` also carries a NetBox-native **DRF REST API** (`api/`, registered at `rooms`), with **no
 schema change** beyond the `0002_room` table. (The standalone Room browse UI — list/detail/edit/
 bulk, table, forms, global-search index, and the **Rooms** nav item — was removed in `1.18.0`

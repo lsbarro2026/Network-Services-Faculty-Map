@@ -3,6 +3,23 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.27.0 — Dashboard widget sizes itself to the map's aspect ratio
+- **The Facility Map dashboard widget now fits the card with no scrolling.** Previously the
+  widget's iframe had a fixed pixel **height** (separate from the gridstack card height), so when
+  it was taller than the allocated card body the card scrolled ("the map is bigger than the
+  widget"), and when shorter it left dead space. The iframe is now sized to the map's **own aspect
+  ratio** — read server-side from the rendered `manifest.json` siteplan `w`/`h` — via CSS
+  `aspect-ratio`, so the largest map-shaped box that fits the card body is shown: no scroll, minimal
+  dead space, recomputed by CSS on every card resize. Before any facility is imported (no manifest
+  yet) it falls back to a plain fill.
+- **The default card is taller** (grid `height` 6 → 10) so it opens at a usable size.
+- **The fixed iframe-height setting is gone** — it's redundant now that the card auto-fits the
+  ratio (it was the source of the mismatch). The *Allow pan & zoom*, *Show "All buildings" list*,
+  and deep-link settings are unchanged. Existing widgets with a stored height are unaffected (the
+  value is simply ignored).
+- Touches only `dashboard.py` (Python), so **restart the NetBox workers**
+  (`systemctl restart netbox netbox-rq`); no `collectstatic` needed.
+
 ## 1.26.0 — Arrow label tweaks: always-available "Edit label", black default text
 - **"Edit label" is now always shown on the route-arrow panel**, even for a freshly-drawn,
   note-less arrow. Previously the button only appeared once the arrow already had a note, so you

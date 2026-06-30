@@ -1494,8 +1494,16 @@ point at the deep treatment.
   fully interactive and unchanged. `?embed=1` is consumed *only* by this iframe (the Site/Location
   embeds are server-rendered SVG, not iframes of the SPA). Edits to the JS files need
   `collectstatic`; `index.html`/`views.py` do not (but Python edits need a worker restart). The
-  widget config also carries iframe height and an optional deep-link hash (appended **after** the
-  querystring). The iframe relies on NetBox's default `X-Frame-Options: SAMEORIGIN`.
+  widget config also carries an optional deep-link hash (appended **after** the querystring). The
+  iframe relies on NetBox's default `X-Frame-Options: SAMEORIGIN`. **Sizing:** the iframe is *not*
+  a fixed pixel height (that fought the gridstack-driven card height and made the card scroll when
+  the two disagreed). `render()` reads the siteplan `w`/`h` from the rendered `manifest.json`
+  (same read path as `imports.py`, with a full fallback) and emits the iframe with CSS
+  `aspect-ratio:w/h; width:100%; max-height:100%` inside a full-height flex wrapper — the largest
+  map-shaped box that fits the card body, so no scroll and minimal dead space, recomputed by CSS on
+  resize. No manifest yet ⇒ a plain `width:100%;height:100%` fill. The default grid `height` is 10
+  rows. (This is independent of `PanZoom.fit()`, which still letterbox-fits the map *inside*
+  whatever box the iframe ends up being.)
 - **Native previews also draw rack/device markers, server-side (`previews.py`).** The panel
   overlays `previews.placement_markers(...)` — one **MVP** box per placement (rack vs device,
   positioned/rotated/sized from the `placements` blob, scaled by `w×h`), via the shared
