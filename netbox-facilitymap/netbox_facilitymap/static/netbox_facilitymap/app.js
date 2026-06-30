@@ -10,7 +10,7 @@ class App {
     this.store = new Store();
     this.netbox = new NetBoxClient();
     this.grid = new GridController();   // shared by both editors
-    this.mode = 'edit';                 // floor editor: 'edit' | 'view' | 'racks'
+    this.mode = 'view';                 // floor editor: 'edit' | 'view' | 'racks' (showFloor resets to view per entry)
     this.siteEdit = false;              // siteplan: editing building areas
     this.siteLabels = false;            // siteplan: show building name labels (hidden by default)
     this.highlight = 'placements';      // floor view-mode highlight: rooms with devices
@@ -71,6 +71,7 @@ class App {
     if (!b) return this.showSiteplan();
     const f = b.floors.find(x => x.id === fid);
     if (!f) return this.renderBuilding(dir);
+    this.mode = 'view';   // every floor entry lands in view; reset so a prior floor's edit/racks doesn't carry over
     this.current = new FloorEditor(this, b, f);
     this.current.show();
   }

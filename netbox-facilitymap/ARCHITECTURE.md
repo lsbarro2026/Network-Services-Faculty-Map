@@ -759,8 +759,10 @@ a multipart form rather than the raw body.)
 
 ### app.js — `App` (orchestrator + entry)
 Owns singletons `store`, `netbox`, `grid`, and cross-view state `mode`
-(floor `'edit'|'view'|'racks'`), `siteEdit`, `siteLabels` (siteplan building-label
-visibility, default **false**), `highlight`, plus `current` (active Editor or null).
+(floor `'edit'|'view'|'racks'`, default **`'view'`** — `showFloor` resets it to `'view'`
+on every floor entry so a prior floor's edit/racks mode never carries over), `siteEdit`,
+`siteLabels` (siteplan building-label visibility, default **false**), `highlight`, plus
+`current` (active Editor or null).
 - `init()` → `store.load()` then `_bindGlobal()` + `router()`.
 - `router()` parses the hash: `#/import` → `showImport()`, `#/settings` →
   `showSettings()`, `#/b/<dir>` → `renderBuilding()`, `#/f/<dir>/<fid>` → `showFloor()`,
