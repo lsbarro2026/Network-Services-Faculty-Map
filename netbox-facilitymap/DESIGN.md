@@ -187,7 +187,7 @@ class FacilityMapConfig(PluginConfig):
     name = 'netbox_facilitymap'
     verbose_name = 'Facility Map'
     description = 'Navigable siteplan → building → floor → room map linked to Locations'
-    version = '1.5.0'              # keep in lockstep with pyproject.toml; see CHANGELOG
+    version = '1.6.0'              # keep in lockstep with pyproject.toml; see CHANGELOG
     author = 'Facility Map'
     base_url = 'facilitymap'
     min_version = '4.1.7'     # pinned to the tested range; NetBox enforces at load
@@ -196,6 +196,7 @@ class FacilityMapConfig(PluginConfig):
         'work_dir': None, 'max_pdf_mb': 50, 'max_pdfs': 400,
         'max_zip_mb': 200, 'max_zip_uncompressed_mb': 2048,   # .zip upload caps
         'render_timeout_s': 300, 'render_mem_mb': 4096,
+        'ocr_mem_mb': 0,          # RLIMIT_AS for the OCR child (0 = none); see §below
     }
 
 config = FacilityMapConfig
@@ -353,16 +354,20 @@ a login — importing rewrites the whole map and `reset` wipes it:
   the working dir; traversal-guarded and confined to `images/`/`uploads/`. Floor plans are
   **not** exposed at a public static URL.
 
-**Renderer/OCR isolation + limits.** `_run_script(script, mode, …)` spawns
+**Renderer/OCR isolation + limits.** `_run_script(script, mode, …, mem_mb, timeout_s)` spawns
 `python <script> <mode> --base <workdir>` **by file path** (not `-m`, so the package's
 NetBox-importing `__init__` never loads into the child), with `timeout=render_timeout_s` and
-a POSIX `preexec_fn` setting `RLIMIT_CPU` + `RLIMIT_AS` (`render_mem_mb`). Two children share
+a POSIX `preexec_fn` setting `RLIMIT_CPU` + `RLIMIT_AS`. Two children share
 this isolation: `preprocess.py` (`_run_preprocess`) stays stdlib + `pypdfium2`/`Pillow` only
 and only rasterizes page 1 — no PDF text/JS/embedded content is executed; `ocr.py`
 (`_run_ocr`) stays stdlib + `Pillow` + `rapidocr-onnxruntime` and reads **only
 already-rendered PNGs**, never a PDF, so adding OCR introduces **no new untrusted-input parse
 path** (PDF parsing stays solely in `preprocess.py`, the OCR models are bundled and run
-offline). A working-dir lockfile (`_acquire_lock`, with stale-lock recovery) serializes
+offline). The two children get **different memory caps**: the render child is held to
+`render_mem_mb` (the tight cap that contains a malicious PDF parser), but the OCR child — which
+touches only trusted PNGs — gets `ocr_mem_mb` (default `0` = no `RLIMIT_AS`), because
+onnxruntime reserves a large virtual-address space that a render-sized `RLIMIT_AS` would kill;
+the CPU/timeout cap still applies. A working-dir lockfile (`_acquire_lock`, with stale-lock recovery) serializes
 **scan/build** renders across worker processes, since the tool's thread lock could not; the
 single-file `preview` render and the read-only `ocr-assign` pass skip the lock by design.
 

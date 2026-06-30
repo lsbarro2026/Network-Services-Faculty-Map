@@ -3,6 +3,27 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.6.0 — Site plan first, zoomable floor-code picker, clearer OCR errors
+- **Real error messages, not "HTTP 500".** `Api.get`/`Api.post` now surface the server's own
+  message on a failed request (the `error` field of a JSON body, or the plain-text body) instead
+  of a bare status code. The automatic floor-code pass talks only to the **local** NetBox
+  endpoint `api/import/ocr-assign` — never the internet — so when OCR fails you now see the
+  actual cause (e.g. a missing dependency) rather than a mysterious "HTTP error".
+- **OCR subprocess gets its own memory budget** (`ocr_mem_mb`, default `0` = no `RLIMIT_AS`).
+  `ocr.py` reads only already-rendered, trusted PNGs, so the tight `render_mem_mb` cap — sized to
+  contain a malicious PDF parser — doesn't apply, and it was killing onnxruntime (which reserves
+  a large virtual-address space). The CPU/timeout cap still applies.
+- **Site plan is chosen first, in its own step** (`_stepSiteplan`). The site plan is the overall
+  site map and carries no floor code, so it's picked before — and apart from — floor assignment;
+  the chosen drawing is excluded from floor assignment and the OCR pass. The map step now shows a
+  compact "Site plan: … · Change" summary instead of the inline dropdown.
+- **Zoomable floor-code picker.** The "draw a box around the floor code" sample now sits in a
+  scrollable viewport with **−/Fit/+** zoom (scroll to pan), so a small code can be boxed
+  accurately. The box stays correct at any zoom (it normalizes against the image's live rect).
+- **Floor codes embedded in a caption** resolve more robustly — `_floorKey` already pulled the
+  code out of prose like *"Third Basement Level (B3) Plan"* (→ `b3`); spelled-out ordinals
+  (*"Second Floor"* → `l2`, first–tenth) are now handled too. Version → `1.6.0`.
+
 ## 1.5.1 — Concise instructional copy
 - **Tightened the in-app help text** to match NetBox's terse `help_text` convention — a label
   plus at most one short line, no narration of what the UI already shows. No behaviour change;

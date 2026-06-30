@@ -16,7 +16,7 @@ class FacilityMapConfig(PluginConfig):
     name = 'netbox_facilitymap'
     verbose_name = 'Facility Map'
     description = 'Navigable siteplan → building → floor → room map linked to NetBox Locations'
-    version = '1.5.1'
+    version = '1.6.0'
     author = 'Facility Map'
     author_email = ''
     base_url = 'facilitymap'
@@ -35,6 +35,11 @@ class FacilityMapConfig(PluginConfig):
         'max_zip_uncompressed_mb': 2048,  # cumulative decompressed cap (zip-bomb guard)
         'render_timeout_s': 300,  # kill the render subprocess after this many seconds
         'render_mem_mb': 4096,   # RLIMIT_AS for the render subprocess (POSIX)
+        # The OCR subprocess reads only already-rendered, trusted PNGs (never a PDF), so the
+        # tight render cap — sized to contain a malicious PDF parser — does not apply. onnxruntime
+        # reserves a large virtual-address space, which RLIMIT_AS counts, so a render-sized cap
+        # kills it. 0 disables RLIMIT_AS for OCR (CPU/timeout still apply); set a number to cap it.
+        'ocr_mem_mb': 0,
     }
 
 

@@ -430,6 +430,8 @@ button.wide { width: 100%; margin-bottom: 6px; justify-content: center; }
   padding: 12px 14px; margin-bottom: 14px; background: var(--panel); border: 1px solid var(--line);
   border-radius: var(--radius-lg); }
 .imp-siteplan > label { font-weight: 600; font-size: 13px; }
+.imp-siteplan strong { font-size: 13px; }
+.imp-link { height: 24px; padding: 0 8px; font-size: 12px; margin-left: 2px; }
 .imp-siteplan select {
   height: 30px; padding: 0 7px; background: var(--panel); color: var(--text);
   border: 1px solid var(--border-strong); border-radius: var(--radius);
@@ -498,11 +500,14 @@ button.wide { width: 100%; margin-bottom: 6px; justify-content: center; }
 .imp-choice h3 { margin: 0; font-size: 15px; }
 .imp-choice p { margin: 0; flex: 1; color: var(--text2); font-size: 13px; line-height: 1.5; }
 .imp-choice button { align-self: flex-start; }
-/* Automatic mode: drag a box over the floor code on a sample drawing. */
-.imp-region-stage { position: relative; display: inline-block; max-width: 100%;
-  margin: 6px 0 12px; background: #fff; border: 1px solid var(--line);
-  border-radius: var(--radius); overflow: hidden; touch-action: none; cursor: crosshair; }
-.imp-region-img { display: block; max-width: 100%; max-height: 70vh; user-select: none;
+/* Automatic mode: drag a box over the floor code on a sample drawing. The viewport scrolls
+   (scroll to pan) and the −/Fit/+ bar widens the canvas to zoom. */
+.imp-region-zoom { display: flex; gap: 6px; align-items: center; margin: 6px 0 8px; }
+.imp-region-zoom button { width: 34px; height: 28px; padding: 0; font-size: 14px; line-height: 1; }
+.imp-region-view { max-height: 70vh; overflow: auto; background: #fff;
+  border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 12px; }
+.imp-region-canvas { position: relative; width: 100%; touch-action: none; cursor: crosshair; }
+.imp-region-img { display: block; width: 100%; height: auto; user-select: none;
   -webkit-user-drag: none; }
 .imp-region-sel { position: absolute; border: 2px solid var(--accent, #2f80ed);
   background: rgba(47, 128, 237, .18); pointer-events: none; }

@@ -135,7 +135,7 @@ when `window.MAP` is absent).
 - **`Geom`** — `centroid(poly)`, `bounds(poly)` → `{minX,minY,maxX,maxY,w,h,cx,cy}` axis-aligned bbox + center (used to size/place siteplan labels), `projSeg(px,py,ax,ay,bx,by)` → `{x,y,d}` nearest point on a segment (displayed px), `pointInPoly(nx,ny,poly)` (ray-cast), `clampToPoly(nx,ny,poly)` (inside → unchanged, else nearest edge point — used to keep rack markers inside a room).
 - **`Toast`** — `show(msg,err?)` transient notification.
 - **`Icons`** — inline 13×13 SVG glyphs (`edit, draw, undo, snap, grid, move, dup, check, rack, settings, rightangle`) using `currentColor`, for icon buttons + chrome. Build buttons via `Dom.el('button',{html:Icons.x+'<span>Label</span>'})`.
-- **`Api`** — `get(path)`, `post(path,body)`; throw on non-2xx. **Mount-aware:** `_url(path)` rebases a logical `/api/<rest>` onto `window.MAP.api` (so `/api/annotations` → `/plugins/facilitymap/api/annotations`); `post` adds the `X-CSRFToken` header from `window.MAP.csrf` so Django's CSRF middleware accepts the write. With `window.MAP` absent both are passthroughs.
+- **`Api`** — `get(path)`, `post(path,body)`; throw on non-2xx. On a non-OK response `_fail(r)` reads the body and throws the **server's own message** — `error` from a JSON `{ok:false, error}` (e.g. a 500 from the OCR subprocess) or the plain-text body (`HttpResponseBadRequest`), falling back to `HTTP <status>` — so callers surface the real cause, not a bare status code (and it's clear these are local NetBox calls, not the internet). **Mount-aware:** `_url(path)` rebases a logical `/api/<rest>` onto `window.MAP.api` (so `/api/annotations` → `/plugins/facilitymap/api/annotations`); `post` adds the `X-CSRFToken` header from `window.MAP.csrf` so Django's CSRF middleware accepts the write. With `window.MAP` absent both are passthroughs.
 - Consts: `SVGNS`, `CLOSE_PX` (12), `SNAP_PX` (11), `ORTHO_PX` (9) — displayed-px
   thresholds. `ANGLE_STEP` (15) — label-rotation snap increment (°). `LABEL_SIZE_MIN`
   (6) / `LABEL_SIZE_MAX` (120) — label font-size clamp (px). `LABEL_FONTS` — the label
@@ -510,10 +510,12 @@ NetBox → Map drawings to floors → Build**). Constructor state: `inv` (scan i
 `_bIdx` (index of the building currently visible in the map step), `_autoMapDone` (the
 building→NetBox auto-match pass runs once per scan), `_assignMode` (`null`=ask /
 `'manual'`=assign each card by hand / `'auto'`=read floor codes by OCR), `_ocrRegion`
-(the normalized 0..1 box the user dragged over the floor code in automatic mode), and
+(the normalized 0..1 box the user dragged over the floor code in automatic mode),
+`_siteplanDone` (gates the dedicated site-plan-selection sub-step so it shows once), `_regionZoom`
+(transient zoom factor for the region picker, a view aid — not persisted), and
 `_mergeMode` (when `true`, the upload step **adds** drawings to the current facility instead of
-starting fresh — see *Post-build editing* below). Both `_assignMode` and `_ocrRegion` persist in
-the draft.
+starting fresh — see *Post-build editing* below). `_assignMode`, `_ocrRegion`, and `_siteplanDone`
+persist in the draft.
 
 Each building object carries an `nbSite` field — `{id,slug,name,auto}` once bound to a NetBox
 Site in the buildings step (`auto:true` = an unconfirmed auto-match), else `null`. The bound
@@ -590,7 +592,7 @@ render rebuilds both, keeping them in sync). Navigating calls
 `_saveDraft()` (POST to `api/import/save-draft`, writes `import-map.draft.json` under the working
 dir), steps `_bIdx`, and re-renders. `_applyDraft()` (GET `api/import/load-draft`) merges a saved draft into the
 freshly-built model by `folder` key (`name`/`slug`/`abbr`/`nbSite` + per-stem `assign`/`frame`),
-plus the top-level `assignMode`/`ocrRegion`/`bIdx` — new folders not in the draft keep their
+plus the top-level `assignMode`/`ocrRegion`/`bIdx`/`siteplanDone` — new folders not in the draft keep their
 `_modelFromInventory` defaults; removed PDF stems are ignored. `bIdx` (the paged-building index)
 is restored **clamped** to `[0, buildings.length-1]` so the user resumes on the building they
 last viewed even though folders can change between sessions. A global **size slider** (`_sizer`/`_applyThumbSize`,
@@ -626,18 +628,32 @@ whereas `— none —` is a real choice that excludes the drawing and passes the
 directly; `unassigned`/`none` contribute no floor; legacy `same` reuses the previous token →
 multi-page).
 
-**Automatic vs manual floor assignment** (`_assignMode`): the map step opens on a chooser
-(`_stepAssignChoice`) — **Manual** (`_assignMode='manual'`, the per-card flow above) or
-**Automatic** (`_assignMode='auto'`). Automatic first marks where the floor code sits
+**Site plan, picked first** (`_stepSiteplan`, gated by `_siteplanDone`): the assign phase opens
+on its **own** site-plan step, before the assignment chooser — the site plan is the overall
+site map and carries no floor code, so it's chosen apart from floor assignment. `_siteplanSelect`
+is the folder/file `<select>` of every drawing; choosing one routes through `_setSiteplan`, which
+records `this.site` **and** marks that drawing's `assign` `type:'none'` (`_setAssignNone`) so it's
+excluded from floor assignment and the OCR pass — a building drawing previously picked reverts to
+`unassigned`, while a dedicated `Site Plan` folder's drawing stays `none`. **Continue** sets
+`_siteplanDone` and proceeds. On the map step the inline picker is replaced by a compact
+read-only summary (`_siteplanSummary` — "Site plan: … · **Change**", which jumps back).
+
+**Automatic vs manual floor assignment** (`_assignMode`): after the site-plan step the map step
+shows a chooser (`_stepAssignChoice`) — **Manual** (`_assignMode='manual'`, the per-card flow
+above) or **Automatic** (`_assignMode='auto'`). Automatic first marks where the floor code sits
 (`_stepRegionPick`): the user drags one box over the code on a sample drawing's hi-res
 preview; `_attachRegionDrag` stores it on `_ocrRegion` **normalized 0..1** (the overlay shares
-the `<img>`'s box, so pointer coords map straight to image space) so it applies to every
-drawing's render regardless of size. "Read all drawings" (`_runOcr`) preloads every building's
+the `<img>`'s box, so pointer coords map straight to image space — correct at any zoom, since it
+reads the image's live `getBoundingClientRect()`) so it applies to every drawing's render
+regardless of size. The sample sits in a scrollable viewport with a **−/Fit/+ zoom bar**
+(`_regionZoomBar`/`_applyRegionZoom` widen the canvas; scroll to pan) so a small code can be boxed
+accurately. "Read all drawings" (`_runOcr`) preloads every building's
 floor Locations (`_loadFloors`), POSTs `{region}` to **`api/import/ocr-assign`**, and gets back
 `[{folder, stem, text, confidence}]` per drawing. `_applyOcr` maps each result to a floor via
 `_matchFloor`: `_floorKey` canonicalizes both the OCR text and each candidate floor's
-name/slug (`'Level 2'`/`'L2'`/`'2'`→`l2`, `'Ground'`/`'G'`→`g`, `'Basement 1'`/`'B1'`→`b1`,
-`'Roof'`→`r`) and, in Location mode, a **unique** key match writes the Location's slug→`token`
+name/slug, pulling the code out of a longer caption (`'Third Basement Level (B3) Plan'`→`b3`,
+`'Level 2'`/`'L2'`/`'2'`/`'Second Floor'`→`l2`, `'Ground'`/`'G'`→`g`, `'Basement 1'`/`'B1'`→`b1`,
+`'Roof'`→`r`; spelled-out ordinals first–tenth are handled) and, in Location mode, a **unique** key match writes the Location's slug→`token`
 (else it's left for review); in fallback mode the key resolves to `type`/`num`. A result below
 `OCR_MIN_CONF` (0.5), unmatched, or ambiguous is left **`unassigned`** so the existing build
 gate forces the user to confirm it; already-`none`/already-`token` drawings are never
@@ -802,7 +818,7 @@ access as the map).
   `import-map.json`/`.stub.json`/`.draft.json`, `ocr-job.json`, and the lockfile.
 - **`SaveDraftView`** (POST `api/import/save-draft`) / **`LoadDraftView`** (GET
   `api/import/load-draft`) — lightweight wizard-state persistence. `SaveDraftView` writes
-  the wizard's current `{buildings, site, assignMode, ocrRegion, bIdx}` model JSON to
+  the wizard's current `{buildings, site, assignMode, ocrRegion, bIdx, siteplanDone}` model JSON to
   `import-map.draft.json` under the working dir (called on every Prev/Next navigation).
   `LoadDraftView` reads it back (returning every stored key verbatim); returns
   `{ok: false}` if no draft exists. The draft survives across browser sessions so `show()`

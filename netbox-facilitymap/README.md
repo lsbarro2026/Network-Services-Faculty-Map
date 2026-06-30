@@ -49,12 +49,14 @@ The plugin ships with **no facility content**; you build it from your drawings:
    stripped automatically). The overall siteplan image comes from either a PDF dropped **loose
    at the top level** of the facility folder (any name) or a sub-folder named like *site plan*.
 3. **Map** each drawing to a floor (the PDFs carry no text layer, so floor identity is
-   assigned here), confirm each building's NetBox **site slug** and floor-id prefix. Click a
-   card to preview the PDF; scroll or drag a thumbnail to frame the part that names the floor.
-   Choose **Automatic** to have the wizard read the floor codes for you — drag a box once over
-   where the code sits on a sample drawing and it reads that spot on every drawing, flagging
-   anything uncertain for you to confirm (all offline; see *Security model*) — or **Manual** to
-   assign each card yourself.
+   assigned here), confirm each building's NetBox **site slug** and floor-id prefix. First pick
+   the **site plan** on its own step (it's the overall site map and has no floor code, so it's
+   chosen apart from floor assignment). Then click a card to preview the PDF; scroll or drag a
+   thumbnail to frame the part that names the floor. Choose **Automatic** to have the wizard read
+   the floor codes for you — drag a box once over where the code sits on a sample drawing (zoom
+   in with **−/Fit/+** and scroll to pan if it's small) and it reads that spot on every drawing,
+   flagging anything uncertain for you to confirm (all offline; see *Security model*) — or
+   **Manual** to assign each card yourself.
 4. **Build** — the plugin renders the images + manifest and opens the map. Then draw rooms
    and bind each to its NetBox Location.
 
@@ -117,6 +119,10 @@ PLUGINS_CONFIG = {
         "max_zip_uncompressed_mb": 2048,  # cumulative decompressed cap (zip-bomb guard)
         "render_timeout_s": 300,  # kill the render subprocess after this long
         "render_mem_mb": 4096,    # RLIMIT_AS for the render subprocess (POSIX)
+        "ocr_mem_mb": 0,          # RLIMIT_AS for the OCR subprocess; 0 = none. The OCR child
+                                  # reads only trusted PNGs, and onnxruntime reserves a large
+                                  # virtual-address space a render-sized cap would kill — so
+                                  # raise this (or leave 0) if auto floor assignment fails.
     },
 }
 ```

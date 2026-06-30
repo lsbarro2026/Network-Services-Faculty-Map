@@ -29,6 +29,11 @@ class ImportWizard {
     // dragged over the floor code, applied to every drawing. Both persist in the draft.
     this._assignMode = null;
     this._ocrRegion = null;
+    // The site plan is chosen in its own step before floor assignment (it has no floor code).
+    // `_siteplanDone` gates that step (persisted) so it's shown once; `_regionZoom` is the
+    // transient zoom factor for the floor-code region picker (a view aid, not persisted).
+    this._siteplanDone = false;
+    this._regionZoom = 1;
     // Add-drawings flow: when true the upload step merges new PDFs into the current model
     // (re-applying the saved draft so existing assignments survive) instead of starting fresh.
     this._mergeMode = false;
@@ -429,19 +434,26 @@ class ImportWizard {
    *  sample drawing, stored normalized 0..1 so it maps onto every drawing's render. "Read all
    *  drawings" runs the OCR pass; the user can drop to manual at any point. */
   _stepRegionPick() {
-    const b = this.buildings.find(x => x.pdfs && x.pdfs.length);
-    const p = b && b.pdfs[0];
+    // Sample on a real floor drawing, never the site plan (it's `type:'none'` and has no code).
+    const real = (x, pp) => x.assign[pp.stem] && x.assign[pp.stem].type !== 'none';
+    const b = this.buildings.find(x => x.pdfs && x.pdfs.some(pp => real(x, pp)));
+    const p = b && b.pdfs.find(pp => real(b, pp));
     if (!p) { this._assignMode = 'manual'; return this._stepMap(); }  // nothing to OCR
 
     const view = this._stage('Mark the floor code');
     view.append(Dom.el('p', { class: 'hint' },
-      'Drag a box around the floor code on this sample.'));
+      'Drag a box around the floor code on this sample. Zoom in if it’s small; scroll to pan.'));
 
+    // Zoom widens the canvas inside a scrollable viewport (scroll to pan); the image fills the
+    // canvas and the overlay is positioned by % of it, so the box tracks the image at any zoom.
     const img = Dom.el('img', { class: 'imp-region-img', src: ImportWizard._previewUrl(p.pdf) });
     const sel = Dom.el('div', { class: 'imp-region-sel hidden' });
-    const stage = Dom.el('div', { class: 'imp-region-stage' }, [img, sel]);
+    const canvas = Dom.el('div', { class: 'imp-region-canvas' }, [img, sel]);
+    const viewport = Dom.el('div', { class: 'imp-region-view' }, [canvas]);
     this._attachRegionDrag(img, sel);
-    view.append(stage);
+    view.append(this._regionZoomBar(canvas));
+    view.append(viewport);
+    this._applyRegionZoom(canvas);
 
     const go = Dom.el('button', { class: 'primary', onclick: () => this._runOcr() }, 'Read all drawings');
     go.disabled = !this._ocrRegion;
@@ -487,6 +499,26 @@ class ImportWizard {
       img.addEventListener('pointermove', move);
       img.addEventListener('pointerup', up);
     });
+  }
+
+  /** −/Fit/+ zoom controls for the region picker, so a small floor code can be boxed
+   *  accurately. "Fit" resets to fill the viewport width; ± steps the zoom (1×–6×). */
+  _regionZoomBar(canvas) {
+    const step = (f) => () => {
+      this._regionZoom = Math.max(1, Math.min(6, Math.round((this._regionZoom + f) * 10) / 10));
+      this._applyRegionZoom(canvas);
+    };
+    return Dom.el('div', { class: 'imp-region-zoom' }, [
+      Dom.el('button', { title: 'Zoom out', onclick: step(-0.5) }, '−'),
+      Dom.el('button', { title: 'Fit to width',
+        onclick: () => { this._regionZoom = 1; this._applyRegionZoom(canvas); } }, 'Fit'),
+      Dom.el('button', { title: 'Zoom in', onclick: step(0.5) }, '+'),
+    ]);
+  }
+
+  /** Apply the current zoom by widening the canvas; the scrollable viewport handles panning. */
+  _applyRegionZoom(canvas) {
+    canvas.style.width = (this._regionZoom * 100) + '%';
   }
 
   /** A small banner shown atop the map step in automatic mode: confirms floors were read and
@@ -568,22 +600,34 @@ class ImportWizard {
   }
 
   /** Reduce a floor label/code to a canonical key for matching OCR text against floor names:
-   *  'Level 2'/'L2'/'FL 02'/'2' → 'l2', 'Ground'/'G' → 'g', 'Basement 1'/'B1' → 'b1',
-   *  'Roof'/'RF' → 'r'. Returns '' when nothing floor-like is found. */
+   *  'Level 2'/'L2'/'FL 02'/'2'/'Second Floor' → 'l2', 'Ground'/'G' → 'g',
+   *  'Basement 1'/'B1'/'First Basement' → 'b1', 'Roof'/'RF' → 'r'. Drawings often print the code
+   *  inside a longer caption ("Third Basement Level (B3) Plan"), so the patterns match a code
+   *  anywhere in the string. Returns '' when nothing floor-like is found. */
   static _floorKey(s) {
     const t = (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
     if (!t) return '';
+    // Spelled-out ordinals ("second floor", "third basement") — captions don't always print a code.
+    const ord = 'first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|'
+      + 'seventh|7th|eighth|8th|ninth|9th|tenth|10th';
+    const ordNum = { first: 1, '1st': 1, second: 2, '2nd': 2, third: 3, '3rd': 3, fourth: 4,
+      '4th': 4, fifth: 5, '5th': 5, sixth: 6, '6th': 6, seventh: 7, '7th': 7, eighth: 8, '8th': 8,
+      ninth: 9, '9th': 9, tenth: 10, '10th': 10 };
     let m;
     if (/\b(?:roof|rf|r)\b/.test(t) && !/\d/.test(t)) return 'r';
     if ((m = t.match(/\b(?:basement|bsmt|sub|b)\s*0*(\d+)\b/))) return 'b' + m[1];
+    if ((m = t.match(new RegExp('\\b(' + ord + ')\\s+(?:sub ?)?basement\\b')))) return 'b' + ordNum[m[1]];
     if (/\b(?:ground|grd|gf|g)\b/.test(t) && !/\d/.test(t)) return 'g';
     if ((m = t.match(/\b(?:level|lvl|floor|flr|fl|l)\s*0*(\d+)\b/))) return 'l' + m[1];
+    if ((m = t.match(new RegExp('\\b(' + ord + ')\\s+(?:floor|level|storey|story)\\b')))) return 'l' + ordNum[m[1]];
     if ((m = t.match(/^0*(\d+)$/))) return 'l' + m[1];   // a bare number = that level
     return '';
   }
 
   _stepMap() {
-    // First entry: pick automatic (OCR) vs manual assignment; automatic then marks the region.
+    // Order of the assign phase: pick the site plan first (it has no floor code), then choose
+    // automatic (OCR) vs manual assignment; automatic then marks the floor-code region.
+    if (!this._siteplanDone) return this._stepSiteplan();
     if (!this._assignMode) return this._stepAssignChoice();
     if (this._assignMode === 'auto' && !this._ocrRegion) return this._stepRegionPick();
 
@@ -595,7 +639,7 @@ class ImportWizard {
 
     view.append(this._sizer());
     this._applyThumbSize();
-    view.append(this._siteplanRow());
+    view.append(this._siteplanSummary());
 
     if (this.buildings.length > 1) view.append(this._buildingNav());
     const b = this.buildings[this._bIdx];
@@ -626,7 +670,7 @@ class ImportWizard {
       const reasons = [];
       if (unassigned.length)
         reasons.push('Unassigned drawings in: ' + unassigned.join(', ') + '.');
-      if (needSiteplan) reasons.push('Choose a site-plan image above.');
+      if (needSiteplan) reasons.push('Pick a site plan (use “Change” above).');
       actions.push(Dom.el('span', { class: 'hint' }, reasons.join(' ')));
     } else {
       actions.push(Dom.el('button', { class: 'primary', onclick: () => this._build() },
@@ -710,7 +754,7 @@ class ImportWizard {
   _normalizeToLocations(b) {
     for (const p of b.pdfs) {
       const a = b.assign[p.stem];
-      if (!a.token) a.type = 'unassigned';
+      if (!a.token && a.type !== 'none') a.type = 'unassigned';   // keep a deliberate — none — (e.g. the site plan)
     }
   }
 
@@ -737,12 +781,34 @@ class ImportWizard {
       for (const c of this._cards) c.upgrade();
   }
 
-  _siteplanRow() {
+  /** Its own first step in the assign phase: pick which drawing is the site plan. The site plan
+   *  is the overall map of where the buildings sit — it carries no floor code, so it's chosen
+   *  here, before (and apart from) the floor-code OCR/assignment. */
+  _stepSiteplan() {
+    const view = this._stage('Select the site plan');
+    view.append(Dom.el('p', { class: 'hint' },
+      'The site plan is the overall map of the site — the drawing that shows where the buildings '
+      + 'sit. It has no floor code, so choose it here first; it’s left out of floor assignment.'));
+    view.append(Dom.el('div', { class: 'imp-siteplan' }, [
+      Dom.el('label', {}, 'Site plan image'), this._siteplanSelect(),
+    ]));
+    view.append(Dom.el('div', { class: 'imp-actions' }, [
+      Dom.el('button', { class: 'primary', onclick: async () => {
+        this._siteplanDone = true; await this._saveDraft(); this._stepMap();
+      } }, 'Continue'),
+      Dom.el('button', { onclick: () => this._reset() }, 'Start over'),
+    ]));
+  }
+
+  /** The folder/file `<select>` of every uploaded drawing, used by the site-plan step. Choosing
+   *  an option routes through `_setSiteplan`, which also excludes the picked drawing from floor
+   *  assignment. */
+  _siteplanSelect() {
     const sel = Dom.el('select', {
       onchange: (e) => {
         const v = e.target.value;
-        if (!v) { this.site = { folder: '', file: '' }; return; }
-        const [folder, file] = JSON.parse(v); this.site = { folder, file };
+        if (!v) return this._setSiteplan('', '');
+        const [folder, file] = JSON.parse(v); this._setSiteplan(folder, file);
       },
     });
     sel.append(Dom.el('option', { value: '' }, '— none —'));
@@ -753,9 +819,44 @@ class ImportWizard {
         if (this.site.folder === f.folder && this.site.file === p.file) o.selected = true;
         sel.append(o);
       }
+    return sel;
+  }
+
+  /** Compact, read-only site-plan line shown atop the map step (selection now happens in its own
+   *  step). "Change" jumps back to that step. */
+  _siteplanSummary() {
+    const label = this.site.file ? (this.site.folder + ' / ' + this.site.file) : '— none —';
     return Dom.el('div', { class: 'imp-siteplan' }, [
-      Dom.el('label', {}, 'Site plan image (optional)'), sel,
+      Dom.el('span', {}, 'Site plan: '), Dom.el('strong', {}, label),
+      Dom.el('button', { class: 'imp-link', onclick: async () => {
+        this._siteplanDone = false; await this._saveDraft(); this._stepMap();
+      } }, 'Change'),
     ]);
+  }
+
+  /** Choose (or clear, with empty args) the site-plan drawing. The chosen drawing has no floor,
+   *  so it's marked `type:'none'` — excluded from floor assignment and the OCR pass; a building
+   *  drawing previously picked reverts to `unassigned` so the user gives it a real floor. */
+  _setSiteplan(folder, file) {
+    this._setAssignNone(this.site.folder, this.site.file, false);   // revert the prior pick
+    this.site = (folder && file) ? { folder, file } : { folder: '', file: '' };
+    this._setAssignNone(this.site.folder, this.site.file, true);    // exclude the new pick
+  }
+
+  /** Toggle one drawing between "no floor" (`type:'none'`) and "needs a floor"
+   *  (`type:'unassigned'`). No-ops when the folder/file isn't one of a building's drawings. A
+   *  dedicated site-plan folder's drawing is never un-noned — that folder contributes no floor. */
+  _setAssignNone(folder, file, none) {
+    if (!folder || !file) return;
+    const b = this.buildings.find(x => x.folder === folder);
+    if (!b) return;
+    const p = b.pdfs.find(x => x.file === file);
+    if (!p || !(p.stem in b.assign)) return;
+    const a = b.assign[p.stem];
+    if (none) { a.type = 'none'; a.token = null; a.label = ''; }
+    else if (a.type === 'none' && !/site\s*plan/i.test(folder)) {
+      a.type = 'unassigned'; a.token = null; a.label = '';
+    }
   }
 
   _buildingSection(b) {
@@ -982,7 +1083,8 @@ class ImportWizard {
       await fetch(apiBase + 'import/save-draft', {
         method: 'POST', headers,
         body: JSON.stringify({ buildings: this.buildings, site: this.site,
-          assignMode: this._assignMode, ocrRegion: this._ocrRegion, bIdx: this._bIdx }),
+          assignMode: this._assignMode, ocrRegion: this._ocrRegion, bIdx: this._bIdx,
+          siteplanDone: this._siteplanDone }),
       });
     } catch (e) { console.warn('Draft save failed:', e); }
   }
@@ -1012,6 +1114,7 @@ class ImportWizard {
       if (draft.site?.file) this.site = draft.site;
       if (draft.assignMode) this._assignMode = draft.assignMode;
       if (draft.ocrRegion) this._ocrRegion = draft.ocrRegion;
+      if (draft.siteplanDone) this._siteplanDone = true;
       // Resume on the building the user last viewed. Clamp — folders can be added/removed
       // between sessions, and `_stepMap` indexes `buildings[_bIdx]` with no bounds check.
       if (this.buildings.length) {
@@ -1133,6 +1236,8 @@ class ImportWizard {
     this._autoMapDone = false;
     this._assignMode = null;
     this._ocrRegion = null;
+    this._siteplanDone = false;
+    this._regionZoom = 1;
     this._mergeMode = false;
     this._stepUpload();
   }

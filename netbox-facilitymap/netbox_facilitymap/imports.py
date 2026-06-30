@@ -67,19 +67,23 @@ def _rlimits(timeout_s, mem_mb):
     return apply
 
 
-def _run_script(script_name, mode, extra=None, json_stdout=False):
+def _run_script(script_name, mode, extra=None, json_stdout=False, mem_mb=None, timeout_s=None):
     """Spawn `<script_name> <mode> --base <workdir> [extra...]` and shape its result. Invoked
     by file path (not `-m`) so the child stays minimal/isolated — no Django in-process. The
     render (`preprocess.py`) and OCR (`ocr.py`) subprocesses share this isolation: a timeout
-    plus POSIX CPU/address-space rlimits cap a runaway or malicious child. `json_stdout` reads
-    the child's stdout as the JSON result (scan/ocr); otherwise stderr is returned as a log."""
+    plus POSIX CPU/address-space rlimits cap a runaway or malicious child. `mem_mb`/`timeout_s`
+    default to the render caps; the OCR pass overrides `mem_mb` since it reads only trusted PNGs
+    (a render-sized RLIMIT_AS kills onnxruntime). `json_stdout` reads the child's stdout as the
+    JSON result (scan/ocr); otherwise stderr is returned as a log."""
     base = work_dir()
     base.mkdir(parents=True, exist_ok=True)
     script = str(Path(__file__).resolve().parent / script_name)
-    timeout = _cfg('render_timeout_s')
+    timeout = _cfg('render_timeout_s') if timeout_s is None else timeout_s
+    if mem_mb is None:
+        mem_mb = _cfg('render_mem_mb')
     kwargs = {}
     if os.name == 'posix':
-        kwargs['preexec_fn'] = _rlimits(timeout, _cfg('render_mem_mb'))
+        kwargs['preexec_fn'] = _rlimits(timeout, mem_mb)
     try:
         proc = subprocess.run(
             [sys.executable, script, mode, '--base', str(base), *(extra or [])],
@@ -106,8 +110,9 @@ def _run_preprocess(mode, extra=None):
 def _run_ocr(extra=None):
     """Run the OCR subprocess (`ocr.py`) over already-rendered PNGs; returns its results from
     stdout. Kept separate from `preprocess.py` so the render child never imports the OCR deps
-    and the OCR child never parses a PDF."""
-    return _run_script('ocr.py', 'ocr', extra, json_stdout=True)
+    and the OCR child never parses a PDF. Uses its own memory budget (`ocr_mem_mb`): it touches
+    only trusted PNGs, so the render-sized RLIMIT_AS — which would kill onnxruntime — is wrong."""
+    return _run_script('ocr.py', 'ocr', extra, json_stdout=True, mem_mb=_cfg('ocr_mem_mb'))
 
 
 def _ensure_preview(pdf_rel):

@@ -170,9 +170,22 @@ class Api {
       return window.MAP.api + path.slice('/api/'.length);
     return path;
   }
+  /** Turn a non-OK response into an Error carrying the server's own message. These endpoints
+   *  fail in two shapes: a JSON body `{ok:false, error}` (e.g. a 500 from the OCR subprocess)
+   *  or a plain-text `HttpResponseBadRequest`. Surfacing the real text — not a bare
+   *  "HTTP 500" — is what tells the user the actual cause (a missing dep, a bad input), and
+   *  makes clear these are local NetBox calls, not the internet. */
+  static async _fail(r) {
+    let msg = 'HTTP ' + r.status;
+    try {
+      const t = (await r.text()).trim();
+      if (t) { try { msg = JSON.parse(t).error || msg; } catch (_) { msg = t.slice(0, 300); } }
+    } catch (_) { /* keep the status-code fallback */ }
+    return new Error(msg);
+  }
   static async get(path) {
     const r = await fetch(Api._url(path));
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.ok) throw await Api._fail(r);
     return r.json();
   }
   static async post(path, body) {
@@ -183,7 +196,7 @@ class Api {
       headers,
       body: JSON.stringify(body),
     });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.ok) throw await Api._fail(r);
     return r.json();
   }
 }
