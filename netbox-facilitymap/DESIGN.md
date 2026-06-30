@@ -187,7 +187,7 @@ class FacilityMapConfig(PluginConfig):
     name = 'netbox_facilitymap'
     verbose_name = 'Facility Map'
     description = 'Navigable siteplan → building → floor → room map linked to Locations'
-    version = '1.7.0'              # keep in lockstep with pyproject.toml; see CHANGELOG
+    version = '1.8.0'              # keep in lockstep with pyproject.toml; see CHANGELOG
     author = 'Facility Map'
     base_url = 'facilitymap'
     min_version = '4.1.7'     # pinned to the tested range; NetBox enforces at load

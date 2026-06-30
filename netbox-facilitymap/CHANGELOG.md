@@ -3,6 +3,24 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.8.0 — Auto floor assignment shows its work and stops throwing away near-misses
+- **The automatic pass now shows what OCR read on every card.** `_applyOcr` stashes the raw
+  read (`a.ocrText`/`a.ocrConf`) on every processed drawing, and each card renders a small
+  read-out chip (`Read “L1” · 47%`). Previously the recognized text was discarded, so a drawing
+  that wasn't auto-assigned went blank with no hint of *why* — now it explains itself (what was
+  seen and how confidently), which is also the fastest way to tell a faint/low-confidence read
+  apart from a genuine misread.
+- **A low-confidence read that still parses to a floor is no longer silently dropped.** Before,
+  any result below `OCR_MIN_CONF` (0.5) was thrown away and the drawing left blank-`unassigned`.
+  Now the guess is kept as `a.ocrSuggest`: the drawing stays `unassigned` (so the build gate
+  still forces a human confirm — OCR never auto-commits a shaky read), but `_floorButtons`
+  **pre-highlights** the guessed floor (`.suggested`, a dashed outline) so the user confirms it
+  in one click instead of choosing blind. Truly unmatched/ambiguous reads stay `unassigned` and
+  record an `a.ocrReason` (`no floor matched`/`nothing read`) shown on the card.
+- This directly targets the case where only a handful of buildings auto-classified while the
+  rest came back empty: the codes *were* being read, but sub-0.5 confidence reads were discarded
+  invisibly. Version → `1.8.0`.
+
 ## 1.7.0 — OCR that installs anywhere (no OpenCV, no system libs)
 - **Replaced the OCR engine so a plain `pip install` works on any environment.** The previous
   rapidocr engine depended on `opencv-python`, whose `cv2` needs X11 system libraries

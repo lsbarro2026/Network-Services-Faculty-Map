@@ -619,7 +619,9 @@ preserved (id-preserving; rooms survive). A re-scan regenerates the thumbnail an
 `_rev` counter busts the image cache. The floor selector (`_floorButtons`) is a **button row**: in Location
 mode one button per `nbFloors` Location (click writes its `slug`→`token`, `name`→`label`),
 otherwise a floor-type fallback (`— none —`/Basement/Ground/Level 1..N/Roof) that sets
-`type`/`num`. `— none —` is offered in both modes; assigning two sheets the **same** Location
+`type`/`num`. While a drawing is still `unassigned`, the floor an OCR pass guessed
+(`a.ocrSuggest`) is rendered `.suggested` (a dashed outline) for a one-click confirm. `— none —`
+is offered in both modes; assigning two sheets the **same** Location
 groups them into one multi-sheet floor (same token). On entering Location mode,
 `_normalizeToLocations` marks any token-less drawing **`unassigned`** — a state distinct from a
 deliberate `— none —` (`type:'none'`): `unassigned` gates the build until a Location is picked,
@@ -655,12 +657,18 @@ floor Locations (`_loadFloors`), POSTs `{region}` to **`api/import/ocr-assign`**
 name/slug, pulling the code out of a longer caption (`'Third Basement Level (B3) Plan'`→`b3`,
 `'Level 2'`/`'L2'`/`'2'`/`'Second Floor'`→`l2`, `'Ground'`/`'G'`→`g`, `'Basement 1'`/`'B1'`→`b1`,
 `'Roof'`→`r`; spelled-out ordinals first–tenth are handled) and, in Location mode, a **unique** key match writes the Location's slug→`token`
-(else it's left for review); in fallback mode the key resolves to `type`/`num`. A result below
-`OCR_MIN_CONF` (0.5), unmatched, or ambiguous is left **`unassigned`** so the existing build
-gate forces the user to confirm it; already-`none`/already-`token` drawings are never
-clobbered. The mode then drops into the normal map step with a banner (`_autoBanner`) offering
-**Re-read region** (clears `_ocrRegion`) or **Switch to manual** — so the user can always fall
-back to hand assignment.
+(else it's left for review); in fallback mode the key resolves to `type`/`num`. `_applyOcr`
+stashes the raw read on **every** processed drawing (`a.ocrText`/`a.ocrConf`) so each card shows
+what was seen via a small read-out chip (`_ocrReadout`) — a non-auto-assigned drawing explains
+itself (the recognized text + confidence) instead of going blank. A result at/above
+`OCR_MIN_CONF` (0.5) that matches a floor is auto-applied; a parsed match **below** that
+confidence is **not discarded** — it's kept as `a.ocrSuggest` and the drawing stays
+**`unassigned`** (so the build gate still forces a confirm) while `_floorButtons` pre-highlights
+the guessed floor (`.suggested`, a dashed outline) for a one-click accept. A read that parses to
+nothing floor-like or matches no Location records `a.ocrReason` (`no floor matched`/`nothing
+read`) for the card; already-`none`/already-`token` drawings are never clobbered. The mode then
+drops into the normal map step with a banner (`_autoBanner`) offering **Re-read region** (clears
+`_ocrRegion`) or **Switch to manual** — so the user can always fall back to hand assignment.
 
 **Build** (`_buildActions`/`_build`): the **Build facility map** button is gated — it stays a
 disabled button + hint (never silently hidden) until every building's drawings are assigned
@@ -1305,10 +1313,14 @@ point at the deep treatment.
   filled in two ways: **manually** (the user clicks a floor per card) or **automatically** —
   the wizard's OCR pass (`api/import/ocr-assign` → `ocr.py`) reads the floor *code* off the
   **rendered image** of a user-marked region and the frontend matches it to a floor
-  (`_matchFloor`/`_floorKey`). Auto results below `OCR_MIN_CONF`, unmatched, or ambiguous are
-  left `unassigned` for the user to confirm — OCR **pre-fills**, the human still owns the final
-  assignment. Note this is OCR on the **raster**, not text extraction from the PDF (there is no
-  text layer to extract).
+  (`_matchFloor`/`_floorKey`). The raw read is shown on every card (`a.ocrText`/`a.ocrConf` →
+  `_ocrReadout`), so a drawing that *wasn't* auto-assigned shows **why** (what OCR saw and how
+  confidently) instead of a blank floor row. A parsed match below `OCR_MIN_CONF` is **not thrown
+  away** — it's kept as `a.ocrSuggest`, the drawing stays `unassigned` (the build gate still
+  forces a confirm), and `_floorButtons` pre-highlights the guess (`.suggested`) for a one-click
+  accept; truly unmatched/ambiguous reads stay `unassigned` with an `a.ocrReason`. OCR
+  **pre-fills**, the human still owns the final assignment. Note this is OCR on the **raster**,
+  not text extraction from the PDF (there is no text layer to extract).
 - **Two drawings sharing a floor token = one multi-page floor** (ordered by drawing
   number) — that is how stacked sheets of one floor group. In the wizard the *“same floor
   (extra sheet)”* control reuses the previous token; in the map it's just the same token.

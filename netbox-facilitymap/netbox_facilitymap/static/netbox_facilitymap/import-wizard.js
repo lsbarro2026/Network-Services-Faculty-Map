@@ -559,9 +559,12 @@ class ImportWizard {
 
   /** Map each OCR result to a floor and write confident matches into `b.assign[*]` (the same
    *  shape `_floorButtons` writes). A drawing already excluded (`type:'none'`) or already
-   *  assigned to a Location (`token`) is left untouched. Low-confidence / unmatched / ambiguous
-   *  drawings are marked `unassigned`, which the existing build gate forces the user to
-   *  confirm. Returns a small summary for the toast. */
+   *  assigned to a Location (`token`) is left untouched. The raw read (`ocrText`/`ocrConf`) is
+   *  stashed on every drawing so the card can show what was seen. A read that parses to a floor
+   *  but is below `OCR_MIN_CONF` isn't discarded — it's kept as `ocrSuggest`, leaving the
+   *  drawing `unassigned` (so the build gate still forces a confirm) while letting
+   *  `_floorButtons` pre-highlight the guess for a one-click accept. Returns a small summary for
+   *  the toast. */
   _applyOcr(results) {
     const byFolder = new Map(this.buildings.map(b => [b.folder, b]));
     let assigned = 0, review = 0, total = 0;
@@ -571,9 +574,16 @@ class ImportWizard {
       const a = b.assign[r.stem];
       if (a.type === 'none' || a.token) continue;   // siteplan excludes / already assigned
       total++;
-      const match = (r.confidence >= ImportWizard.OCR_MIN_CONF) ? this._matchFloor(b, r.text) : null;
-      if (match) { Object.assign(a, match); assigned++; }
-      else { a.token = null; a.label = ''; a.type = 'unassigned'; review++; }
+      a.ocrText = r.text; a.ocrConf = r.confidence; a.ocrSuggest = null; a.ocrReason = '';
+      const match = this._matchFloor(b, r.text);
+      if (match && r.confidence >= ImportWizard.OCR_MIN_CONF) {
+        Object.assign(a, match); assigned++;
+      } else {
+        a.token = null; a.label = ''; a.type = 'unassigned';
+        a.ocrSuggest = match;   // null when nothing floor-like was read / no Location matched
+        a.ocrReason = match ? 'low confidence' : (r.text ? 'no floor matched' : 'nothing read');
+        review++;
+      }
     }
     return { assigned, review, total };
   }
@@ -902,11 +912,13 @@ class ImportWizard {
     } else {
       thumb = Dom.el('div', { class: 'imp-thumb imp-nothumb' }, p.file);
     }
+    const readout = this._ocrReadout(a);
     const body = Dom.el('div', { class: 'imp-cardbody' }, [
       Dom.el('div', { class: 'imp-cardfile' }, [
         Dom.el('span', { class: 'imp-cardname' }, p.file),
         this._replaceControl(b, p),
       ]),
+      ...(readout ? [readout] : []),
       this._floorButtons(b, a),
     ]);
     // Flag a still-unassigned drawing so it stands out in the grid (and in the gated build hint).
@@ -948,21 +960,44 @@ class ImportWizard {
     } catch (e) { Toast.show('Replace failed: ' + e.message, true); }
   }
 
+  /** A small read-out of what the OCR pass saw for this drawing (automatic mode only), so a
+   *  drawing that wasn't auto-assigned shows *why* — the recognized text and its confidence —
+   *  instead of a blank floor row. Returns null when this drawing wasn't part of an OCR pass. */
+  _ocrReadout(a) {
+    if (a.ocrText === undefined) return null;
+    const pct = Math.round((a.ocrConf || 0) * 100);
+    return Dom.el('div', { class: 'imp-ocr' }, [
+      Dom.el('span', { class: 'imp-ocr-label' }, 'Read'),
+      Dom.el('span', { class: 'imp-ocr-text' }, a.ocrText ? '“' + a.ocrText + '”' : '(nothing)'),
+      Dom.el('span', { class: 'imp-ocr-conf' }, pct + '%'),
+    ]);
+  }
+
   /** Floor selector for one drawing, as a row of buttons. In Location mode (the building's
    *  bound site has floor Locations) it offers one button per Location — clicking writes the
    *  Location slug as the assignment token so the build's floor id equals the real
    *  `Location.slug`. Otherwise it falls back to the floor-type vocabulary
-   *  (none/basement/ground/level N/roof), preserving the old `<select>` semantics. */
+   *  (none/basement/ground/level N/roof), preserving the old `<select>` semantics. While a
+   *  drawing is still `unassigned`, the floor the OCR pass guessed (`ocrSuggest`) is shown
+   *  `suggested` so the user can confirm it in one click. */
   _floorButtons(b, a) {
     const row = Dom.el('div', { class: 'imp-floors' });
     if (b.nbFloors === 'loading') {
       row.append(Dom.el('span', { class: 'hint' }, 'Loading floors…'));
       return row;
     }
-    if (a.type === 'unassigned')
-      row.append(Dom.el('span', { class: 'imp-floor-warn' }, '⚠ pick a floor'));
-    const btn = (label, active, onClick) =>
-      Dom.el('button', { class: 'imp-floor' + (active ? ' active' : ''), onclick: onClick }, label);
+    // Only nudge toward the guess while the drawing is still unconfirmed; once the user picks a
+    // floor the suggestion styling drops away.
+    const sug = a.type === 'unassigned' ? a.ocrSuggest : null;
+    if (a.type === 'unassigned') {
+      const why = sug ? 'confirm the suggested floor'
+        : (a.ocrReason === 'no floor matched' || a.ocrReason === 'nothing read'
+          ? 'pick a floor (' + a.ocrReason + ')' : 'pick a floor');
+      row.append(Dom.el('span', { class: 'imp-floor-warn' }, '⚠ ' + why));
+    }
+    const btn = (label, active, onClick, suggested) =>
+      Dom.el('button', { class: 'imp-floor' + (active ? ' active' : '') + (suggested ? ' suggested' : ''),
+        onclick: onClick }, label);
     // "— none —" excludes a drawing from the floor set in either mode.
     row.append(btn('— none —', a.type === 'none' && !a.token, () => {
       a.token = null; a.label = ''; a.type = 'none'; this._stepMap();
@@ -971,16 +1006,17 @@ class ImportWizard {
       for (const loc of b.nbFloors)
         row.append(btn(loc.name, a.token === loc.slug, () => {
           a.token = loc.slug; a.label = loc.name; a.type = 'level'; this._stepMap();
-        }));
+        }, sug && sug.token === loc.slug));
     } else {
       const set = (type, num) => () => {
         a.token = null; a.label = ''; a.type = type; a.num = num; this._stepMap();
       };
-      row.append(btn('Basement', a.type === 'basement', set('basement', 1)));
-      row.append(btn('Ground', a.type === 'ground', set('ground', 1)));
+      const isSug = (type, num) => sug && !sug.token && sug.type === type && (num == null || sug.num === num);
+      row.append(btn('Basement', a.type === 'basement', set('basement', 1), isSug('basement')));
+      row.append(btn('Ground', a.type === 'ground', set('ground', 1), isSug('ground')));
       for (let i = 1; i <= b.pdfs.length; i++)
-        row.append(btn('Level ' + i, a.type === 'level' && a.num === i, set('level', i)));
-      row.append(btn('Roof', a.type === 'roof', set('roof', 1)));
+        row.append(btn('Level ' + i, a.type === 'level' && a.num === i, set('level', i), isSug('level', i)));
+      row.append(btn('Roof', a.type === 'roof', set('roof', 1), isSug('roof')));
     }
     return row;
   }
