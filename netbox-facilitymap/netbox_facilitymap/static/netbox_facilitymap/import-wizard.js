@@ -831,7 +831,7 @@ class ImportWizard {
     const markable = b.pdfs.some(p => b.assign[p.stem] && b.assign[p.stem].type !== 'none');
     if (markable)
       fields.push(Dom.el('button', { class: 'imp-auto',
-        onclick: () => this._stepRegionPick(b) }, 'Mark this building’s code'));
+        onclick: () => this._stepRegionPick(b) }, 'Set this building’s code region'));
     const head = Dom.el('div', { class: 'imp-bhead' }, fields);
     const grid = Dom.el('div', { class: 'imp-grid' });
     for (const p of b.pdfs) grid.append(this._pdfCard(b, p));

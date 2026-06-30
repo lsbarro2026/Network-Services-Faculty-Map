@@ -3,6 +3,14 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.13.0 — Clearer per-building code-region button label
+- **"Mark this building's code" → "Set this building's code region".** The per-building button
+  in `_buildingSection` that overrides the code-crop region (`building.codeRegion`) had an
+  unclear label — it didn't say *what* was being marked. It now reads **"Set this building's
+  code region"**, which is accurate whether it's the first region for a building (global pick
+  skipped) or an override of the global one. Label + docs only; behaviour unchanged (still
+  calls `_stepRegionPick(b)`). Version → `1.13.0`.
+
 ## 1.12.0 — Per-building code re-mark reachable without a global region
 - **"Mark this building's code" no longer requires a global region first.** The per-building
   code-crop override (`building.codeRegion`) was already supported, but its button in

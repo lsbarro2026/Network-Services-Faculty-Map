@@ -58,7 +58,7 @@ The plugin ships with **no facility content**; you build it from your drawings:
    **close-up crop of just that spot** of the drawing, so you can read off the floor and assign it
    at a glance. Clicking a card opens the **whole drawing** in a lightbox (the escape hatch for an
    outlier whose code sits outside the box). For a building whose title block sits elsewhere,
-   **Mark this building's code** overrides the crop region for just that building's cards. If the
+   **Set this building's code region** overrides the crop region for just that building's cards. If the
    code's position is too inconsistent to box, **Skip — show full drawings** falls back to
    full-drawing thumbnails. The crop is drawn entirely in the browser over the images the plugin
    already renders — no floor identity ever leaves your server. When a building's site has NetBox
