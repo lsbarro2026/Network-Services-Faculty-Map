@@ -438,14 +438,17 @@ else `null` → full `fit()`).
   and `_bindArrowDest` keep the full-length geometry), an `.arrow-head` triangle
   (`Geom.arrowHead`, fixed `ARROW_HEAD_PX` layout px so it scales with the map), and the
   optional note at the start. The note is a `.arrow-label` drawn by `_drawArrowLabel` via the
-  shared label engine (`_setLabelLines`/`attachLabel`): auto-placed just above `points[0]`, an
-  optional `labelStyle` overrides position/font/size/rotation/colour/text, and it is rendered
-  only when there is text (notes are optional). The selected arrow grows editable nodes via
+  shared label engine (`_setLabelLines`/`attachLabel`): auto-placed just above `points[0]`,
+  drawn **black** by default (not the arrow colour), and an optional `labelStyle` overrides
+  position/font/size/rotation/colour/text. It is rendered only when there is text — either the
+  arrow's `label` note or a display-only `labelStyle.text` (notes are optional). The selected
+  arrow grows editable nodes via
   `drawVertices(...,{closed:false,minPts:2})` — suppressed while its label is being edited
   (`editingLabel === _labelKey(arrow)`). `selectArrow`/`openArrowPanel`
-  (destination + note + `ARROW_COLORS` swatches + **Edit label** (when the note is non-empty,
-  → `editArrowLabel` → `editingLabel` + `openLabelPanel`, returning to the arrow panel on
-  Done) + delete)/`deleteArrow`; `handleKey` exits label-edit (Esc → arrow panel) then deletes
+  (destination + note + `ARROW_COLORS` swatches + **Edit label** (always shown, even for a
+  note-less arrow — a display-only label can be set via `labelStyle.text`; → `editArrowLabel`
+  → `editingLabel` + `openLabelPanel`, returning to the arrow panel on Done) + delete)/
+  `deleteArrow`; `handleKey` exits label-edit (Esc → arrow panel) then deletes
   (Delete/Backspace) or deselects (Esc) `selectedArrow` in edit mode. `deleteArrow`/
   `onPanelClosed` also clear `editingLabel`. The base
   `beginDraw` is overridden to also clear `selectedArrow`. View-mode arrows are inert

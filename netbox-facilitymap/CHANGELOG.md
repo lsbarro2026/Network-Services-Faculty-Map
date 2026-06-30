@@ -3,6 +3,16 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.26.0 — Arrow label tweaks: always-available "Edit label", black default text
+- **"Edit label" is now always shown on the route-arrow panel**, even for a freshly-drawn,
+  note-less arrow. Previously the button only appeared once the arrow already had a note, so you
+  had to click away and reselect the arrow before you could style its label. A note-less arrow can
+  now carry a **display-only** label (set via the label panel's text field), matching how room and
+  rack/device labels already behave.
+- **Route-arrow note text now defaults to black** instead of inheriting the arrow's colour, so a
+  new note reads clearly against the floor image. Picking a colour in the label style panel still
+  overrides it; the arrow's line and arrowhead are unaffected.
+
 ## 1.25.0 — In-app plugin settings page + configurable room-embed zoom
 - **New Settings page** at NetBox → Plugins → Facility Map → **Settings** — an in-app, DB-backed
   settings form (no redeploy/worker restart needed). Editing is gated on

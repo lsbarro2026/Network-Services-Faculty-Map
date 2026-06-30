@@ -647,7 +647,7 @@ class FloorEditor extends Editor {
       head.style.fill = color; head.style.pointerEvents = 'none';
       s.append(head);
 
-      this._drawArrowLabel(s, a, color, W, H);
+      this._drawArrowLabel(s, a, W, H);
 
       // Suppress the editable nodes while this arrow's label is being moved/styled.
       if (editing && a === this.selectedArrow && this.editingLabel !== this._labelKey(a))
@@ -661,7 +661,7 @@ class FloorEditor extends Editor {
    *  `labelStyle` (x/y/rot/size/font/colour/text) overrides. Rendered only when there
    *  is text (notes are optional). While this arrow's label is being edited it gains
    *  move/rotate/resize handles (keyed by the arrow id). */
-  _drawArrowLabel(s, a, color, W, H) {
+  _drawArrowLabel(s, a, W, H) {
     const ls = a.labelStyle || {};
     if (!((ls.text != null && ls.text !== '') || a.label)) return;
     const [sx, sy] = a.points[0];
@@ -670,7 +670,7 @@ class FloorEditor extends Editor {
     const lcy = ls.y != null ? ls.y : sy - (sizePx * 0.7 + 4) / H;   // just above the start
     const t = Dom.svg('text', { class: 'arrow-label', 'text-anchor': 'middle', 'dominant-baseline': 'central' });
     t.style.fontSize = sizePx + 'px';
-    t.style.fill = color;   // default = arrow colour; attachLabel overrides if labelStyle.color
+    t.style.fill = '#000';   // default = black; attachLabel overrides if labelStyle.color
     this._setLabelLines(t, (ls.text != null ? ls.text : a.label).split('\n'));
     this.attachLabel(s, a, t, lcx, lcy, sizePx, W, H);
   }
@@ -701,9 +701,10 @@ class FloorEditor extends Editor {
     }));
     body.append(Dom.el('div', { class: 'field' }, [Dom.el('label', {}, 'Colour'), swatches]));
 
-    if (arrow.label)
-      body.append(Dom.el('button', { class: 'wide', onclick: () => this.editArrowLabel(arrow),
-        html: Icons.edit + '<span>Edit label</span>' }));
+    // Always offered: even a note-less arrow can carry a display-only label via
+    // labelStyle.text (openLabelPanel), matching how rooms/placements behave.
+    body.append(Dom.el('button', { class: 'wide', onclick: () => this.editArrowLabel(arrow),
+      html: Icons.edit + '<span>Edit label</span>' }));
 
     body.append(Dom.el('div', { class: 'hint' },
       'Drag a node to bend · midpoint adds a turn · right-click removes.'));
