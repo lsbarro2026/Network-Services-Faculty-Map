@@ -3,6 +3,19 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.23.1 — Fix phantom "Roof /" / "Ground /" prefix on floor-card labels
+- **Floor cards no longer get a spurious "Roof / " (or "Ground / ") prefix.** A floor mapped to
+  a NetBox Location (the wizard's Location mode) uses that Location's **slug** as its floor
+  token. `floor_label()` expanded a token by scanning it for loose single `g`/`r` letters, so a
+  slug like `triumf-b2` matched the `r` in "t**r**iumf" and rendered as "Roof / Basement 2".
+- **The compact-code parse is now anchored to the whole token.** Only a token that is *entirely*
+  a well-formed compact floor code (`b3`, `g`, `l1`, `r`, or a `gl1` compound) is expanded
+  segment-by-segment; everything else — notably a Location slug — is title-cased as-is
+  (`basement-2` → "Basement 2", `triumf-b2` → "Triumf B2"). Correct compact tokens are
+  unchanged.
+- **Heads up:** `manifest.json` labels are a build artifact. Existing facilities keep their old
+  labels until re-`build`'d (in-app ImportWizard **Build**, or `preprocess.py build`).
+
 ## 1.23.0 — Dashboard widget is a clean map preview, with opt-in pan/zoom & building list
 - **The Facility Map dashboard widget now shows only the map, fitted to fill the card.** Its
   iframe always loads `?embed=1`: all chrome is hidden (toolbar, breadcrumbs, side panel), the map

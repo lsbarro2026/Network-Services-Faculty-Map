@@ -573,7 +573,12 @@ building in **Location mode**: each PDF's per-stem `assign` entry gains a `token
 slug) + `label` (its name), and a non-null `token` takes precedence over `type`/`num` in
 `_resolveFloors`. In Location mode the **floor prefix (`abbr`) is forced empty** on build (and
 its field hidden), because the floor id is `abbr + token` (preprocess) and must equal the real
-`Location.slug` for `NbRoomsView` to match it. In the floor-type **fallback** mode (no bound
+`Location.slug` for `NbRoomsView` to match it. The floor **label** is derived from the token by
+`Preprocessor.floor_label`: it expands a token *only* when the whole token is a well-formed
+compact floor code (`b3`, `g`, `l1`, `r`, or a `gl1` compound) and otherwise title-cases the
+token as-is — a Location slug `basement-2` → "Basement 2". It must not scan a token for loose
+`g`/`r` letters (that wrongly turned a slug like `triumf-b2` into "Roof / Basement 2").
+In the floor-type **fallback** mode (no bound
 Locations) the building head instead shows the `abbr` field plus a **"Number floors 1…N"**
 button (`_autoNumber`): a bulk shortcut that assigns each PDF a sequential
 `{type:'level', num:i+1}` in drawing order, then re-renders. It is hidden in Location mode,

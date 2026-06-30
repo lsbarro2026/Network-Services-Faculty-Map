@@ -124,21 +124,31 @@ class Preprocessor:
     # ---- floor labels ----
     @staticmethod
     def floor_label(token):
-        """Floor token -> human label: 'b3' -> 'Basement 3', 'gl1' -> 'Ground /
-        Level 1', 'g' -> 'Ground', 'r' -> 'Roof'."""
+        """Floor token -> human label. A compact floor code from the wizard's
+        floor-type mode is expanded segment-by-segment: 'b3' -> 'Basement 3',
+        'gl1' -> 'Ground / Level 1', 'g' -> 'Ground', 'r' -> 'Roof'. Any other token
+        — notably a NetBox Location slug from the wizard's Location mode — is
+        title-cased as-is ('basement-2' -> 'Basement 2'). The compact parse is
+        anchored to the WHOLE token; it is no longer scanned for loose 'g'/'r'
+        letters, which used to emit phantom 'Ground'/'Roof' segments (a slug like
+        'triumf-b2' wrongly became 'Roof / Basement 2')."""
+        seg = r"gl\d+|b\d+|l\d+|g|r"
+        t = token.lower()
+        if not re.fullmatch(r"(?:%s)+" % seg, t):
+            return token.replace("-", " ").replace("_", " ").title() or token.upper()
         names = []
-        for t in re.findall(r"gl\d+|b\d+|l\d+|g|r", token.lower()):
-            if t == "g":
+        for m in re.findall(seg, t):
+            if m == "g":
                 names.append("Ground")
-            elif t == "r":
+            elif m == "r":
                 names.append("Roof")
-            elif t.startswith("gl"):
-                names += ["Ground", "Level " + t[2:]]
-            elif t.startswith("b"):
-                names.append("Basement " + t[1:])
-            elif t.startswith("l"):
-                names.append("Level " + t[1:])
-        return " / ".join(names) if names else token.upper()
+            elif m.startswith("gl"):
+                names += ["Ground", "Level " + m[2:]]
+            elif m.startswith("b"):
+                names.append("Basement " + m[1:])
+            elif m.startswith("l"):
+                names.append("Level " + m[1:])
+        return " / ".join(names)
 
     # ---- drawing discovery ----
     @staticmethod
