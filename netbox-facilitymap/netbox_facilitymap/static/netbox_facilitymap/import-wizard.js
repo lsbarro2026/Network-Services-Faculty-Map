@@ -90,14 +90,87 @@ class ImportWizard {
         this.inv = inv;
         this._modelFromInventory();
         await this._applyDraft();
-        // Resume straight to floor mapping only when every building is already bound to a
-        // NetBox site (from the restored draft); otherwise revisit the binding step.
-        if (this._allBuildingsBound()) { this._autoMapDone = true; this._stepMap(); }
+        // Re-editing an already-built facility: land on the non-linear edit hub so the user can
+        // jump straight to the one piece they want to revise. A fresh, not-yet-built import keeps
+        // the linear resume — floor mapping when every building is already bound (from the
+        // restored draft), otherwise the binding step.
+        if (this.app.store.hasContent()) { this._autoMapDone = true; this._stepHub(); }
+        else if (this._allBuildingsBound()) { this._autoMapDone = true; this._stepMap(); }
         else this._stepBuildings();
         return;
       }
     } catch (_) { /* no uploads or scan unavailable */ }
     this._stepUpload();
+  }
+
+  /** The non-linear edit hub — the landing when re-editing an already-built facility (see
+   *  `show()`). Instead of forcing the linear upload→bind→map→build walk, it lists each piece
+   *  assigned during import with its current value inline and a direct affordance that jumps to
+   *  the matching existing step. Every jump routes through the draft-backed step methods (each
+   *  saves the draft and returns to the map), so nothing here writes or rebuilds — the destructive
+   *  rebuild stays an explicit action on the map step. */
+  _stepHub() {
+    const view = this._stage('Edit import');
+    view.append(Dom.el('p', { class: 'hint' },
+      'Jump straight to the piece you want to change. Each edit returns to the map, where you '
+      + 'rebuild the facility once everything looks right.'));
+
+    // Site-wide pieces (the rarer edits): the chosen site plan and the global drawing-code crop.
+    const siteplanLabel = this.site.file ? (this.site.folder + ' / ' + this.site.file) : '— none —';
+    view.append(Dom.el('section', { class: 'imp-bind imp-hub-row' }, [
+      Dom.el('div', { class: 'imp-bind-head' }, [
+        Dom.el('div', { class: 'imp-bind-folder' }, 'Site plan'),
+        Dom.el('span', { class: 'imp-hub-meta' }, siteplanLabel),
+      ]),
+      Dom.el('div', { class: 'imp-hub-acts' }, [
+        Dom.el('button', { onclick: () => this._stepSiteplan() }, 'Edit site plan'),
+        Dom.el('button', { onclick: () => this._stepRegionPick() }, 'Edit drawing-code crop'),
+      ]),
+    ]));
+
+    // Per-building pieces (the common edits): bound NetBox site + floor assignment. The carousel
+    // set (`_mappableBuildings`) is exactly the buildings the map/bind steps page over, so the hub
+    // degrades the same way the linear steps do for a siteplan-only import — an empty list leaves
+    // just the site-plan row above.
+    const buildings = this._mappableBuildings();
+    for (let i = 0; i < buildings.length; i++) {
+      const b = buildings[i], idx = i;
+      const drawings = b.pdfs.filter(p => b.assign[p.stem].type !== 'none');
+      const unassigned = drawings.filter(p => b.assign[p.stem].type === 'unassigned').length;
+
+      const state = b.nbSite
+        ? Dom.el('span', { class: 'imp-bind-ok' }, '✓ ' + b.nbSite.name + ' (' + b.nbSite.slug + ')')
+        : Dom.el('span', { class: 'imp-bind-warn' }, '⚠ not bound to a NetBox site');
+      const floors = Dom.el('span', { class: 'imp-hub-meta' + (unassigned ? ' warn' : '') },
+        drawings.length + (drawings.length === 1 ? ' drawing' : ' drawings')
+        + (unassigned ? ' · ' + unassigned + ' unassigned' : ''));
+
+      const acts = [];
+      if (b.nbSite) {
+        acts.push(Dom.el('button', { class: 'primary', onclick: async () => {
+          this._bIdx = idx; await this._saveDraft(); this._stepMap();
+        } }, 'Edit floors →'));
+        acts.push(Dom.el('button', { onclick: () => this._stepBuildings(b) }, 'Edit site'));
+        acts.push(Dom.el('button', { onclick: () => this._stepRegionPick(b) }, 'Code crop'));
+      } else {
+        // Floor mapping needs the building bound first (its NetBox floor Locations are fetched by
+        // slug), so route to the bind step rather than landing the user in a broken floor step.
+        acts.push(Dom.el('button', { class: 'primary', onclick: () => this._stepBuildings(b) },
+          'Bind site →'));
+      }
+
+      view.append(Dom.el('section', { class: 'imp-bind imp-hub-row' }, [
+        Dom.el('div', { class: 'imp-bind-head' }, [
+          Dom.el('div', { class: 'imp-bind-folder' }, b.name || b.folder), state, floors,
+        ]),
+        Dom.el('div', { class: 'imp-hub-acts' }, acts),
+      ]));
+    }
+
+    view.append(Dom.el('div', { class: 'imp-actions' }, [
+      Dom.el('button', { class: 'primary', onclick: () => this._stepMap() }, 'Review & build →'),
+      Dom.el('button', { onclick: () => this._addDrawings() }, '+ Add drawings'),
+    ]));
   }
 
   // ---- step 1: upload ----
@@ -349,7 +422,10 @@ class ImportWizard {
     }
   }
 
-  async _stepBuildings() {
+  /** Bind every floor-contributing building to a NetBox site. When the edit hub jumps here to fix
+   *  one building, `focusBuilding` scrolls that bind row into view and highlights it, so the user
+   *  lands on the row they came to change instead of the top of the list. */
+  async _stepBuildings(focusBuilding) {
     const buildings = this._floorBuildings();
     if (!buildings.length) return this._stepMap();   // siteplan-only import — nothing to bind
 
@@ -359,10 +435,16 @@ class ImportWizard {
     if (!this._autoMapDone) {
       view.append(Dom.el('p', { class: 'imp-progress' }, 'Matching buildings to NetBox…'));
       await this._autoMapBuildings();
-      return this._stepBuildings();   // re-render with the auto-match results
+      return this._stepBuildings(focusBuilding);   // re-render with the auto-match results
     }
 
-    for (const b of buildings) view.append(this._bindRow(b));
+    let focusRow = null;
+    for (const b of buildings) {
+      const row = this._bindRow(b);
+      if (b === focusBuilding) { row.classList.add('focus'); focusRow = row; }
+      view.append(row);
+    }
+    if (focusRow) focusRow.scrollIntoView({ block: 'center' });
 
     const bound = this._allBuildingsBound();
     const cont = Dom.el('button', { class: 'primary',

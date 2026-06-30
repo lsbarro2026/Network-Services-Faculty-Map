@@ -504,6 +504,13 @@ button.wide { width: 100%; margin-bottom: 6px; justify-content: center; }
   max-height: 220px; overflow-y: auto; }
 .imp-actions { display: flex; gap: 10px; margin-top: 8px; align-items: center; }
 .imp-spinner { padding: 30px; text-align: center; color: var(--text2); font-size: 14px; }
+/* Edit hub: one row per importable piece (reuses the .imp-bind card chrome), with its current
+   value shown inline and a direct "edit" affordance that jumps to the matching step. A focused
+   bind row (.imp-bind.focus) is highlighted when the hub jumps straight to one building. */
+.imp-hub-meta { font-size: 12.5px; color: var(--text2); }
+.imp-hub-meta.warn { color: var(--warn); font-weight: 600; }
+.imp-hub-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.imp-bind.focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 /* Code-region pick: drag a box over the identifying code on a sample drawing. The viewport
    scrolls (scroll to pan) and the −/Fit/+ bar widens the canvas to zoom. */
 .imp-region-zoom { display: flex; gap: 6px; align-items: center; margin: 6px 0 8px; }

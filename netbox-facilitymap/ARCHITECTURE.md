@@ -593,11 +593,30 @@ button (`_autoNumber`): a bulk shortcut that assigns each PDF a sequential
 where the floor id comes from the Location slug rather than `type`/`num`.
 
 **Smart resume** — `show()` is async: on open it POSTs `/api/import/scan`; if uploads already
-exist (`folders.length > 0`) it calls `_modelFromInventory()` + `_applyDraft()`, then jumps
-straight to `_stepMap()` **only when every floor-contributing building is already bound**
-(`_allBuildingsBound()`), otherwise back to `_stepBuildings()`. If no uploads are found it
+exist (`folders.length > 0`) it calls `_modelFromInventory()` + `_applyDraft()`, then routes by
+state: when the facility has already been **built** (`app.store.hasContent()`) it lands on the
+non-linear **edit hub** (`_stepHub()`, below) so re-editing isn't a forced page-through;
+otherwise — a fresh, not-yet-built import — it keeps the linear resume, jumping straight to
+`_stepMap()` **only when every floor-contributing building is already bound**
+(`_allBuildingsBound()`) and otherwise back to `_stepBuildings()`. If no uploads are found it
 falls through to `_stepUpload()`. The brief "Checking for existing uploads…" state is shown
 while the scan runs.
+
+**Edit hub** (`_stepHub`) — the landing for re-editing a built facility (reached via the
+Settings page's "Edit buildings & floors" button → `/import` → `show()`; no new route or
+endpoint). Rather than the linear walk it lists each piece assigned during import with its
+current value inline and a direct affordance that **jumps to the matching existing step**: a
+site-plan row → `_stepSiteplan()` and a global drawing-code-crop row → `_stepRegionPick()`,
+then one row per `_mappableBuildings()` building showing its bound site + a drawing/unassigned
+count, with **"Edit floors →"** (sets `_bIdx` to that building's carousel index, `_saveDraft()`,
+`_stepMap()`), **"Edit site"** → `_stepBuildings(b)` and **"Code crop"** → `_stepRegionPick(b)`.
+An **unbound** building shows **"Bind site →"** (`_stepBuildings(b)`) instead, since floor
+mapping needs the NetBox slug first. The footer has **"Review & build →"** (`_stepMap()`, where
+the gated Build button lives) and **"+ Add drawings"** (`_addDrawings()`). The hub itself never
+writes or rebuilds — every jump routes through the draft-backed step methods (each `_saveDraft()`s
+and returns to the map), so the destructive rebuild stays the explicit Build action. The step
+methods are thus reachable **non-linearly**; `_stepBuildings(focusBuilding)` takes an optional
+building it scrolls into view and highlights (`.imp-bind.focus`) when the hub jumps to one.
 
 **Map buildings to NetBox** (`_stepBuildings`): runs after the scan, before drawing→floor
 mapping. `_autoMapBuildings()` runs once per scan (guarded by `_autoMapDone`): for each

@@ -3,6 +3,23 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.31.0 — Import edit hub: jump straight to any import-phase assignment
+- **Re-editing an imported facility now lands on a non-linear "edit hub"** instead of forcing the
+  linear upload→bind→map→build walk. When a facility has already been built, re-opening the import
+  flow (the Settings page's "Edit buildings & floors" button) shows `_stepHub()`: a flat list of
+  every piece assigned during import — the site plan, the global drawing-code crop, and one row per
+  building showing its bound NetBox site and a drawing/unassigned count — each with a direct
+  affordance that jumps to the matching step. Optimised for "I need to fix one specific thing,
+  fast": "Edit floors →" lands on that building's floor step, "Edit site" / "Bind site →" on its
+  bind row (scrolled into view), "Code crop" on its per-building region override.
+- **Fresh, not-yet-built imports are unchanged** — they keep the linear resume (bind → map →
+  build). The hub only writes through the existing draft-backed step methods, so no rebuild happens
+  on navigation; the destructive Build stays an explicit action reached via "Review & build →".
+- Frontend-only (`import-wizard.js` + `style.css`): a new `_stepHub()`, a `show()` branch on
+  `app.store.hasContent()`, and an optional `focusBuilding` argument to `_stepBuildings()` that
+  scrolls/highlights one bind row. No new route, endpoint, or backend change — **re-run
+  `collectstatic`** so the updated assets are served.
+
 ## 1.30.0 — Opt-in plugin-scoped backups (rotate + restore)
 - **New `facilitymap_backup` / `facilitymap_restore` management commands.** A self-contained
   backup of just the plugin's data — the `FacilityMapBlob` + `Room` rows (a Django-serialized
