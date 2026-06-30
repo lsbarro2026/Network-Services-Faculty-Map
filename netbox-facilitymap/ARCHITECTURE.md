@@ -82,6 +82,7 @@ netbox-facilitymap/
     imports.py              # NEW: PDF import pipeline (Upload/Scan/Build/Reset) + Manifest/Media serving
     preprocess.py           # NEW here: render engine (Preprocessor; scan|build|preview) — run as a SUBPROCESS
     ocr.py                  # OCR engine (FloorCodeReader; reads floor codes off rendered PNGs) — run as a SUBPROCESS
+    models/rec.onnx         # vendored PP-OCRv4 recognition model (Apache-2.0) used by ocr.py — offline, no OpenCV
     storage.py              # NEW: work_dir() / safe_path() / media_url() (working-dir + traversal guard)
     models.py               # FacilityMapBlob (editor JSON) + Room (NetBoxModel: room polygon → Location)
     template_content.py     # FloorRooms PluginTemplateExtension: rooms panel on the Location page
@@ -919,21 +920,31 @@ The floor PDFs have **no text layer** (every label is vectorized), so a PDF's fl
 Reads the floor code off rendered drawings for the wizard's **automatic** floor assignment.
 A **sibling of `preprocess.py`** with the same isolation contract: invoked as a standalone
 subprocess by `imports.py` (`_run_ocr` → `_run_script('ocr.py', 'ocr', …)`, by file path),
-under the same timeout + POSIX rlimits, and it **never imports Django/NetBox**. It is stdlib +
-`Pillow` + **`rapidocr-onnxruntime`** only — the OCR models ship inside that wheel, so
-recognition is **fully offline** (no network, no system binary). Crucially it reads **only
-already-rendered, trusted PNGs** (the `.thumbs/*.full.png` previews) and **never opens a PDF**,
-so it adds no new untrusted-input parse path — PDF rasterization stays solely in
-`preprocess.py`.
+under the same timeout + POSIX rlimits (the OCR child gets its own `ocr_mem_mb` budget — onnxruntime
+reserves a large virtual-address space a render-sized `RLIMIT_AS` would kill), and it **never
+imports Django/NetBox**. It is stdlib + `Pillow` + `numpy` + `onnxruntime` only, running a
+**PP-OCRv4 text-recognition** ONNX model **vendored under `models/rec.onnx`** (Apache-2.0; charset
+embedded in the model's `character` metadata). Recognition is **fully offline** (model in the
+wheel) and uses **no OpenCV** — deliberately, since OpenCV's desktop build needs X11 system libs
+that headless servers lack; all preprocessing is `numpy`/`Pillow`, and onnxruntime's wheels depend
+only on base libc/libstdc++. Crucially it reads **only already-rendered, trusted PNGs** (the
+`.thumbs/*.full.png` previews) and **never opens a PDF**, so it adds no new untrusted-input parse
+path — PDF rasterization stays solely in `preprocess.py`.
 - **Input:** `--base <workdir> --job <ocr-job.json>`. The job is
   `{region:{x,y,w,h} (0..1), images:[{folder,stem,image:<rel PNG>}]}`.
-- **Work:** load the engine **once** (model init is the cost), then per image crop to the
-  normalized region (`round(x·W)…`), upscale tiny crops (`MIN_CROP_PX`/`UPSCALE_TO`) so small
-  codes stay legible, OCR the crop (PNG bytes, no numpy import), and collapse to
-  `(text, confidence=min box score)`. A missing/unreadable image or empty region degrades to
-  `("", 0.0)` so one bad PNG never sinks the batch.
+- **Work:** load the recognizer **once** (`_Recognizer`, model init is the cost), then per image
+  crop to the normalized region (`round(x·W)…`), upscale tiny crops (`MIN_CROP_PX`/`UPSCALE_TO`) so
+  small codes stay legible, **split the crop into text lines** by numpy horizontal ink projection
+  (`_split_lines` — recognition is single-line, so a multi-line box must be cut), recognize each
+  line (`resize_norm_img`→net→CTC greedy decode, mirroring PaddleOCR; fullwidth glyphs folded to
+  ASCII), then join the lines into `(text, confidence=mean kept-char prob)`. A
+  missing/unreadable image or empty region degrades to `("", 0.0)` so one bad PNG never sinks the
+  batch. Because the user already boxes the code, there is **no detection model** (that's the part
+  that needs OpenCV).
 - **Output:** `{results:[{folder,stem,text,confidence}]}` to stdout. Library chatter is kept
-  off stdout (it carries only the JSON) by redirecting `sys.stdout`→stderr during OCR.
+  off stdout (it carries only the JSON) by redirecting `sys.stdout`→stderr during OCR. If the deps
+  or the model are missing it exits with a message naming the real cause (surfaced to the user via
+  the 500 body).
 
 ### storage.py — working dir + path safety
 The import pipeline needs a **writable** directory (the package `static/` tree is
@@ -1318,11 +1329,12 @@ point at the deep treatment.
   progress on **stderr**, or the parse breaks); `build` reads `import-map.json` and writes
   `manifest.json` (buildings with zero floors are dropped).
 - **OCR is a separate subprocess with the same isolation:** `_run_ocr` spawns the **sibling**
-  `ocr.py` (also by file path, same timeout/rlimits) — but it imports `rapidocr-onnxruntime`
-  (bundled offline models) instead of pypdfium2, and reads **only already-rendered, trusted
-  PNGs**, never a PDF. Keep these two clean: `preprocess.py` stays stdlib + pypdfium2/Pillow
-  (the untrusted-PDF parser), `ocr.py` stays stdlib + Pillow + rapidocr (no PDF parsing). The
-  OCR engine must never move into the NetBox worker, and it must never grow a PDF-open path —
+  `ocr.py` (also by file path, same timeout/rlimits) — but it imports `onnxruntime`/`numpy` and a
+  **vendored PP-OCRv4 recognition model** (`models/rec.onnx`, bundled offline) instead of
+  pypdfium2, and reads **only already-rendered, trusted PNGs**, never a PDF. Keep these two clean:
+  `preprocess.py` stays stdlib + pypdfium2/Pillow (the untrusted-PDF parser), `ocr.py` stays stdlib
+  + Pillow + numpy + onnxruntime (no PDF parsing, **no OpenCV** — its X11 deps break headless
+  boxes). The OCR engine must never move into the NetBox worker, and it must never grow a PDF-open path —
   that would breach the isolation `ocr.py` exists to preserve. `ocr-assign` is **lock-free**
   (read-only over PNGs). `ocr.py` prints its results JSON to **stdout** (it redirects any
   library chatter to stderr to keep that channel clean).

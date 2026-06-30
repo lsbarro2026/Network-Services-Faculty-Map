@@ -187,7 +187,7 @@ class FacilityMapConfig(PluginConfig):
     name = 'netbox_facilitymap'
     verbose_name = 'Facility Map'
     description = 'Navigable siteplan → building → floor → room map linked to Locations'
-    version = '1.6.1'              # keep in lockstep with pyproject.toml; see CHANGELOG
+    version = '1.7.0'              # keep in lockstep with pyproject.toml; see CHANGELOG
     author = 'Facility Map'
     base_url = 'facilitymap'
     min_version = '4.1.7'     # pinned to the tested range; NetBox enforces at load
@@ -259,7 +259,7 @@ name = "netbox-facilitymap"
 version = "1.5.0"
 description = "Facility map plugin for NetBox"
 requires-python = ">=3.10"
-dependencies = ["pypdfium2", "Pillow", "rapidocr-onnxruntime"]   # PDF render + offline OCR; Django/DRF from NetBox
+dependencies = ["pypdfium2", "Pillow", "onnxruntime", "numpy"]   # PDF render + offline OCR (no OpenCV); Django/DRF from NetBox
 readme = "README.md"
 license = { text = "MIT" }
 
@@ -277,13 +277,17 @@ recursive-include netbox_facilitymap/static *
 ```
 
 **Key packaging rules**
-- **Runtime deps are `pypdfium2` + `Pillow` + `rapidocr-onnxruntime`** (the PDF render engine
+- **Runtime deps are `pypdfium2` + `Pillow` + `onnxruntime` + `numpy`** (the PDF render engine
   and the offline OCR engine, §7). NetBox supplies Django/DRF. `pypdfium2` bundles PDFium as a
-  self-contained wheel (no system Ghostscript/poppler); `rapidocr-onnxruntime` bundles its OCR
-  models inside the wheel, so floor-code recognition is **fully offline** (no network, no
-  system binary like Tesseract). Both are loaded only by their respective **subprocesses**
-  (`preprocess.py` / `ocr.py`), never the NetBox worker, so the native-code surface stays out
-  of the long-lived process.
+  self-contained wheel (no system Ghostscript/poppler); OCR runs a **vendored PP-OCRv4
+  recognition model** (`models/rec.onnx`, Apache-2.0) on `onnxruntime`, so floor-code recognition
+  is **fully offline** (model in the wheel — no network, no system binary like Tesseract).
+  **Deliberately no OpenCV:** its desktop build needs X11 system libs (`libGL`/`libxcb`) that
+  headless servers lack, so the previous rapidocr engine failed to import on a bare box;
+  `onnxruntime` wheels depend only on base libc/libstdc++, and all image preprocessing is
+  `numpy`/`Pillow`, so a plain `pip install` works on any environment. Both native engines load
+  only in their respective **subprocesses** (`preprocess.py` / `ocr.py`), never the NetBox worker,
+  so the native-code surface stays out of the long-lived process.
 - **Ship the static + template files**, not just `.py` — that is what `package-data` /
   `MANIFEST.in` guarantee. The plugin ships with **no facility content**: floor images +
   `manifest.json` are rendered at runtime under `MEDIA_ROOT` (§7), not packaged.
@@ -360,10 +364,10 @@ NetBox-importing `__init__` never loads into the child), with `timeout=render_ti
 a POSIX `preexec_fn` setting `RLIMIT_CPU` + `RLIMIT_AS`. Two children share
 this isolation: `preprocess.py` (`_run_preprocess`) stays stdlib + `pypdfium2`/`Pillow` only
 and only rasterizes page 1 — no PDF text/JS/embedded content is executed; `ocr.py`
-(`_run_ocr`) stays stdlib + `Pillow` + `rapidocr-onnxruntime` and reads **only
-already-rendered PNGs**, never a PDF, so adding OCR introduces **no new untrusted-input parse
-path** (PDF parsing stays solely in `preprocess.py`, the OCR models are bundled and run
-offline). The two children get **different memory caps**: the render child is held to
+(`_run_ocr`) stays stdlib + `Pillow` + `numpy` + `onnxruntime` (a **vendored PP-OCRv4 recognition
+model**, no OpenCV) and reads **only already-rendered PNGs**, never a PDF, so adding OCR introduces
+**no new untrusted-input parse path** (PDF parsing stays solely in `preprocess.py`, the OCR model
+is bundled and runs offline). The two children get **different memory caps**: the render child is held to
 `render_mem_mb` (the tight cap that contains a malicious PDF parser), but the OCR child — which
 touches only trusted PNGs — gets `ocr_mem_mb` (default `0` = no `RLIMIT_AS`), because
 onnxruntime reserves a large virtual-address space that a render-sized `RLIMIT_AS` would kill;
@@ -456,8 +460,8 @@ Hash routing (`app.js router()`) is already prefix-agnostic — no change.
    no system Ghostscript/poppler). Residual risk is a PDFium CVE inside the sandboxed child;
    keep `pypdfium2` patched. **OCR (`ocr.py`) does not widen this surface:** it runs in its own
    isolated subprocess over the **already-rendered, trusted PNGs** and never opens a PDF, and
-   its `rapidocr-onnxruntime` models are bundled (no network), so it parses no untrusted input
-   and reaches nothing offline. Large facilities also produce many PNGs under `MEDIA_ROOT` —
+   its vendored PP-OCRv4 model is bundled (no network, no OpenCV), so it parses no untrusted input
+   and reaches nothing online. Large facilities also produce many PNGs under `MEDIA_ROOT` —
    served on-demand by `MediaView`, so no `collectstatic` bloat, but watch disk.
    `.zip` uploads are unpacked in the worker (only PDF *rendering* stays in the subprocess);
    the zip-bomb / traversal surface that adds is bounded by streamed size caps

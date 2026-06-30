@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netbox-facilitymap"
-version = "1.6.1"
+version = "1.7.0"
 description = "Facility map plugin for NetBox — siteplan → building → floor → room, linked to Locations"
 requires-python = ">=3.10"
 readme = "README.md"
@@ -16,18 +16,22 @@ authors = [{ name = "Facility Map" }]
 # this native code never loads into a long-lived NetBox worker; these are still declared
 # runtime deps because the subprocess shares the NetBox virtualenv.
 #
-# rapidocr-onnxruntime reads the floor code off rendered drawings for the import wizard's
-# automatic floor assignment. Its OCR models ship inside the wheel, so recognition is fully
-# offline (no system binary, no network). Like pypdfium2 it runs only in an isolated
-# subprocess (`ocr.py`), never in the NetBox worker, and only over already-rendered PNGs.
+# `ocr.py` reads the floor code off rendered drawings for the import wizard's automatic floor
+# assignment, using a PP-OCRv4 recognition model (Apache-2.0, vendored under `models/`) run on
+# `onnxruntime` with `numpy`/`Pillow` preprocessing — deliberately NOT OpenCV, whose desktop
+# build needs X11 system libs absent on headless servers. onnxruntime's wheels are self-contained
+# (only base libc/libstdc++), so a plain `pip install` works on any environment with no system
+# packages and no network (the model ships in the wheel). Like pypdfium2 it runs only in an
+# isolated subprocess (`ocr.py`), never in the NetBox worker, and only over already-rendered PNGs.
 dependencies = [
     "pypdfium2",
     "Pillow",
-    "rapidocr-onnxruntime",
+    "onnxruntime",
+    "numpy",
 ]
 
 [tool.setuptools.packages.find]
 include = ["netbox_facilitymap*"]
 
 [tool.setuptools.package-data]
-netbox_facilitymap = ["templates/**/*", "static/**/*"]
+netbox_facilitymap = ["templates/**/*", "static/**/*", "models/**/*"]

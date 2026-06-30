@@ -92,10 +92,10 @@ Accepting and rasterizing uploaded PDFs is an attack surface, so it is contained
 - **Offline OCR, isolated too.** The wizard can read floor codes off drawings to auto-assign
   floors (the "Automatic" option in the map step). That OCR runs in a **separate** isolated
   subprocess (`ocr.py`, same timeout + resource limits) over the **already-rendered images** —
-  it never opens a PDF, so it adds no new parsing surface. The engine is
-  [`rapidocr-onnxruntime`](https://github.com/RapidAI/RapidOCR); its models ship inside the
-  wheel, so recognition is **fully offline** — no network and no system OCR binary (e.g.
-  Tesseract) to install.
+  it never opens a PDF, so it adds no new parsing surface. The engine is a **PP-OCRv4
+  recognition model** (Apache-2.0) bundled in the wheel and run on `onnxruntime`, so recognition
+  is **fully offline** — no network and no system OCR binary (e.g. Tesseract) to install — and it
+  uses **no OpenCV**, so there are no X11 system-library requirements on headless servers.
 - **Authorization.** Every import endpoint and every map **write** requires the
   `netbox_facilitymap.change_facilitymapblob` permission (not merely a login). Grant it to
   the users who maintain the map. Reads require a login (same access as the map).
@@ -130,17 +130,16 @@ PLUGINS_CONFIG = {
 ## Install (into a NetBox instance)
 
 Run as the NetBox service user, **inside NetBox's virtualenv** (default `/opt/netbox/venv`).
-Installing pulls the runtime deps `pypdfium2` + `Pillow` + `rapidocr-onnxruntime`
-automatically (the last bundles its offline OCR models in the wheel — no extra download).
-NetBox's `MEDIA_ROOT` must be writable by the service (it already is for NetBox's own
+Installing pulls the runtime deps `pypdfium2` + `Pillow` + `onnxruntime` + `numpy`
+automatically. The automatic floor-code OCR uses a small PP-OCRv4 recognition model **bundled in
+the wheel** (no download, ever) running on `onnxruntime`, whose wheels are self-contained — so it
+works on **any environment, including headless servers, with no system packages**. (Earlier
+releases used rapidocr/OpenCV, which needed X11 system libs and broke on bare servers; that's
+gone.) NetBox's `MEDIA_ROOT` must be writable by the service (it already is for NetBox's own
 uploads).
 
-> **Headless servers:** `rapidocr-onnxruntime` pulls in OpenCV (`opencv-python`), whose `cv2`
-> needs X11 runtime libraries that bare server images often lack — so the *automatic* floor-code
-> OCR can fail with `import failed: libGL.so.1 …` / `libxcb.so.1 …`. Install them once
-> (RHEL/Rocky: `dnf install mesa-libGL libxcb`; Debian/Ubuntu: `apt install libgl1 libxcb1`), or
-> swap in `opencv-python-headless`. Manual floor assignment doesn't need OpenCV. (If you upgrade
-> with `pip --no-deps`, also `pip install rapidocr-onnxruntime` so the dep actually lands.)
+> **Upgrading with `pip --no-deps`?** Add `pip install onnxruntime numpy` so a newly-added runtime
+> dependency actually lands. Manual floor assignment needs none of this.
 
 The plugin lives in the `netbox-facilitymap/` subdirectory of the
 [Network-Services-Faculty-Map](https://github.com/lsbarro2026/Network-Services-Faculty-Map)
@@ -219,7 +218,8 @@ netbox_facilitymap/
   frontend_api.py    AnnotationsView (compose/decompose) + blob GET/POST + ORM netbox reads
   imports.py         PDF import (upload/scan/build/reset) + authenticated manifest/media serving
   preprocess.py      PDF render engine (run as an isolated subprocess; pypdfium2 + Pillow)
-  ocr.py             offline OCR engine over rendered PNGs (isolated subprocess; rapidocr-onnxruntime)
+  ocr.py             offline OCR engine over rendered PNGs (isolated subprocess; onnxruntime + numpy, no OpenCV)
+  models/rec.onnx    vendored PP-OCRv4 recognition model (Apache-2.0) used by ocr.py
   storage.py         work_dir() / safe_path() / media_url() helpers (MEDIA_ROOT working dir)
   api/               DRF REST API for Room (serializers, viewset, router) → /api/plugins/facilitymap/
   models.py          FacilityMapBlob (JSON docs) + Room (NetBoxModel, FK → dcim.Location)

@@ -3,6 +3,23 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.7.0 — OCR that installs anywhere (no OpenCV, no system libs)
+- **Replaced the OCR engine so a plain `pip install` works on any environment.** The previous
+  rapidocr engine depended on `opencv-python`, whose `cv2` needs X11 system libraries
+  (`libGL`/`libxcb`) that headless servers don't ship — so automatic floor assignment failed out
+  of the box on a bare NetBox host. The new engine runs a **PP-OCRv4 text-recognition model**
+  (Apache-2.0, **vendored in the wheel** under `models/rec.onnx`) on `onnxruntime`, with all image
+  preprocessing in `numpy`/`Pillow` — **no OpenCV**. onnxruntime's wheels depend only on base
+  libc/libstdc++, and the model ships in the package, so recognition is fully offline with **no
+  system packages and no network**.
+  - **Dependencies:** drop `rapidocr-onnxruntime`; add `onnxruntime` + `numpy` (Pillow stays).
+  - Because the user already boxes the code, the engine does **recognition only** (no detection
+    model — that's the part that needed OpenCV). A small numpy horizontal-projection splitter
+    handles a box that spans multiple text lines; fullwidth glyphs are folded to ASCII.
+  - The isolation contract is unchanged: `ocr.py` is still a capped subprocess that reads only
+    already-rendered, trusted PNGs and never opens a PDF. The `ocr_mem_mb` budget still applies
+    (onnxruntime also reserves a large virtual-address space). Version → `1.7.0`.
+
 ## 1.6.1 — Name the real reason OCR can't load
 - **The "rapidocr-onnxruntime is required" message now includes the real import error.** The
   guard caught any `ImportError` and reported the same generic line, so an *installed* but
