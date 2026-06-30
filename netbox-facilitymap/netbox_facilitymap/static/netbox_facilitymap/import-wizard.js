@@ -457,11 +457,12 @@ class ImportWizard {
     this._regionGo = go;
     const actions = [go];
     if (scoped) {
-      // A scoped re-mark refines one building; offer to drop the override back to the global
-      // region, and a plain Cancel back to the map.
+      // A scoped re-mark refines one building; offer to drop the override — back to the global
+      // region when one exists, else to full-drawing thumbnails — and a plain Cancel back to the map.
       if (building.codeRegion)
         actions.push(Dom.el('button', { onclick: async () => {
-          building.codeRegion = null; await this._saveDraft(); this._stepMap(); } }, 'Use the global region'));
+          building.codeRegion = null; await this._saveDraft(); this._stepMap(); } },
+          this._codeRegion ? 'Use the global region' : 'Clear — show full drawing'));
       actions.push(Dom.el('button', { onclick: () => this._stepMap() }, 'Cancel'));
     } else {
       actions.push(Dom.el('button', { onclick: async () => {
@@ -804,8 +805,11 @@ class ImportWizard {
         onclick: () => this._autoNumber(b) }, 'Number floors 1…N'));
     }
     // If the global code box doesn't fit this building (its title block sits elsewhere), offer a
-    // re-mark scoped to just it — overrides the crop region for this folder's cards only.
-    if (this._codeRegion || b.codeRegion)
+    // re-mark scoped to just it — overrides the crop region for this folder's cards only. Shown
+    // whenever the building has a markable drawing (the same `type !== 'none'` test `_stepRegionPick`
+    // uses to find a sample), so it's reachable even when the global region pick was skipped.
+    const markable = b.pdfs.some(p => b.assign[p.stem] && b.assign[p.stem].type !== 'none');
+    if (markable)
       fields.push(Dom.el('button', { class: 'imp-auto',
         onclick: () => this._stepRegionPick(b) }, 'Mark this building’s code'));
     const head = Dom.el('div', { class: 'imp-bhead' }, fields);

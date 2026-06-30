@@ -673,10 +673,12 @@ normal map step, where every card now shows a `_codeCropThumb` close-up of that 
 **skippable** — **Skip — show full drawings** sets `_codeRegion = null` (and `_codeRegionDone`),
 falling back to full-drawing thumbnails. **Per-building override:** for an outlier whose title
 block sits elsewhere than the global sample, `_buildingSection` shows a **"Mark this building's
-code"** button (shown once a global or per-building region exists). It re-enters
-`_stepRegionPick(b)` scoped to that building, writing its `codeRegion` (which takes precedence over
-the global for its cards); a scoped pick offers **Use the global region** (clears the override) and
-a plain **Cancel**, and lands back on that building (`_bIdx`).
+code"** button whenever the building has a markable drawing (the same `type !== 'none'` test
+`_stepRegionPick` uses to find a sample), so it's reachable even when the global region pick was
+skipped (no `_codeRegion`). It re-enters `_stepRegionPick(b)` scoped to that building, writing its
+`codeRegion` (which takes precedence over the global for its cards); a scoped pick offers a reset
+button — **Use the global region** when one exists, else **Clear — show full drawing** — and a
+plain **Cancel**, and lands back on that building (`_bIdx`).
 
 **Build** (`_buildActions`/`_build`): the **Build facility map** button is gated — it stays a
 disabled button + hint (never silently hidden) until every building's drawings are assigned
@@ -1287,7 +1289,9 @@ point at the deep treatment.
   a card opens the full drawing in the lightbox (the escape hatch for an outlier whose code sits
   outside the box). A building whose title block is in another corner gets a per-building
   **"Mark this building's code"** override (`building.codeRegion`, takes precedence over the
-  global); the step is skippable (falls back to full-drawing thumbnails).
+  global); that button shows whenever the building has a markable drawing, so the override works
+  even when the global pick was skipped. The step is skippable (falls back to full-drawing
+  thumbnails).
 - **Two drawings sharing a floor token = one multi-page floor** (ordered by drawing
   number) — that is how stacked sheets of one floor group. In the wizard the *“same floor
   (extra sheet)”* control reuses the previous token; in the map it's just the same token.

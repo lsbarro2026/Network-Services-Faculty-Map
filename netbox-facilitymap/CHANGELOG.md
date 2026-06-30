@@ -3,6 +3,19 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.12.0 — Per-building code re-mark reachable without a global region
+- **"Mark this building's code" no longer requires a global region first.** The per-building
+  code-crop override (`building.codeRegion`) was already supported, but its button in
+  `_buildingSection` was gated on a global or per-building region already existing — so a user who
+  **skipped** the global region pick (full-drawing thumbnails) had no way to set a region for a
+  single outlier building. The button now shows whenever the building has a markable drawing (the
+  same `type !== 'none'` test `_stepRegionPick` uses to find a sample), so the override is reachable
+  with no global region, while staying hidden for a siteplan-only building.
+- **The scoped reset button is labelled to match.** When a scoped pick has an override but there's
+  no global region, the reset button now reads **"Clear — show full drawing"** instead of the
+  misleading **"Use the global region"** (still shown when a global region exists). Frontend +
+  docs only. Version → `1.12.0`.
+
 ## 1.11.0 — Add a floor by searching NetBox Locations
 - **"+ Add floor" escape hatch in the floor selector.** The per-drawing floor buttons come from
   `_floorsFromLocations`, a heuristic that can miss a floor Location (one nested under an
