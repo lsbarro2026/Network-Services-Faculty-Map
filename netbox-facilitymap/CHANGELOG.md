@@ -3,6 +3,20 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.11.0 — Add a floor by searching NetBox Locations
+- **"+ Add floor" escape hatch in the floor selector.** The per-drawing floor buttons come from
+  `_floorsFromLocations`, a heuristic that can miss a floor Location (one nested under an
+  intermediate Location, or when the building name doesn't match). In Location mode each drawing's
+  floor row now ends with a **"+ Add floor"** button that opens an inline search over the building's
+  bound-site Locations (`netbox.locations`, free-text autocomplete reusing the `.room-item` markup),
+  excluding ones already shown. Picking a result adds it as a floor button for **every** drawing in
+  the building and assigns the current drawing to it in one click (`_floorAddControl`/`_addFloor`).
+- **Survives a resume.** `nbFloors` is rebuilt from the heuristic on each load, but a hand-added
+  floor is re-included from the persisted assignment token (`_mergeAssignedFloors` in
+  `_loadFloors`), so its button — and any sibling drawing's ability to pick it — comes back.
+- Frontend + CSS only; the build/manifest/preprocess path is unchanged (the floor id is still the
+  Location slug). Version → `1.11.0`.
+
 ## 1.10.0 — Drop OCR; show a close-up of each drawing's code instead
 - **Removed the offline OCR auto-assignment.** Reading the floor code off scanned title blocks
   was never reliable enough to trust, so the whole engine is gone: `ocr.py`, the vendored

@@ -626,10 +626,31 @@ class ImportWizard {
     let floors = [];
     try {
       const res = await this.app.netbox.locations(slug);
-      floors = this._floorsFromLocations(res.rooms || [], siteName);
+      const locs = res.rooms || [];
+      floors = this._mergeAssignedFloors(b, this._floorsFromLocations(locs, siteName), locs);
     } catch (_) { floors = []; }
     b.nbFloors = floors;
     if (floors.length) this._normalizeToLocations(b);
+  }
+
+  /** Re-include any Location a drawing is already assigned to (`assign[*].token`) that the floor
+   *  heuristic didn't surface — i.e. a floor the user added via `_addFloor`'s Location search in a
+   *  prior session. Assignments persist in the draft but `nbFloors` is rebuilt each load, so
+   *  without this an added floor would lose its button (and its sibling drawings couldn't pick it).
+   *  Looks the token up in the full site Location list so the button reappears with its real
+   *  name/slug; a token whose Location no longer exists is left out (the user redoes it). Keeps the
+   *  natural sort order. */
+  _mergeAssignedFloors(b, floors, locs) {
+    const have = new Set(floors.map(f => f.slug));
+    const bySlug = new Map(locs.map(l => [l.slug, l]));
+    for (const p of b.pdfs) {
+      const tok = b.assign[p.stem] && b.assign[p.stem].token;
+      if (!tok || have.has(tok)) continue;
+      const loc = bySlug.get(tok);
+      if (!loc) continue;
+      have.add(tok); floors.push(loc);
+    }
+    return floors.sort((x, y) => (x.name || '').localeCompare(y.name || '', undefined, { numeric: true }));
   }
 
   /** Pick the floor Locations out of a site's flat Location list using the parent tree. The
@@ -910,17 +931,75 @@ class ImportWizard {
         row.append(btn(loc.name, a.token === loc.slug, () => {
           a.token = loc.slug; a.label = loc.name; a.type = 'level'; this._stepMap();
         }));
-    } else {
-      const set = (type, num) => () => {
-        a.token = null; a.label = ''; a.type = type; a.num = num; this._stepMap();
-      };
-      row.append(btn('Basement', a.type === 'basement', set('basement', 1)));
-      row.append(btn('Ground', a.type === 'ground', set('ground', 1)));
-      for (let i = 1; i <= b.pdfs.length; i++)
-        row.append(btn('Level ' + i, a.type === 'level' && a.num === i, set('level', i)));
-      row.append(btn('Roof', a.type === 'roof', set('roof', 1)));
+      // Location mode only: an escape hatch for a floor the auto-detect heuristic missed —
+      // search the bound site's Locations and pull one in (see `_floorAddControl`).
+      const { toggle, adder } = this._floorAddControl(b, a);
+      row.append(toggle);
+      return Dom.el('div', { class: 'imp-floor-sel' }, [row, adder]);
     }
+    const set = (type, num) => () => {
+      a.token = null; a.label = ''; a.type = type; a.num = num; this._stepMap();
+    };
+    row.append(btn('Basement', a.type === 'basement', set('basement', 1)));
+    row.append(btn('Ground', a.type === 'ground', set('ground', 1)));
+    for (let i = 1; i <= b.pdfs.length; i++)
+      row.append(btn('Level ' + i, a.type === 'level' && a.num === i, set('level', i)));
+    row.append(btn('Roof', a.type === 'roof', set('roof', 1)));
     return row;
+  }
+
+  /** The "+ Add floor" affordance for Location mode: a toggle button (placed in the floor row)
+   *  and the collapsible search panel it reveals. Returns both so `_floorButtons` can put the
+   *  button in the row and the panel below it. The panel searches the building's bound site for
+   *  Locations (`netbox.locations`, free-text), excluding ones already offered as a floor button,
+   *  and reuses the `.room-item` autocomplete markup from `_bindRow`. Picking a result routes
+   *  through `_addFloor`. The first time the panel opens it loads the site's full Location list
+   *  (so the user can browse) — lazily, so an unopened panel never fetches. */
+  _floorAddControl(b, a) {
+    const input = Dom.el('input', { placeholder: 'Search NetBox locations…' });
+    const list = Dom.el('div', { class: 'imp-bind-list' });
+    const adder = Dom.el('div', { class: 'imp-floor-adder hidden' }, [input, list]);
+    let seq = 0, loaded = false;
+    const run = async (q) => {
+      const mine = ++seq;
+      let res;
+      try { res = await this.app.netbox.locations(b.slug, q); } catch (_) { return; }
+      if (mine !== seq) return;   // a newer keystroke superseded this fetch
+      const have = new Set(b.nbFloors.map(f => f.slug));
+      const hits = (res.rooms || []).filter(l => !have.has(l.slug));
+      list.innerHTML = '';
+      if (!hits.length) { list.append(Dom.el('div', { class: 'hint' }, 'No other locations found.')); return; }
+      for (const loc of hits) {
+        const item = Dom.el('div', { class: 'room-item' }, [
+          Dom.el('div', { class: 'nm' }, loc.name),
+          Dom.el('div', { class: 'sl' }, loc.slug),
+        ]);
+        item.onclick = () => this._addFloor(b, a, loc);
+        list.append(item);
+      }
+    };
+    input.addEventListener('input', () => run(input.value));
+    const toggle = Dom.el('button', { class: 'imp-floor imp-floor-add', onclick: () => {
+      const hidden = adder.classList.toggle('hidden');
+      if (hidden) return;
+      input.focus();
+      if (!loaded) { loaded = true; run(''); }   // show the site's locations on first open
+    } }, '+ Add floor');
+    return { toggle, adder };
+  }
+
+  /** Pull a searched Location into the building's floor list and assign this drawing to it.
+   *  Dedupes by slug and re-sorts (natural order, matching `_floorsFromLocations`) so it lands
+   *  beside the auto-detected floors; the writes to `a` mirror clicking a normal Location button.
+   *  Once a drawing references the token it survives a resume — `_loadFloors` rebuilds `nbFloors`
+   *  each load but `_mergeAssignedFloors` re-adds floors referenced by a persisted assignment. */
+  _addFloor(b, a, loc) {
+    if (!b.nbFloors.some(f => f.slug === loc.slug)) {
+      b.nbFloors.push({ id: loc.id, name: loc.name, slug: loc.slug, parent: loc.parent });
+      b.nbFloors.sort((x, y) => (x.name || '').localeCompare(y.name || '', undefined, { numeric: true }));
+    }
+    a.token = loc.slug; a.label = loc.name; a.type = 'level';
+    this._stepMap();
   }
 
   /** Wire scroll-to-zoom (anchored at the cursor) + drag-to-pan onto a framed image box —

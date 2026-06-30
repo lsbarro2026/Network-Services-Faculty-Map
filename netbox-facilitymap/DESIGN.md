@@ -372,9 +372,11 @@ the import-map shape, and the manifest are unchanged, keeping the renderer Djang
 wipes. So **re-opening the wizard resumes onto the current facility**, and the operator can fix a
 binding, **replace** one floorplan in place (a new PDF POSTed to the same `uploads/` path → same
 stem → same floor id → rooms survive), or **add** a building/floor (additive upload + re-scan,
-with the saved draft re-applied so prior assignments persist). This reuses the existing
-`upload`/`upload-zip`/`scan`/`build` endpoints — **no new backend** and no incremental render
-(build stays a full rewrite, which is simple and idempotent). The one data-safety hazard is that
+with the saved draft re-applied so prior assignments persist), or **add a floor Location** the
+auto-detect heuristic missed by searching the bound site's Locations in the floor selector
+(reusing the existing `netbox/locations` read; the floor id is still the Location slug). This
+reuses the existing `upload`/`upload-zip`/`scan`/`build` endpoints — **no new backend** and no
+incremental render (build stays a full rewrite, which is simple and idempotent). The one data-safety hazard is that
 re-assigning a drawing's floor or re-binding a building **changes the floor id**, orphaning
 `Room` rows keyed to the old `floor_key`. The wizard guards this entirely client-side: before a
 build it diffs the about-to-build floor keys against the live manifest's floors-with-rooms and

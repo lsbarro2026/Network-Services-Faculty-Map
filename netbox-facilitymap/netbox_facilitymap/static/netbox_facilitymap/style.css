@@ -472,6 +472,13 @@ button.wide { width: 100%; margin-bottom: 6px; justify-content: center; }
 .imp-replace { height: 22px; padding: 0 8px; font-size: 11px; font-family: inherit; }
 .imp-floors { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .imp-floor { height: 28px; padding: 0 10px; font-size: 12px; }
+/* "+ Add floor" — pulls in a Location the auto-detect missed (Location mode). Reveals an inline
+   search whose results reuse the .imp-bind-list / .room-item autocomplete markup. */
+.imp-floor.imp-floor-add { border-style: dashed; color: var(--muted); }
+.imp-floor.imp-floor-add:hover { color: var(--accent); border-color: var(--accent); }
+.imp-floor-adder { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.imp-floor-adder.hidden { display: none; }
+.imp-floor-adder input { width: 100%; max-width: 320px; }
 /* A drawing the user hasn't assigned to a floor yet (Location mode) — flagged until they pick. */
 .imp-card.unassigned { border-color: var(--warn); box-shadow: inset 3px 0 0 var(--warn); }
 .imp-floor-warn { font-size: 12px; font-weight: 600; color: var(--warn); }

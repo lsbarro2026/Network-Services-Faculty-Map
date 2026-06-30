@@ -61,7 +61,10 @@ The plugin ships with **no facility content**; you build it from your drawings:
    **Mark this building's code** overrides the crop region for just that building's cards. If the
    code's position is too inconsistent to box, **Skip — show full drawings** falls back to
    full-drawing thumbnails. The crop is drawn entirely in the browser over the images the plugin
-   already renders — no floor identity ever leaves your server.
+   already renders — no floor identity ever leaves your server. When a building's site has NetBox
+   floor Locations, each drawing is assigned by picking one as a button; if the floor you need
+   isn't listed (the auto-detect missed it), use **+ Add floor** to search that site's Locations
+   and pull it in.
 4. **Build** — the plugin renders the images + manifest and opens the map. Then draw rooms
    and bind each to its NetBox Location.
 

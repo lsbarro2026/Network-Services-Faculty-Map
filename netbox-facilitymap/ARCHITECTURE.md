@@ -526,7 +526,11 @@ later `NetBoxClient` lookups key off.
 It also carries `nbFloors` — the bound site's **floor Locations**, lazily fetched in the map
 step by `_ensureFloors` (which calls the awaitable `_loadFloors` — `netbox.locations(slug)`,
 then `_floorsFromLocations` walks the returned Locations' `parent` links to pick the floors —
-and re-renders on completion). The **building Location** is the root
+and re-renders on completion). `nbFloors` is **not persisted** (it's rebuilt from the heuristic
+each load); a floor the operator added by hand (see "+ Add floor" below) is re-included from the
+drawing's persisted assignment token by `_mergeAssignedFloors` (in `_loadFloors`), which looks the
+token up in the full site Location list — so the button survives a resume even though the heuristic
+never surfaced it. The **building Location** is the root
 named after the bound site (e.g. "CYCLOTRON VAULT"); its children are floors, and **every
 other root is also a floor** — some sites park a floor like "Roof" or "Level B2" at the top
 level as a sibling of the building. When no root matches the site name, the site has no
@@ -629,7 +633,15 @@ mode one button per `nbFloors` Location (click writes its `slug`→`token`, `nam
 otherwise a floor-type fallback (`— none —`/Basement/Ground/Level 1..N/Roof) that sets
 `type`/`num`. `— none —`
 is offered in both modes; assigning two sheets the **same** Location
-groups them into one multi-sheet floor (same token). On entering Location mode,
+groups them into one multi-sheet floor (same token). In Location mode the row also ends with a
+**"+ Add floor"** button (`_floorAddControl`) — an escape hatch for a floor the
+`_floorsFromLocations` heuristic missed (one nested under an intermediate Location, or a building
+whose name doesn't match). It toggles an inline autocomplete that searches the bound site's
+Locations (`netbox.locations(slug, q)`, free-text, lazily loaded on first open and reusing the
+`.imp-bind-list`/`.room-item` markup), excluding Locations already shown as buttons. Picking a
+result calls `_addFloor`: it appends the Location to `nbFloors` (so it becomes a button for **every**
+drawing in the building) and assigns the current drawing to it in one click. The added floor is
+reconstructed on a later resume by `_mergeAssignedFloors` (above), keyed off the persisted token. On entering Location mode,
 `_normalizeToLocations` marks any token-less drawing **`unassigned`** — a state distinct from a
 deliberate `— none —` (`type:'none'`): `unassigned` gates the build until a Location is picked,
 whereas `— none —` is a real choice that excludes the drawing and passes the gate. An
