@@ -10,9 +10,7 @@
     <svg viewBox="{% if viewbox %}{{ viewbox }}{% else %}0 0 {{ vw }} {{ vh }}{% endif %}"
          preserveAspectRatio="xMidYMid meet"
          style="width:100%;height:auto;border:1px solid #ccc;background:#f4f5f7">
-      {% if image_url %}
-        <image href="{{ image_url }}" x="0" y="0" width="{{ vw }}" height="{{ vh }}"/>
-      {% endif %}
+      {% include 'netbox_facilitymap/inc/floor_sheets.html' %}
       {% for s in shapes %}
         {% if s.url %}<a href="{{ s.url }}" target="_blank">{% endif %}
         <polygon points="{{ s.points }}"
@@ -24,11 +22,5 @@
       {% endfor %}
       {% include 'netbox_facilitymap/inc/placement_markers.html' %}
     </svg>
-    {% if multisheet %}
-      <p class="text-muted small mt-2 mb-0">
-        This floor has multiple drawing sheets; only the first sheet image is shown here
-        (room outlines are positioned over the full combined plan).
-      </p>
-    {% endif %}
   </div>
 </div>

@@ -1,25 +1,97 @@
 """Server-side helpers for the native room/Location previews.
 
-`RoomView.get_extra_context` (`views.py`) and `FloorRooms.right_page`
-(`template_content.py`) both draw a floor's plan image with room polygons overlaid, and
-now also the rack/device placement markers the editor stored. These two helpers build the
-marker geometry and the room-page crop box so both call sites render identically and the
-templates stay arithmetic-free.
+`FloorRooms` (`template_content.py`) draws a floor's plan image with room polygons
+overlaid, and also the rack/device placement markers the editor stored. `floor_sheets`
+resolves the floor's tiled sheet geometry (so the whole multi-sheet plan renders, not just
+sheet 1), and `placement_markers`/`room_viewbox` build the marker geometry and room-page
+crop box — keeping the templates arithmetic-free.
 
 Markers are an **MVP**: a styled box per placement (rack vs device), mirroring the geometry
 of `FloorEditor.drawPlacements` (`static/.../floor-editor.js`) but *not* the schematic
 glyphs from `DeviceShapes` — those live only in JS. Coordinates are normalized 0..1 over the
-floor's *combined* canvas, scaled here by the floor's stored `w`×`h` (so multi-sheet floors
-inherit the same sheet-1 offset caveat as the polygon overlay).
+floor's *combined* canvas (the tiled grid of sheets); callers scale them by the combined
+`w`×`h` that `floor_sheets` returns.
 """
 
+import json
+
 from .models import FacilityMapBlob
+from .storage import MANIFEST_NAME, media_url, work_dir
 
 # Default marker footprint (display px) when a placement has no user-set w/h. We don't
 # resolve the per-type glyph server-side, so two defaults suffice — a tall rack cabinet vs a
 # wider device box (mirrors `DeviceShapes.box` 'rack' and the generic device sizes).
 _RACK_BOX = (30, 40)
 _DEVICE_BOX = (34, 22)
+
+
+def _manifest_pages(floor_key):
+    """`[{image, w, h}, ...]` (one per sheet, page order) for `floor_key`, or `[]` if the
+    rendered manifest is missing/unreadable or has no such floor. Single-sheet floors still
+    return one page; the floor-level `image/w/h` mirror `pages[0]`. Read fresh (no cache) —
+    the manifest is a runtime render artifact in the working dir (mirrors `_page_counts`)."""
+    try:
+        manifest = json.loads((work_dir() / MANIFEST_NAME).read_text())
+    except (OSError, ValueError):
+        return []
+    for building in manifest.get('buildings', []):
+        for floor in building.get('floors', []):
+            if f"{building['dir']}/{floor['id']}" == floor_key:
+                pages = floor.get('pages') or []
+                if pages:
+                    return pages
+                if floor.get('image'):
+                    return [{'image': floor['image'],
+                             'w': floor.get('w') or 1000, 'h': floor.get('h') or 1000}]
+                return []
+    return []
+
+
+def floor_sheets(floor_key):
+    """Tiled sheet geometry for a floor, or `None` when it has no rendered plan.
+
+    Mirrors the frontend `Store.floorLayout` (store.js) + `FloorEditor`'s per-sheet image
+    placement (floor-editor.js): each sheet sits in one cell of a uniform grid (cell = max
+    sheet `w`×`h`); the saved `layouts` blob gives `[col, row]` per page (default = vertical
+    stack), and sheets are drawn at `(col*cellW, row*cellH)` sized `cellW`×`cellH`. Returns
+    ``{'sheets': [{'url', 'x', 'y', 'w', 'h'}, ...], 'w': W, 'h': H}`` where `W`×`H` is the
+    combined canvas the room/placement coords are normalized over (so callers scale by it,
+    not by sheet-1 dims). Sheet `url`s go through `media_url` (authenticated, never public).
+
+    `None` is the "is this Location actually a floor?" gate — callers render nothing rather
+    than an empty SVG. Falls back to the `annotations` blob's single page-1 image when the
+    manifest is unavailable, preserving the pre-tiling behavior for single-sheet floors.
+    """
+    pages = _manifest_pages(floor_key)
+    if not pages:
+        blob = FacilityMapBlob.objects.filter(kind='annotations', key='').first()
+        floor = ((blob.data or {}).get(floor_key) if blob else None) or {}
+        if not floor.get('image'):
+            return None
+        w, h = floor.get('w') or 1000, floor.get('h') or 1000
+        return {'sheets': [{'url': media_url(floor['image']),
+                            'x': '0.0', 'y': '0.0', 'w': f'{w:.1f}', 'h': f'{h:.1f}'}],
+                'w': w, 'h': h}
+
+    cell_w = max(p['w'] for p in pages)
+    cell_h = max(p['h'] for p in pages)
+    blob = FacilityMapBlob.objects.filter(kind='layouts', key='').first()
+    saved = ((blob.data or {}).get(floor_key) if blob else None) or {}
+    grid = saved.get('grid')
+    if not (isinstance(grid, list) and len(grid) == len(pages)):
+        grid = [[0, i] for i in range(len(pages))]   # default: vertical stack
+
+    sheets, cols, rows = [], 0, 0
+    for page, (col, row) in zip(pages, grid):
+        cols, rows = max(cols, col + 1), max(rows, row + 1)
+        sheets.append({
+            'url': media_url(page['image']),
+            'x': f'{col * cell_w:.1f}',
+            'y': f'{row * cell_h:.1f}',
+            'w': f'{cell_w:.1f}',
+            'h': f'{cell_h:.1f}',
+        })
+    return {'sheets': sheets, 'w': cols * cell_w, 'h': rows * cell_h}
 
 
 def placement_markers(floor_key, w, h, room_ids):

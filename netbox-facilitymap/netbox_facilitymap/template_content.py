@@ -1,42 +1,22 @@
-"""Render the facility map's room polygons natively on a NetBox Location page (Phase 4).
+"""Render the facility map's floor plan + room polygons natively on a NetBox Location page.
 
 A `PluginTemplateExtension` injects a panel onto the `dcim.Location` detail page. When the
-Location is a *floor* — i.e. some `Room.floor_key == "<site.slug>/<location.slug>"` — the
-panel draws that floor's plan image overlaid with the room polygons (each linking to its
-bound room Location). This is the Phase-4 payoff: rooms drive NetBox-native rendering and
+Location is a *floor* — i.e. `floor_key == "<site.slug>/<location.slug>"` has a rendered
+plan — the panel draws that floor's plan image (all sheets, tiled) overlaid with any room
+polygons (each linking to its bound room Location). Rooms drive NetBox-native rendering and
 are object-permission scoped via `Room.objects.restrict(...)`.
 
-Room geometry is normalized 0..1 over the floor's *combined* canvas; we scale it by the
-floor's stored `w`×`h` and overlay it on the page-1 plan image. That is pixel-exact for
-single-sheet floors (nearly all of them). Multi-sheet floors tile
-several sheets into one canvas at runtime, which this static panel does not reproduce, so
-they show sheet 1 with a note — a documented minimal-scope limitation.
+Room geometry is normalized 0..1 over the floor's *combined* canvas; `previews.floor_sheets`
+resolves that canvas (tiling every sheet at its grid cell, mirroring the editor) and returns
+its combined `w`×`h`, which we scale the polygons/markers by. The panel renders even before
+any rooms are drawn, and `floor_sheets(...) is None` is the gate for "this Location has no
+rendered plan" (so we emit nothing rather than an empty SVG).
 """
-
-import json
 
 from netbox.plugins import PluginTemplateExtension
 
-from .models import FacilityMapBlob, Room
-from .previews import placement_markers, room_viewbox
-from .storage import MANIFEST_NAME, media_url, work_dir
-
-
-def _page_counts():
-    """floor_key -> number of drawing sheets, from the rendered manifest (best-effort).
-
-    Used only to flag multi-sheet floors in the panel; absence/parse-failure just means
-    no note. Read fresh (no cache) since the manifest is now a runtime render artifact in
-    the working dir, not a packaged static file."""
-    try:
-        manifest = json.loads((work_dir() / MANIFEST_NAME).read_text())
-    except (OSError, ValueError):
-        return {}
-    counts = {}
-    for building in manifest.get('buildings', []):
-        for floor in building.get('floors', []):
-            counts[f"{building['dir']}/{floor['id']}"] = len(floor.get('pages', []) or [])
-    return counts
+from .models import Room
+from .previews import floor_sheets, placement_markers, room_viewbox
 
 
 class FloorRooms(PluginTemplateExtension):
@@ -64,20 +44,20 @@ class FloorRooms(PluginTemplateExtension):
         rooms = list(
             Room.objects.restrict(request.user, 'view')
             .filter(floor_key=floor_key).select_related('location'))
-        if not rooms:
-            return ''  # neither a bound room nor a floor → no panel
+        # An empty `rooms` is fine — a real floor with no rooms drawn still shows its plan.
+        # `_panel` returns '' when `floor_key` has no rendered plan (i.e. not a floor at all).
         return self._panel(floor_key, rooms, crop_to=None)
 
     def _panel(self, floor_key, rooms, crop_to):
-        """Render the rooms panel for `rooms` over their floor's plan image. `crop_to` (a
-        single Room) zooms the SVG `viewBox` to that room's bounding box and drops the
-        per-room cross-links; `None` keeps the whole-floor view. `rooms` is already
-        `.restrict(...)`-scoped, so its room_ids keep the markers permission-bounded."""
-        blob = FacilityMapBlob.objects.filter(kind='annotations', key='').first()
-        floor = ((blob.data or {}).get(floor_key) if blob else None) or {}
-        w = floor.get('w') or 1000
-        h = floor.get('h') or 1000
-        image = floor.get('image')
+        """Render the panel for `rooms` over their floor's plan image (all sheets, tiled).
+        `crop_to` (a single Room) zooms the SVG `viewBox` to that room's bounding box and
+        drops the per-room cross-links; `None` keeps the whole-floor view. `rooms` is already
+        `.restrict(...)`-scoped, so its room_ids keep the markers permission-bounded.
+        Returns '' when `floor_key` has no rendered plan, so non-floor Locations show nothing."""
+        geom = floor_sheets(floor_key)
+        if not geom:
+            return ''
+        w, h = geom['w'], geom['h']
 
         shapes = []
         for room in rooms:
@@ -97,11 +77,10 @@ class FloorRooms(PluginTemplateExtension):
         return self.render('netbox_facilitymap/floor_rooms.html', extra_context={
             'vw': w,
             'vh': h,
-            'image_url': media_url(image),
+            'sheets': geom['sheets'],
             'shapes': shapes,
             'markers': markers,
             'viewbox': room_viewbox(crop_to.polygon, w, h) if crop_to else None,
-            'multisheet': _page_counts().get(floor_key, 0) > 1,
         })
 
 

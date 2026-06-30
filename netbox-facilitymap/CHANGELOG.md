@@ -3,6 +3,22 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.19.0 — Embed the full (multi-sheet) floor plan on a floor's Location page
+- **A floor's NetBox Location page now embeds its whole floor plan.** The `FloorRooms` panel
+  (`template_content.py`) previously rendered only when a floor had `Room` rows and drew just
+  the first drawing sheet for a multi-sheet floor. It now renders for any floor with a
+  rendered plan — **even before any rooms are drawn** — and tiles **every sheet** of a
+  multi-sheet floor into the combined canvas, matching what the map editor shows.
+- **Server-side sheet tiling.** A new `previews.floor_sheets(floor_key)` mirrors the
+  frontend `Store.floorLayout`: it reads the manifest's per-sheet `pages[]` and the `layouts`
+  blob's grid (default vertical stack), lays each sheet into a uniform grid cell, and returns
+  the combined `w`×`h` that room polygons and rack/device markers are scaled by. Each sheet
+  image is served through the authenticated `media_url`. The old "only the first sheet is
+  shown" note is gone.
+- A non-floor Location (no rendered plan) still shows no panel — `floor_sheets` returns
+  `None`, which is the gate. No `collectstatic` needed (no static files changed); **restart
+  the NetBox workers** after upgrading.
+
 ## 1.18.0 — Remove the redundant standalone Rooms browse UI
 - **The plugin's own "Rooms" menu page is gone.** Each `Room` is bound 1:1 to a
   `dcim.Location`, so rooms are already browsable natively as Locations, and since 1.17.0 a

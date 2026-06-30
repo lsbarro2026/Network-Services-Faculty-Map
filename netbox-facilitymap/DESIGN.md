@@ -50,7 +50,9 @@ the whole-document shape on GET (blob floors + `Room` rows merged back under `ro
 framework-free frontend and the JSON export round-trip unchanged. A `PluginTemplateExtension`
 (`template_content.FloorRooms`) draws room geometry on a `dcim.Location` page: on a **room**
 Location (one bound via `Room.location`) it shows that single room **cropped to its polygon**;
-on a **floor** Location it shows all the floor's rooms. A room has no standalone plugin page —
+on a **floor** Location it embeds the whole floor plan — tiling every drawing sheet of a
+multi-sheet floor server-side (`previews.floor_sheets`, mirroring the editor's `Store.floorLayout`)
+— overlaid with the floor's rooms, and it renders even before any rooms are drawn. A room has no standalone plugin page —
 it is surfaced on its bound Location, so `Room.get_absolute_url()` resolves to that Location
 (or the map app when unbound). Both variants also overlay the rack/device **placement markers**
 (MVP styled boxes — `previews.placement_markers`; not the JS `DeviceShapes` glyphs), built

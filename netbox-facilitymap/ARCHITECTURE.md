@@ -84,7 +84,7 @@ netbox-facilitymap/
     storage.py              # NEW: work_dir() / safe_path() / media_url() (working-dir + traversal guard)
     models.py               # FacilityMapBlob (editor JSON) + Room (NetBoxModel: room polygon → Location)
     template_content.py     # FloorRooms PluginTemplateExtension: rooms panel on the Location page
-    previews.py             # room/Location preview helpers: placement_markers() + room_viewbox()
+    previews.py             # Location preview helpers: floor_sheets() (sheet tiling) + placement_markers() + room_viewbox()
     navigation.py           # plugin menu item (Facility Map)
     filtersets.py           # RoomFilterSet (used by the DRF REST API)
     api/                    # DRF REST API for Room (serializers.py / views.py / urls.py)
@@ -94,6 +94,7 @@ netbox-facilitymap/
     templates/netbox_facilitymap/
       index.html            # the SPA shell; injects window.MAP; loads the JS in dependency order
       floor_rooms.html      # the Location-page room-overlay panel (server-rendered)
+      inc/floor_sheets.html       # tiled floor-plan sheet images (included by floor_rooms.html)
       inc/placement_markers.html  # rack/device marker boxes (included by floor_rooms.html)
     static/netbox_facilitymap/
       style.css             # all styling — light "CAD" theme; tokens in :root; @font-face
@@ -1419,10 +1420,14 @@ point at the deep treatment.
   relayout call `show()` (which remounts `PanZoom` and `fit()`s). Closing the racks sidebar
   drops back to edit via the same in-place path. Don't reintroduce `app.mode = …; show()`
   for a plain toggle — it resets the viewport.
-- The **Location-page rooms panel** (`template_content.FloorRooms`) is a static overlay: it
-  scales room polygons by the floor's stored `w×h` over the page-1 image, so for a
-  multi-sheet floor it shows sheet 1 with a note (a documented minimal-scope limitation — it
-  does not reproduce the runtime tiling). Single-sheet floors are pixel-exact.
+- The **Location-page rooms panel** (`template_content.FloorRooms`) is a static overlay that
+  reproduces the editor's sheet tiling server-side via `previews.floor_sheets(floor_key)`: it
+  reads the manifest's per-sheet `pages[]` + the `layouts` blob's grid (default vertical
+  stack), lays each sheet into its uniform grid cell (cell = max sheet `w×h`), and returns the
+  combined `w×h` that room polygons/markers are scaled by — so a **multi-sheet floor renders
+  every sheet tiled**, not just sheet 1. The panel renders for any floor with a rendered plan
+  **even before any rooms are drawn**; `floor_sheets(...) is None` is the "this Location isn't
+  a floor" gate (→ no panel, never an empty SVG).
 - **`FloorRooms` fires on two kinds of Location.** Its `right_page` first checks whether the
   Location *is a room* (something binds to it via `Room.location`) → it renders **just that
   room, cropped** to its polygon (this is what shows on `/dcim/locations/<roomLoc>/`). Only if
@@ -1443,8 +1448,9 @@ point at the deep treatment.
   preview shows surrounding floor context, and clamped to the floor's `0..w`×`0..h` extent so
   an edge room shows real floor not blank space) set as the SVG `viewBox` while the `<image>`
   stays full-floor, so only the window zooms in — empty-polygon rooms fall back to
-  `0 0 vw vh`. The whole-floor panel can't crop (many rooms, one SVG). Markers inherit the
-  same multi-sheet sheet-1 caveat as the polygons. (A `Room` has no standalone plugin page;
+  `0 0 vw vh`. The whole-floor panel can't crop (many rooms, one SVG). Polygons and markers
+  share the combined-canvas `w×h` from `floor_sheets`, so both are correct on multi-sheet
+  floors. (A `Room` has no standalone plugin page;
   it is surfaced on its bound Location, so `Room.get_absolute_url()` resolves to that Location
   — or the map app when unbound.)
 
