@@ -3,6 +3,19 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.25.0 — In-app plugin settings page + configurable room-embed zoom
+- **New Settings page** at NetBox → Plugins → Facility Map → **Settings** — an in-app, DB-backed
+  settings form (no redeploy/worker restart needed). Editing is gated on
+  `change_facilitymapblob`, matching every other map write; the nav entry only shows for users who
+  hold that permission. Settings persist in a single new `FacilityMapBlob` row (`kind='settings'`).
+- **First setting — "Room embed zoom"** controls how far the cropped per-room map embed (the panel
+  on a room's `dcim.Location` page) zooms in: `1.0` = a tight crop to the room itself, higher pulls
+  more surrounding floor into view. Range 1.0–5.0, default **2.0** (unchanged from before). It only
+  affects the **cropped room** embed — whole-floor views are unaffected. The value is clamped both
+  on save and on read, so a value edited outside the form (admin/REST) still renders sanely.
+- **Migration `0005`** adds the `settings` choice to `FacilityMapBlob.kind` (choices-only; run
+  `migrate`). The setting takes effect on the next page load.
+
 ## 1.24.0 — Floor view-mode "all rooms" highlight, now the default
 - **New highlight mode `'all'` highlights every room on a floor in view mode**, drawn with the
   standard `.room` look (rooms holding rack/device markers keep the blue `.room.placed` accent).

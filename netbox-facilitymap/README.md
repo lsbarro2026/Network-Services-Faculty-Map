@@ -13,7 +13,8 @@ tool or external build step.
 
 ## What it does
 
-- Installs into NetBox and mounts at `/plugins/facilitymap/` with a **Facility Map** nav item.
+- Installs into NetBox and mounts at `/plugins/facilitymap/` with **Facility Map** and
+  **Settings** nav items.
 - **Full-bleed map** (the app takes the whole viewport; it does not embed in NetBox chrome).
 - **Import a facility from PDFs, in-app.** Upload a folder of floor-plan PDFs — or a single
   `.zip` of them (any wrapper folder is stripped automatically) — and the plugin renders them
@@ -85,6 +86,21 @@ static URL.
 > (`annotations.json`, `siteplan.json`, `rackplacements.json`, `pagelayouts.json`), import
 > it with `manage.py facilitymap_import --src /path/to/dir` (rooms land as `Room` rows). New
 > facilities should use the in-app wizard instead.
+
+## Settings
+
+**NetBox → Plugins → Facility Map → Settings** is an in-app, DB-backed settings page —
+editable in the browser, no config-file edit or worker restart needed. Saving requires the
+`netbox_facilitymap.change_facilitymapblob` permission (the same as every map write), and the
+nav entry only appears for users who hold it.
+
+- **Room embed zoom** — how far the cropped per-room map embed (the panel shown on a room's
+  `dcim.Location` page) zooms in. `1.0` is a tight crop to the room itself; higher values pull
+  more of the surrounding floor into view. Range **1.0–5.0**, default **2.0**. It affects only
+  the cropped room embed, not whole-floor views, and takes effect on the next page load.
+
+(These are distinct from the `PLUGINS_CONFIG` render guardrails below, which are edited in the
+server config and need a restart.)
 
 ## Security model
 
@@ -202,9 +218,9 @@ uninstall; delete that directory manually if you want them gone.
 ```
 netbox_facilitymap/
   __init__.py        FacilityMapConfig(PluginConfig) — version + render guardrails
-  navigation.py      Facility Map nav item
-  urls.py            page mount + /api/ JSON endpoints + import/media routes
-  views.py           MapView (full-bleed TemplateView)
+  navigation.py      Facility Map + Settings nav items
+  urls.py            page mount + settings + /api/ JSON endpoints + import/media routes
+  views.py           MapView (full-bleed TemplateView) + SettingsView (plugin settings)
   frontend_api.py    AnnotationsView (compose/decompose) + blob GET/POST + ORM netbox reads
   imports.py         PDF import (upload/scan/build/reset) + authenticated manifest/media serving
   preprocess.py      PDF render engine (run as an isolated subprocess; pypdfium2 + Pillow)

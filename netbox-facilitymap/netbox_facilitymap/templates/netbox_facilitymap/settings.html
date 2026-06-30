@@ -1,0 +1,43 @@
+{% extends 'base/layout.html' %}
+{% comment %}
+  Facility Map plugin settings (NetBox → Plugins → Facility Map → Settings).
+  A standard chrome'd NetBox page (unlike the full-bleed map at index.html). The form
+  POSTs back to this same view, which validates/clamps and upserts the `settings` blob.
+  Writes are gated on `change_facilitymapblob` by the view + the nav entry.
+{% endcomment %}
+
+{% block title %}Facility Map — Settings{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-md-8 col-lg-6">
+    <form action="" method="post">
+      {% csrf_token %}
+      <div class="card">
+        <h2 class="card-header">Settings</h2>
+        <div class="card-body">
+
+          <div class="mb-3">
+            <label for="id_room_embed_zoom" class="form-label">Room embed zoom</label>
+            <input type="number" name="room_embed_zoom" id="id_room_embed_zoom"
+                   class="form-control" style="max-width:10rem"
+                   value="{{ room_embed_zoom }}"
+                   min="{{ zoom_min }}" max="{{ zoom_max }}" step="0.1" required>
+            <div class="form-text">
+              How far the per-room map embed (shown on a room's Location page) zooms in.
+              <strong>{{ zoom_min }}</strong> = a tight crop to the room itself;
+              higher values pull more of the surrounding floor into view.
+              Range {{ zoom_min }}–{{ zoom_max }}; default {{ zoom_default }}.
+              Only affects the cropped room embed, not whole-floor views.
+            </div>
+          </div>
+
+        </div>
+        <div class="card-footer text-end">
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

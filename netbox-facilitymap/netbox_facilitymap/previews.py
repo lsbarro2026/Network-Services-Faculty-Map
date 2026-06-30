@@ -24,6 +24,38 @@ from .storage import MANIFEST_NAME, media_url, work_dir
 _RACK_BOX = (30, 40)
 _DEVICE_BOX = (34, 22)
 
+# Room-embed crop zoom (how much surrounding floor the cropped per-room embed pulls in):
+# 1.0 = tight pad-only crop, higher = wider. Editable in-app via the Settings page; these
+# bound it on both write (the Settings view) and read (`room_embed_zoom`), the single source
+# of truth for the range. `room_viewbox`'s own default param mirrors `ZOOM_DEFAULT`.
+ZOOM_MIN = 1.0
+ZOOM_MAX = 5.0
+ZOOM_DEFAULT = 2.0
+
+
+def clamp_zoom(value):
+    """Coerce `value` to a float within `[ZOOM_MIN, ZOOM_MAX]`, or `ZOOM_DEFAULT` if it
+    isn't a finite number. Shared by the Settings view (write) and `room_embed_zoom`
+    (read) so a stored value is sane even if edited outside the form (admin/REST)."""
+    try:
+        z = float(value)
+    except (TypeError, ValueError):
+        return ZOOM_DEFAULT
+    if z != z:  # NaN
+        return ZOOM_DEFAULT
+    return min(max(z, ZOOM_MIN), ZOOM_MAX)
+
+
+def room_embed_zoom():
+    """The configured room-embed crop zoom, clamped to `[ZOOM_MIN, ZOOM_MAX]`.
+
+    Reads the single `kind='settings'` blob; falls back to `ZOOM_DEFAULT` when the row,
+    the key, or a sane value is absent — so the cropped room embed keeps today's behaviour
+    until an operator changes it on the Settings page."""
+    blob = FacilityMapBlob.objects.filter(kind='settings', key='').first()
+    raw = (blob.data or {}).get('room_embed_zoom') if blob else None
+    return clamp_zoom(raw) if raw is not None else ZOOM_DEFAULT
+
 
 def _manifest_pages(floor_key):
     """`[{image, w, h}, ...]` (one per sheet, page order) for `floor_key`, or `[]` if the
@@ -131,7 +163,7 @@ def placement_markers(floor_key, w, h, room_ids):
     return markers
 
 
-def room_viewbox(polygon, w, h, pad=0.08, zoom=2.0):
+def room_viewbox(polygon, w, h, pad=0.08, zoom=ZOOM_DEFAULT):
     """SVG `viewBox` string cropping a single room's polygon, or None if it has no points.
 
     Bounding box of the normalized polygon scaled by `w`×`h`, padded by `pad` of the larger

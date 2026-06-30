@@ -25,6 +25,10 @@ class FacilityMapBlob(models.Model):
         ('siteplan', 'Siteplan hotspots'),
         ('placements', 'Rack/device placements'),
         ('layouts', 'Sheet layouts'),
+        # A single `key=''` row holding the plugin's editable settings (e.g.
+        # `room_embed_zoom`), edited in-app via the Settings page. Unlike the editor
+        # blobs it isn't a standalone-tool document — just the settings store.
+        ('settings', 'Plugin settings'),
     )
 
     kind = models.CharField(max_length=20, choices=KIND_CHOICES)

@@ -27,7 +27,7 @@ from dcim.models import Location
 from netbox.plugins import PluginTemplateExtension
 
 from .models import Room
-from .previews import floor_sheets, placement_markers, room_viewbox
+from .previews import floor_sheets, placement_markers, room_embed_zoom, room_viewbox
 from .storage import MANIFEST_NAME, media_url, work_dir
 
 
@@ -101,7 +101,9 @@ class FloorRooms(PluginTemplateExtension):
             'sheets': geom['sheets'],
             'shapes': shapes,
             'markers': markers,
-            'viewbox': room_viewbox(crop_to.polygon, w, h) if crop_to else None,
+            # The cropped room embed honours the configurable zoom; the whole-floor view
+            # (crop_to=None) passes no viewBox, so the setting never affects floor views.
+            'viewbox': room_viewbox(crop_to.polygon, w, h, zoom=room_embed_zoom()) if crop_to else None,
             'map_url': map_url,
         })
 

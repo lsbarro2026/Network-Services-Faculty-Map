@@ -5,6 +5,9 @@ from . import frontend_api, imports, views
 urlpatterns = [
     path('', views.MapView.as_view(), name='map'),
 
+    # In-app plugin settings (permission-gated write). Reached from the plugin nav.
+    path('settings', views.SettingsView.as_view(), name='settings'),
+
     # Editor data (blob persistence) — same logical paths as the standalone server,
     # rooted here at /plugins/facilitymap/api/ (see window.MAP.api in index.html).
     path('api/annotations', frontend_api.AnnotationsView.as_view(), name='api-annotations'),

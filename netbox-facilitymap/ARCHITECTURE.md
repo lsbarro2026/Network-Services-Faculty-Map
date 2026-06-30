@@ -78,7 +78,7 @@ netbox-facilitymap/
   netbox_facilitymap/
     __init__.py             # FacilityMapConfig(PluginConfig): version, base_url, default_settings; ready() registers the dashboard widget
     urls.py                 # all routes: page mount, api/*, api/import/*, media
-    views.py                # MapView (the SPA shell)
+    views.py                # MapView (the SPA shell) + SettingsView (in-app plugin settings)
     frontend_api.py         # frontend JSON views: AnnotationsView, BlobView, NbRooms/Locations/Racks/Devices
                             # (named to avoid shadowing the api/ REST package — see §10)
     imports.py              # NEW: PDF import pipeline (Upload/Scan/Build/Reset) + Manifest/Media serving
@@ -87,8 +87,8 @@ netbox-facilitymap/
     models.py               # FacilityMapBlob (editor JSON) + Room (NetBoxModel: room polygon → Location)
     template_content.py     # PluginTemplateExtensions: FloorRooms (rooms panel on the Location page) + SiteFloors (floor-picker grid on the Site page)
     dashboard.py            # FacilityMapWidget: home-dashboard widget that iframes the SPA (registered in __init__.ready())
-    previews.py             # Location preview helpers: floor_sheets() (sheet tiling) + placement_markers() + room_viewbox()
-    navigation.py           # plugin menu item (Facility Map)
+    previews.py             # Location preview helpers: floor_sheets() (sheet tiling) + placement_markers() + room_viewbox() + room_embed_zoom() (settings read)
+    navigation.py           # plugin menu items (Facility Map, Settings)
     filtersets.py           # RoomFilterSet (used by the DRF REST API)
     api/                    # DRF REST API for Room (serializers.py / views.py / urls.py)
     management/commands/
@@ -1005,6 +1005,7 @@ read-only at runtime), so it lives under NetBox's `MEDIA_ROOT`.
 | Method | Path | View | Auth |
 |---|---|---|---|
 | GET | `` (page mount) | `views.MapView` (the SPA shell) | login |
+| GET · POST | `settings` | `views.SettingsView` (plugin settings form) | login · **EDIT_PERM** |
 | GET | `api/manifest` | `imports.ManifestView` (rendered or empty manifest) | login |
 | GET · POST | `api/annotations` | `api.AnnotationsView` (compose / decompose) | login · **EDIT_PERM** |
 | GET · POST | `api/siteplan` | `api.BlobView(kind='siteplan')` | login · **EDIT_PERM** |
@@ -1119,8 +1120,10 @@ w×h). Absent (or pruned) = the default vertical stack (`col 0, row = page index
 + placement coords so each shape follows its sheet (§6).
 
 Each editor document above (siteplan / placements / layouts / the residual annotations) is
-one `FacilityMapBlob` row keyed `(kind, key='')`; `Room` rows hold room polygons. See
-`models.py` / `DESIGN.md`.
+one `FacilityMapBlob` row keyed `(kind, key='')`; `Room` rows hold room polygons. A further
+`kind='settings'` row (not an editor document) holds the plugin's in-app settings — currently
+`{'room_embed_zoom': …}`, written by `views.SettingsView` and read by `previews.room_embed_zoom`.
+See `models.py` / `DESIGN.md`.
 
 ---
 
@@ -1497,16 +1500,19 @@ point at the deep treatment.
   glyphs (those have no Python equivalent); re-tune them there if fidelity matters. Markers are
   permission-scoped: the helper filters to the caller's `room_ids` (the floor panel passes its
   `.restrict(...)`-scoped room set; the single-room panel passes the one room).
-- **The single-room views crop** via `previews.room_viewbox(polygon, w, h)` (the polygon's
-  padded bounding box, then scaled ×`zoom` — default `2` — about the room's centre so the
-  preview shows surrounding floor context, and clamped to the floor's `0..w`×`0..h` extent so
+- **The single-room views crop** via `previews.room_viewbox(polygon, w, h, zoom=…)` (the polygon's
+  padded bounding box, then scaled ×`zoom` about the room's centre so the preview shows surrounding
+  floor context, and clamped to the floor's `0..w`×`0..h` extent so
   an edge room shows real floor not blank space) set as the SVG `viewBox` while the `<image>`
   stays full-floor, so only the window zooms in — empty-polygon rooms fall back to
   `0 0 vw vh`. The whole-floor panel can't crop (many rooms, one SVG). Polygons and markers
   share the combined-canvas `w×h` from `floor_sheets`, so both are correct on multi-sheet
   floors. (A `Room` has no standalone plugin page;
   it is surfaced on its bound Location, so `Room.get_absolute_url()` resolves to that Location
-  — or the map app when unbound.)
+  — or the map app when unbound.) The crop `zoom` is **operator-configurable** via the Settings
+  page: `_panel` passes `zoom=previews.room_embed_zoom()`, which reads the `settings` blob's
+  `room_embed_zoom` (clamped to `1.0–5.0`, default `2.0` when unset). Only the cropped room view
+  uses it — the whole-floor panel passes `viewbox=None`, so the setting never affects floor views.
 
 ### Node editing (`Editor.drawVertices`)
 

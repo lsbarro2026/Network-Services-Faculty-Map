@@ -142,9 +142,9 @@ netbox-facilitymap/                      # distribution root
   LICENSE
   netbox_facilitymap/                    # the importable Django app package
     __init__.py                          # FacilityMapConfig(PluginConfig) + render guardrails (§4)
-    navigation.py                        # Facility Map nav item
-    urls.py                              # page mount + api/ JSON + import/media routes
-    views.py                             # MapView (TemplateView)
+    navigation.py                        # Facility Map + Settings nav items
+    urls.py                              # page mount + settings + api/ JSON + import/media routes
+    views.py                             # MapView (TemplateView) + SettingsView (plugin settings)
     frontend_api.py                      # AnnotationsView (compose/decompose) + blob CRUD + ORM reads
                                          # (page-mount views; named to not shadow the api/ REST package)
     imports.py                           # PDF import endpoints + authenticated manifest/media serving (§7)
@@ -226,14 +226,20 @@ class FacilityMapConfig(PluginConfig):
 config = FacilityMapConfig
 ```
 
-- **Navigation** (`navigation.py`): a single **Facility Map** `PluginMenuItem` to the
-  full-page map.
+- **Navigation** (`navigation.py`): two `PluginMenuItem`s — **Facility Map** (the full-page
+  map, gated on `view_facilitymapblob`) and **Settings** (the settings page, gated on
+  `change_facilitymapblob` so only editors see it).
 - **Full-page view** (`views.py`): `MapView(LoginRequiredMixin, TemplateView)` rendering
   `netbox_facilitymap/index.html`; `urls.py`: `path('', MapView.as_view(), name='map')`.
   The app is a full-bleed SVG canvas, so it uses a **minimal standalone template** (it does
   *not* `{% extends 'base/layout.html' %}`) served inside the authenticated mount. The
   relational `Room` model is exposed through the DRF REST API (`api/`); it has no standalone
   browse UI (removed in `1.18.0` — rooms are reached via their bound Location).
+- **Settings view** (`views.py`): `SettingsView(LoginRequiredMixin, PermissionRequiredMixin,
+  View)` at `path('settings', …, name='settings')`, gated on `change_facilitymapblob` (every
+  map write is). GET renders a chrome'd form (`settings.html`, which **does** `{% extends
+  'base/layout.html' %}`); POST validates/clamps and upserts the `kind='settings'` blob, then
+  redirects (PRG) with a success message. First setting: `room_embed_zoom` (§5).
 
 ---
 
@@ -244,7 +250,7 @@ pattern; the room polygons are promoted to a first-class model.
 
 ```python
 class FacilityMapBlob(models.Model):
-    kind = models.CharField(max_length=20)   # 'annotations'|'siteplan'|'placements'|'layouts'
+    kind = models.CharField(max_length=20)   # 'annotations'|'siteplan'|'placements'|'layouts'|'settings'
     key  = models.CharField(max_length=120, blank=True)  # reserved per-floor shard; '' today
     data = models.JSONField(default=dict)
     updated = models.DateTimeField(auto_now=True)
@@ -254,6 +260,11 @@ class FacilityMapBlob(models.Model):
 
 - A blob-CRUD view upserts the row; `rackcache` is **not** modelled — it is regenerated
   live from the ORM (§0).
+- The **`settings`** kind is a single `key=''` row holding the plugin's in-app settings
+  (not a tool document) — currently `{'room_embed_zoom': <float>}`. `SettingsView` writes it
+  (clamped to `1.0–5.0`); `previews.room_embed_zoom()` reads it (re-clamped, default `2.0`
+  when unset) to set the cropped room embed's `room_viewbox` zoom. Stored in the DB so it is
+  editable in-app without a worker restart, unlike the PLUGINS_CONFIG render guardrails (§7).
 - **Room promotion (the real payoff):** the room polygon is a first-class
   `Room(NetBoxModel)` with `floor_key`, `room_id`, `label`, `polygon` (JSONField,
   normalized 0..1), and `location` FK → `dcim.Location`, backfilled from the
@@ -476,7 +487,8 @@ Hash routing (`app.js router()`) is already prefix-agnostic — no change.
    per-panel latency. Acceptable, but a behaviour change from the standalone tool.
 4. **NetBox version drift** — `restrict()` / `PluginConfig` / menu / template-extension APIs
    shift between 4.x minors; pin `min/max_version` and test against the exact prod minor.
-5. **Object perms** — blob **writes** (annotations/siteplan/placements/layouts) and all
+5. **Object perms** — blob **writes** (annotations/siteplan/placements/layouts), the
+   **settings** save (`SettingsView`), and all
    import endpoints now require the `change_facilitymapblob` permission, and `sync_rooms`
    scopes deletes via `restrict(user, 'delete')`; blob *reads* remain all-or-nothing per
    login. Rooms, now a `NetBoxModel`, are read through `Room.objects.restrict()`, so
