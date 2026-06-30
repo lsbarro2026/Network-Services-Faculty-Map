@@ -75,8 +75,8 @@ netbox-facilitymap/
   README.md  DESIGN.md  CHANGELOG.md  ARCHITECTURE.md
   netbox_facilitymap/
     __init__.py             # FacilityMapConfig(PluginConfig): version, base_url, default_settings
-    urls.py                 # all routes: page mount, Room UI, api/*, api/import/*, media
-    views.py                # MapView (the SPA shell) + Room list/detail/edit/delete views
+    urls.py                 # all routes: page mount, api/*, api/import/*, media
+    views.py                # MapView (the SPA shell)
     frontend_api.py         # frontend JSON views: AnnotationsView, BlobView, NbRooms/Locations/Racks/Devices
                             # (named to avoid shadowing the api/ REST package — see §10)
     imports.py              # NEW: PDF import pipeline (Upload/Scan/Build/Reset) + Manifest/Media serving
@@ -85,8 +85,8 @@ netbox-facilitymap/
     models.py               # FacilityMapBlob (editor JSON) + Room (NetBoxModel: room polygon → Location)
     template_content.py     # FloorRooms PluginTemplateExtension: rooms panel on the Location page
     previews.py             # room/Location preview helpers: placement_markers() + room_viewbox()
-    navigation.py           # plugin menu items (Facility Map, Rooms)
-    forms.py tables.py filtersets.py search.py   # Room NetBox-native UI plumbing
+    navigation.py           # plugin menu item (Facility Map)
+    filtersets.py           # RoomFilterSet (used by the DRF REST API)
     api/                    # DRF REST API for Room (serializers.py / views.py / urls.py)
     management/commands/
       facilitymap_import.py # one-shot: import the old tool's JSON files into the stores
@@ -94,8 +94,7 @@ netbox-facilitymap/
     templates/netbox_facilitymap/
       index.html            # the SPA shell; injects window.MAP; loads the JS in dependency order
       floor_rooms.html      # the Location-page room-overlay panel (server-rendered)
-      room.html             # Room detail page extra content (room-cropped preview)
-      inc/placement_markers.html  # shared rack/device marker boxes (room.html + floor_rooms.html)
+      inc/placement_markers.html  # rack/device marker boxes (included by floor_rooms.html)
     static/netbox_facilitymap/
       style.css             # all styling — light "CAD" theme; tokens in :root; @font-face
       fonts/                # bundled WOFF2 (Public Sans + IBM Plex Mono, SIL OFL); offline
@@ -986,8 +985,7 @@ read-only at runtime), so it lives under NetBox's `MEDIA_ROOT`.
   raises `ValueError` if it escapes. Returns an absolute `Path` (which may not exist yet).
 - **`media_url(image)`** — reverse the authenticated `api-media` route for a working-dir
   relative image path (`images/<slug>/<id>.png`). Used by the **server-rendered** Location
-  pages (`template_content.py`, `views.RoomView`); the SPA builds the same URL from
-  `window.MAP.media`.
+  page panel (`template_content.py`); the SPA builds the same URL from `window.MAP.media`.
 - Constants: `MANIFEST_NAME` (`manifest.json`), `EMPTY_MANIFEST`, `SERVE_ROOTS`
   (`('images','uploads')` — the only subtrees `MediaView` will serve).
 
@@ -995,7 +993,6 @@ read-only at runtime), so it lives under NetBox's `MEDIA_ROOT`.
 | Method | Path | View | Auth |
 |---|---|---|---|
 | GET | `` (page mount) | `views.MapView` (the SPA shell) | login |
-| GET | `rooms/`, `rooms/<pk>/`, `rooms/add/`, `rooms/<pk>/edit/`, `rooms/<pk>/delete/`, `rooms/edit/`, `rooms/delete/`, `rooms/<pk>/changelog/` | Room list/detail/edit/delete/bulk (NetBox generic views) | object perms |
 | GET | `api/manifest` | `imports.ManifestView` (rendered or empty manifest) | login |
 | GET · POST | `api/annotations` | `api.AnnotationsView` (compose / decompose) | login · **EDIT_PERM** |
 | GET · POST | `api/siteplan` | `api.BlobView(kind='siteplan')` | login · **EDIT_PERM** |
@@ -1435,20 +1432,21 @@ point at the deep treatment.
   `floor_rooms.html` template (whose `viewBox` is the crop box when `crop_to` is set, else the
   full floor).
 - **Native previews also draw rack/device markers, server-side (`previews.py`).** The panel
-  and the plugin's own **Room** detail page (`views.RoomView`) overlay
-  `previews.placement_markers(...)` — one **MVP** box per placement (rack vs device,
+  overlays `previews.placement_markers(...)` — one **MVP** box per placement (rack vs device,
   positioned/rotated/sized from the `placements` blob, scaled by `w×h`), via the shared
   `inc/placement_markers.html` partial. These are deliberately *not* the JS `DeviceShapes`
   glyphs (those have no Python equivalent); re-tune them there if fidelity matters. Markers are
   permission-scoped: the helper filters to the caller's `room_ids` (the floor panel passes its
-  `.restrict(...)`-scoped room set; the single-room panel and the Room page pass the one room).
+  `.restrict(...)`-scoped room set; the single-room panel passes the one room).
 - **The single-room views crop** via `previews.room_viewbox(polygon, w, h)` (the polygon's
   padded bounding box, then scaled ×`zoom` — default `2` — about the room's centre so the
   preview shows surrounding floor context, and clamped to the floor's `0..w`×`0..h` extent so
   an edge room shows real floor not blank space) set as the SVG `viewBox` while the `<image>`
   stays full-floor, so only the window zooms in — empty-polygon rooms fall back to
   `0 0 vw vh`. The whole-floor panel can't crop (many rooms, one SVG). Markers inherit the
-  same multi-sheet sheet-1 caveat as the polygons.
+  same multi-sheet sheet-1 caveat as the polygons. (A `Room` has no standalone plugin page;
+  it is surfaced on its bound Location, so `Room.get_absolute_url()` resolves to that Location
+  — or the map app when unbound.)
 
 ### Node editing (`Editor.drawVertices`)
 

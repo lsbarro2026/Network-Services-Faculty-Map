@@ -50,14 +50,16 @@ the whole-document shape on GET (blob floors + `Room` rows merged back under `ro
 framework-free frontend and the JSON export round-trip unchanged. A `PluginTemplateExtension`
 (`template_content.FloorRooms`) draws room geometry on a `dcim.Location` page: on a **room**
 Location (one bound via `Room.location`) it shows that single room **cropped to its polygon**;
-on a **floor** Location it shows all the floor's rooms. The plugin's own native **Room** detail
-page (`RoomView`) shows the same cropped single-room view. Every variant also overlays the
-rack/device **placement markers** (MVP styled boxes — `previews.placement_markers`; not the JS
-`DeviceShapes` glyphs), built server-side from the `placements` blob and permission-scoped to
-the visible room(s).
-`Room` also carries the full NetBox-native surface — DRF REST API, UI list/detail/edit/delete
-+ bulk, filterset, table, global search, and a **Rooms** nav item — all object-permission
-scoped, with **no schema change** beyond the `0002_room` table. The map editor's `sync_rooms`
+on a **floor** Location it shows all the floor's rooms. A room has no standalone plugin page —
+it is surfaced on its bound Location, so `Room.get_absolute_url()` resolves to that Location
+(or the map app when unbound). Both variants also overlay the rack/device **placement markers**
+(MVP styled boxes — `previews.placement_markers`; not the JS `DeviceShapes` glyphs), built
+server-side from the `placements` blob and permission-scoped to the visible room(s).
+`Room` also carries a NetBox-native **DRF REST API** (`api/`, registered at `rooms`), with **no
+schema change** beyond the `0002_room` table. (The standalone Room browse UI — list/detail/edit/
+bulk, table, forms, global-search index, and the **Rooms** nav item — was removed in `1.18.0`
+as redundant: rooms are already browsable as Locations and each Location page renders the
+preview.) The map editor's `sync_rooms`
 POST stays authoritative for room **geometry**, so a natively created/edited room is durable
 only until the editor next saves that floor (last-writer-wins; native edit is most useful for
 `label`/`location`/`tags`). The remaining blobs (siteplan/placements/layouts) are
@@ -123,17 +125,16 @@ netbox-facilitymap/                      # distribution root
   LICENSE
   netbox_facilitymap/                    # the importable Django app package
     __init__.py                          # FacilityMapConfig(PluginConfig) + render guardrails (§4)
-    navigation.py                        # Facility Map + Rooms nav items
-    urls.py                              # page mount + api/ JSON + import/media + Room UI routes
-    views.py                             # MapView (TemplateView) + Room UI (list/detail/edit/bulk)
+    navigation.py                        # Facility Map nav item
+    urls.py                              # page mount + api/ JSON + import/media routes
+    views.py                             # MapView (TemplateView)
     frontend_api.py                      # AnnotationsView (compose/decompose) + blob CRUD + ORM reads
                                          # (page-mount views; named to not shadow the api/ REST package)
     imports.py                           # PDF import endpoints + authenticated manifest/media serving (§7)
     preprocess.py                        # PDF render engine, run as an isolated subprocess (§7)
     storage.py                           # work_dir()/safe_path()/media_url() (MEDIA_ROOT working dir)
     models.py                            # FacilityMapBlob; Room(NetBoxModel) FK → dcim.Location
-    filtersets.py  tables.py  forms.py   # RoomFilterSet / RoomTable / Room*Form
-    search.py                            # RoomIndex (global search)
+    filtersets.py                        # RoomFilterSet (used by the DRF REST API)
     template_content.py                  # FloorRooms (room panel on the floor Location page)
     previews.py                          # room/Location preview helpers (placement markers + room-crop viewBox)
     api/                                 # DRF REST API for Room
@@ -145,8 +146,7 @@ netbox-facilitymap/                      # distribution root
     templates/netbox_facilitymap/
       index.html                         # injects window.MAP (api/media/static/csrf)
       floor_rooms.html                   # the Location-page room overlay
-      room.html                          # Room detail page + room-cropped polygon preview
-      inc/placement_markers.html         # shared rack/device marker boxes (room.html + floor_rooms.html)
+      inc/placement_markers.html         # rack/device marker boxes (included by floor_rooms.html)
     static/netbox_facilitymap/           # framework-free frontend only (no facility data)
       lib.js device-shapes.js netbox.js store.js grid.js panzoom.js
       editor.js floor-editor.js siteplan-editor.js import-wizard.js app.js
@@ -208,14 +208,14 @@ class FacilityMapConfig(PluginConfig):
 config = FacilityMapConfig
 ```
 
-- **Navigation** (`navigation.py`): a **Facility Map** `PluginMenuItem` to the full-page
-  map, plus a **Rooms** item to the native `Room` list.
+- **Navigation** (`navigation.py`): a single **Facility Map** `PluginMenuItem` to the
+  full-page map.
 - **Full-page view** (`views.py`): `MapView(LoginRequiredMixin, TemplateView)` rendering
   `netbox_facilitymap/index.html`; `urls.py`: `path('', MapView.as_view(), name='map')`.
   The app is a full-bleed SVG canvas, so it uses a **minimal standalone template** (it does
   *not* `{% extends 'base/layout.html' %}`) served inside the authenticated mount. The
-  relational `Room` model adds the usual `netbox.views.generic` list/detail/edit/delete +
-  bulk views alongside it.
+  relational `Room` model is exposed through the DRF REST API (`api/`); it has no standalone
+  browse UI (removed in `1.18.0` — rooms are reached via their bound Location).
 
 ---
 
@@ -243,12 +243,13 @@ class FacilityMapBlob(models.Model):
   truth; `AnnotationsView` composes/decomposes so the blob keeps only
   `image`/`w`/`h`/`arrows`. Hotspots / placements / layouts / arrows stay blobs
   (editor-internal, low query value).
-- **Full Room surface, no schema change** — `Room` carries a DRF REST API (`api/`
-  subpackage), UI list/detail/edit/delete + bulk, `RoomFilterSet`, `RoomTable`, global-search
-  `RoomIndex`, and the **Rooms** nav item — all object-permission scoped, reusing the
-  `0002_room` table. The map editor remains authoritative for room geometry (`sync_rooms`),
-  so native edits beyond `label`/`location`/`tags` are overwritten on the
-  editor's next save of that floor (last-writer-wins).
+- **REST API surface, no schema change** — `Room` carries a DRF REST API (`api/` subpackage,
+  with `RoomFilterSet`), object-permission scoped, reusing the `0002_room` table. (The
+  standalone browse UI — list/detail/edit/bulk, table, forms, `RoomIndex` global search, and
+  the **Rooms** nav item — was removed in `1.18.0` as redundant with the native Location
+  pages.) The map editor remains authoritative for room geometry (`sync_rooms`), so REST edits
+  beyond `label`/`location`/`tags` are overwritten on the editor's next save of that floor
+  (last-writer-wins).
 
 ---
 

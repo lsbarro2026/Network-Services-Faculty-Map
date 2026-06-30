@@ -3,6 +3,23 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.18.0 — Remove the redundant standalone Rooms browse UI
+- **The plugin's own "Rooms" menu page is gone.** Each `Room` is bound 1:1 to a
+  `dcim.Location`, so rooms are already browsable natively as Locations, and since 1.17.0 a
+  room's Location page already renders the cropped floor-plan preview + rack/device markers
+  (`template_content.FloorRooms`). The plugin's standalone Room list/detail/edit/bulk UI —
+  whose detail page just duplicated the Location-page preview — added little, so it was
+  removed: the **Rooms** nav item, the `rooms/*` routes, the six Room views, `forms.py`,
+  `tables.py`, the `room.html` detail template, and the `search.py` global-search index.
+- **Everything load-bearing is unchanged.** The `Room` model, its migrations, `sync_rooms`
+  (the map editor stays authoritative for geometry), the DRF REST API (`api/`, still
+  registered at `rooms`), `filtersets.RoomFilterSet`, `previews.py`, and the `FloorRooms`
+  Location-page panel all stay.
+- **`Room.get_absolute_url()` now resolves to the bound Location** (and to the map app for an
+  unbound room) instead of the removed detail route, so the REST API's `display_url`, the
+  changelog, and admin still resolve. No `collectstatic` needed (no static files changed);
+  restart the NetBox workers after upgrading.
+
 ## 1.17.0 — Room-fitted preview with rack/device markers
 - **A room's NetBox Location page now shows its floor-plan geometry, cropped to the room.**
   The `FloorRooms` panel (`template_content.py`) previously appeared only on a *floor*

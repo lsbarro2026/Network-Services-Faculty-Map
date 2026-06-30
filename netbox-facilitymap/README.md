@@ -29,12 +29,12 @@ tool or external build step.
   draws the floor plan with its room polygons, each linking to its bound room Location.
 - **Place racks/devices** in any room bound to a Location: inventory is fetched live from
   NetBox (`netbox/racks`, `netbox/devices`), restricted to the requester's object permissions.
-- **Native Room UI + REST.** Rooms have a **Rooms** nav item with a filterable list,
-  detail (with a polygon-over-floor preview), edit/delete, and bulk edit/delete; a REST API
-  at `/api/plugins/facilitymap/rooms/` (filter by `floor_key`/`location_id`);
-  and global-search coverage — all object-permission scoped. The **map editor stays
-  authoritative for room geometry**, so a native room create/edit is durable only until the
-  editor next saves that floor (last-writer-wins); native editing is best for
+- **Room REST API.** Rooms are exposed through a REST API at
+  `/api/plugins/facilitymap/rooms/` (filter by `floor_key`/`location_id`), object-permission
+  scoped. (There is no standalone Rooms browse page — rooms are reached via their bound
+  `dcim.Location`, whose page already shows the cropped preview.) The **map editor stays
+  authoritative for room geometry**, so a REST room create/edit is durable only until the
+  editor next saves that floor (last-writer-wins); REST editing is best for
   `label`/`location`/`tags`.
 
 ## Importing a facility
@@ -202,24 +202,20 @@ uninstall; delete that directory manually if you want them gone.
 ```
 netbox_facilitymap/
   __init__.py        FacilityMapConfig(PluginConfig) — version + render guardrails
-  navigation.py      Facility Map + Rooms nav items
-  urls.py            page mount + /api/ JSON endpoints + import/media + Room UI routes
-  views.py           MapView (full-bleed TemplateView) + Room list/detail/edit/delete/bulk
+  navigation.py      Facility Map nav item
+  urls.py            page mount + /api/ JSON endpoints + import/media routes
+  views.py           MapView (full-bleed TemplateView)
   frontend_api.py    AnnotationsView (compose/decompose) + blob GET/POST + ORM netbox reads
   imports.py         PDF import (upload/scan/build/reset) + authenticated manifest/media serving
   preprocess.py      PDF render engine (run as an isolated subprocess; pypdfium2 + Pillow)
   storage.py         work_dir() / safe_path() / media_url() helpers (MEDIA_ROOT working dir)
   api/               DRF REST API for Room (serializers, viewset, router) → /api/plugins/facilitymap/
   models.py          FacilityMapBlob (JSON docs) + Room (NetBoxModel, FK → dcim.Location)
-  filtersets.py      RoomFilterSet (shared by REST + UI list)
-  tables.py          RoomTable
-  forms.py           RoomForm / RoomFilterForm / RoomBulkEditForm
-  search.py          RoomIndex (global search)
+  filtersets.py      RoomFilterSet (used by the REST API)
   template_content.py  FloorRooms (room-polygon panel on the floor Location page)
   migrations/        0001_initial, 0002_room, 0003_backfill_rooms
   management/commands/facilitymap_import.py  (import a legacy JSON export)
   templates/netbox_facilitymap/index.html        (injects window.MAP)
   templates/netbox_facilitymap/floor_rooms.html  (the Location-page room overlay)
-  templates/netbox_facilitymap/room.html         (Room detail page + polygon preview)
   static/netbox_facilitymap/                     (framework-free frontend: JS/CSS/fonts)
 ```

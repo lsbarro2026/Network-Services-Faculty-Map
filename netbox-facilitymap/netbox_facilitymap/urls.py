@@ -1,24 +1,9 @@
 from django.urls import path
 
-from netbox.views.generic import ObjectChangeLogView
-
 from . import frontend_api, imports, views
-from .models import Room
 
 urlpatterns = [
     path('', views.MapView.as_view(), name='map'),
-
-    # Room: NetBox-native UI (Phase 5). The map editor remains authoritative for room
-    # geometry; these are the standard list/detail/edit/delete + bulk routes.
-    path('rooms/', views.RoomListView.as_view(), name='room_list'),
-    path('rooms/add/', views.RoomEditView.as_view(), name='room_add'),
-    path('rooms/edit/', views.RoomBulkEditView.as_view(), name='room_bulk_edit'),
-    path('rooms/delete/', views.RoomBulkDeleteView.as_view(), name='room_bulk_delete'),
-    path('rooms/<int:pk>/', views.RoomView.as_view(), name='room'),
-    path('rooms/<int:pk>/edit/', views.RoomEditView.as_view(), name='room_edit'),
-    path('rooms/<int:pk>/delete/', views.RoomDeleteView.as_view(), name='room_delete'),
-    path('rooms/<int:pk>/changelog/', ObjectChangeLogView.as_view(), {'model': Room},
-         name='room_changelog'),
 
     # Editor data (blob persistence) — same logical paths as the standalone server,
     # rooted here at /plugins/facilitymap/api/ (see window.MAP.api in index.html).

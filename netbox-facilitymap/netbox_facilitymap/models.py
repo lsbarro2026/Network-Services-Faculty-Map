@@ -74,5 +74,9 @@ class Room(NetBoxModel):
         return self.label or self.room_id
 
     def get_absolute_url(self):
-        # Phase 5 added a native detail view; link to it (list/table/search all rely on it).
-        return reverse('plugins:netbox_facilitymap:room', args=[self.pk])
+        # Rooms have no standalone page — the bound NetBox Location is their home, and the
+        # map editor owns the geometry. The REST API's `display_url`, the changelog, and
+        # admin all call this, so it must resolve. Fall back to the map app when unbound.
+        if self.location_id:
+            return self.location.get_absolute_url()
+        return reverse('plugins:netbox_facilitymap:map')
