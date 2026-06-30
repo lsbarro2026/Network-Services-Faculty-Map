@@ -45,7 +45,7 @@ class FloorRooms(PluginTemplateExtension):
         room = (Room.objects.restrict(request.user, 'view')
                 .filter(location=loc).select_related('location').first())
         if room:
-            return self._panel(room.floor_key, [room], crop_to=room)
+            return self._panel(room.floor_key, [room], crop_to=room, user=request.user)
 
         # Otherwise this Location *is a floor* (its slug keys some rooms) → show every room
         # on the floor, uncropped, each linking to its own room Location.
@@ -58,13 +58,14 @@ class FloorRooms(PluginTemplateExtension):
             .filter(floor_key=floor_key).select_related('location'))
         # An empty `rooms` is fine — a real floor with no rooms drawn still shows its plan.
         # `_panel` returns '' when `floor_key` has no rendered plan (i.e. not a floor at all).
-        return self._panel(floor_key, rooms, crop_to=None)
+        return self._panel(floor_key, rooms, crop_to=None, user=request.user)
 
-    def _panel(self, floor_key, rooms, crop_to):
+    def _panel(self, floor_key, rooms, crop_to, user):
         """Render the panel for `rooms` over their floor's plan image (all sheets, tiled).
         `crop_to` (a single Room) zooms the SVG `viewBox` to that room's bounding box and
         drops the per-room cross-links; `None` keeps the whole-floor view. `rooms` is already
-        `.restrict(...)`-scoped, so its room_ids keep the markers permission-bounded.
+        `.restrict(...)`-scoped, so its room_ids keep the markers permission-bounded; `user`
+        further permission-scopes the markers' rack/device detail links.
         Returns '' when `floor_key` has no rendered plan, so non-floor Locations show nothing."""
         geom = floor_sheets(floor_key)
         if not geom:
@@ -84,7 +85,7 @@ class FloorRooms(PluginTemplateExtension):
                 'url': '' if crop_to else (room.location.get_absolute_url() if room.location_id else ''),
             })
 
-        markers = placement_markers(floor_key, w, h, {r.room_id for r in rooms})
+        markers = placement_markers(floor_key, w, h, {r.room_id for r in rooms}, user)
 
         # On the cropped single-room embed, dim the floor outside the room's own polygon
         # (a spotlight mask, drawn in the template) so the room reads unambiguously even

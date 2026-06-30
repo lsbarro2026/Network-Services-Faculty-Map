@@ -3,6 +3,20 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.29.0 — Room-page embed: rack/device markers link to their NetBox page again
+- **Markers in the native room/floor embed are clickable once more.** The SPA's rack/device
+  markers open the object's NetBox detail page on click; the server-rendered `FloorRooms` embed
+  drew the same markers but never linked them. Each marker now wraps in an `<a target="_blank">`
+  to the rack/device's page, mirroring how the room polygons already link. The link is
+  **permission-scoped**: `previews.placement_markers` now takes the request `user` and resolves
+  each placement's stored PK through `Rack/Device.objects.restrict(user, 'view')`, using the
+  object's `get_absolute_url()`. A placement whose object was deleted since the last sync, or
+  which the user may not view, renders as a plain (unlinked) box rather than a dead link — no
+  query is widened past the existing object-permission scope.
+- Touches `previews.py` + `template_content.py` (Python) and `inc/placement_markers.html`
+  (template), so **restart the NetBox workers** (no `collectstatic` needed — the template isn't a
+  static asset).
+
 ## 1.28.0 — Room-page embed spotlights only its own room
 - **The map panel on a room's Location page now dims the rest of the floor.** The cropped
   single-room embed already drew a green overlay on only the bound room, but the zoomed crop

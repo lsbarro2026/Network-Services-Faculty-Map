@@ -1510,7 +1510,14 @@ point at the deep treatment.
   `inc/placement_markers.html` partial. These are deliberately *not* the JS `DeviceShapes`
   glyphs (those have no Python equivalent); re-tune them there if fidelity matters. Markers are
   permission-scoped: the helper filters to the caller's `room_ids` (the floor panel passes its
-  `.restrict(...)`-scoped room set; the single-room panel passes the one room).
+  `.restrict(...)`-scoped room set; the single-room panel passes the one room). Each marker also
+  **links to its rack/device's NetBox page** (restoring the SPA's click-through): `placement_markers`
+  takes the request `user` (threaded through `FloorRooms._panel`) and bulk-resolves the placements'
+  stored PKs through `Rack/Device.objects.restrict(user, 'view')`, taking each object's
+  `get_absolute_url()` (so url-name drift across the NetBox span is a non-issue). A placement whose
+  object was deleted since the last sync, or which the user may not view, resolves to no `url` and the
+  partial renders it as a plain box — the `inc/placement_markers.html` wrap on `m.url` mirrors the
+  room polygons' `s.url` wrap.
 - **The single-room views crop** via `previews.room_viewbox(polygon, w, h, zoom=…)` (the polygon's
   padded bounding box, then scaled ×`zoom` about the room's centre so the preview shows surrounding
   floor context, and clamped to the floor's `0..w`×`0..h` extent so

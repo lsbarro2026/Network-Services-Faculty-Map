@@ -15,6 +15,8 @@ floor's *combined* canvas (the tiled grid of sheets); callers scale them by the 
 
 import json
 
+from dcim.models import Device, Rack
+
 from .models import FacilityMapBlob
 from .storage import MANIFEST_NAME, media_url, work_dir
 
@@ -126,14 +128,21 @@ def floor_sheets(floor_key):
     return {'sheets': sheets, 'w': cols * cell_w, 'h': rows * cell_h}
 
 
-def placement_markers(floor_key, w, h, room_ids):
+def placement_markers(floor_key, w, h, room_ids, user):
     """Marker dicts for the placements on `floor_key` whose room is in `room_ids`.
 
     `room_ids` (a set/iterable of `Room.room_id` strings) both selects which rooms' markers
     to draw and object-permission-scopes the result — callers pass only rooms the user may
     view. Each returned dict is pre-computed for direct template rendering: a `transform`
-    that centers + rotates the marker, the centered rect attrs, the label, and a baseline
-    `y` for the label below the box.
+    that centers + rotates the marker, the centered rect attrs, the label, a baseline `y`
+    for the label below the box, and a `url` linking to the rack/device's NetBox detail page.
+
+    The `url` is itself permission-scoped to `user`: each placement stores the NetBox PK
+    (`id`) and `kind` of the rack/device it represents, so we bulk-resolve those PKs through
+    `Rack/Device.objects.restrict(user, 'view')` and take each object's `get_absolute_url()`
+    (which sidesteps url-name drift across the supported NetBox span). A placement whose
+    object was deleted since the last sync, or which the user may not view, gets `url=''` —
+    rendered as a plain box, not a dead link.
     """
     room_ids = set(room_ids)
     if not room_ids:
@@ -141,10 +150,19 @@ def placement_markers(floor_key, w, h, room_ids):
     blob = FacilityMapBlob.objects.filter(kind='placements', key='').first()
     placements = (((blob.data or {}).get(floor_key) if blob else None) or {}).get('placements') or []
 
+    selected = [p for p in placements if p.get('room') in room_ids]
+
+    # Bulk-resolve a permission-scoped detail URL per referenced rack/device (two queries,
+    # not one per marker). A PK missing from the map (deleted/forbidden) yields no link.
+    rack_ids = {p['id'] for p in selected if p.get('kind') == 'rack' and p.get('id') is not None}
+    device_ids = {p['id'] for p in selected if p.get('kind') != 'rack' and p.get('id') is not None}
+    rack_urls = {r.pk: r.get_absolute_url()
+                 for r in Rack.objects.restrict(user, 'view').filter(pk__in=rack_ids)} if rack_ids else {}
+    device_urls = {d.pk: d.get_absolute_url()
+                   for d in Device.objects.restrict(user, 'view').filter(pk__in=device_ids)} if device_ids else {}
+
     markers = []
-    for p in placements:
-        if p.get('room') not in room_ids:
-            continue
+    for p in selected:
         is_rack = p.get('kind') == 'rack'
         dw, dh = _RACK_BOX if is_rack else _DEVICE_BOX
         wpx = p['w'] * w if p.get('w') is not None else dw
@@ -159,6 +177,7 @@ def placement_markers(floor_key, w, h, room_ids):
             'label': p.get('label') or '',
             'label_y': f'{hpx / 2 + 12:.1f}',
             'is_rack': is_rack,
+            'url': (rack_urls if is_rack else device_urls).get(p.get('id'), ''),
         })
     return markers
 
