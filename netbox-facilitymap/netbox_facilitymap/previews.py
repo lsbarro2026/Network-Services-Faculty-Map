@@ -59,12 +59,17 @@ def placement_markers(floor_key, w, h, room_ids):
     return markers
 
 
-def room_viewbox(polygon, w, h, pad=0.08):
+def room_viewbox(polygon, w, h, pad=0.08, zoom=2.0):
     """SVG `viewBox` string cropping a single room's polygon, or None if it has no points.
 
     Bounding box of the normalized polygon scaled by `w`×`h`, padded by `pad` of the larger
-    side (with a small px floor so a tiny room still gets margin). Returned as
-    "minx miny width height"; the caller falls back to the full floor view on None.
+    side (with a small px floor so a tiny room still gets margin), then the whole box is
+    scaled about the room's centre by `zoom` to pull surrounding floor into view — `zoom=1`
+    is the tight pad-only crop; the default `2` doubles each visible side (~4× the area). The
+    box is finally clamped to the floor's `0..w`×`0..h` extent so a room near an edge shows
+    real floor rather than blank space past the image (a box larger than the floor on an axis
+    just falls back to that axis's full extent). Returned as "minx miny width height"; the
+    caller falls back to the full floor view on None.
     """
     if not polygon:
         return None
@@ -72,6 +77,9 @@ def room_viewbox(polygon, w, h, pad=0.08):
     ys = [y * h for _, y in polygon]
     minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
     margin = max(max((maxx - minx), (maxy - miny)) * pad, 8)
-    bw = (maxx - minx) + 2 * margin
-    bh = (maxy - miny) + 2 * margin
-    return f'{minx - margin:.1f} {miny - margin:.1f} {bw:.1f} {bh:.1f}'
+    cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
+    bw = min(((maxx - minx) + 2 * margin) * zoom, w)
+    bh = min(((maxy - miny) + 2 * margin) * zoom, h)
+    bx = min(max(cx - bw / 2, 0), w - bw)
+    by = min(max(cy - bh / 2, 0), h - bh)
+    return f'{bx:.1f} {by:.1f} {bw:.1f} {bh:.1f}'

@@ -1441,10 +1441,12 @@ point at the deep treatment.
   permission-scoped: the helper filters to the caller's `room_ids` (the floor panel passes its
   `.restrict(...)`-scoped room set; the single-room panel and the Room page pass the one room).
 - **The single-room views crop** via `previews.room_viewbox(polygon, w, h)` (the polygon's
-  padded bounding box) set as the SVG `viewBox` while the `<image>` stays full-floor, so only
-  the window zooms in — empty-polygon rooms fall back to `0 0 vw vh`. The whole-floor panel
-  can't crop (many rooms, one SVG). Markers inherit the same multi-sheet sheet-1 caveat as the
-  polygons.
+  padded bounding box, then scaled ×`zoom` — default `2` — about the room's centre so the
+  preview shows surrounding floor context, and clamped to the floor's `0..w`×`0..h` extent so
+  an edge room shows real floor not blank space) set as the SVG `viewBox` while the `<image>`
+  stays full-floor, so only the window zooms in — empty-polygon rooms fall back to
+  `0 0 vw vh`. The whole-floor panel can't crop (many rooms, one SVG). Markers inherit the
+  same multi-sheet sheet-1 caveat as the polygons.
 
 ### Node editing (`Editor.drawVertices`)
 
