@@ -84,6 +84,7 @@ netbox-facilitymap/
     imports.py              # NEW: PDF import pipeline (Upload/Scan/Build/Reset) + Manifest/Media serving
     preprocess.py           # NEW here: render engine (Preprocessor; scan|build|preview) — run as a SUBPROCESS
     storage.py              # NEW: work_dir() / safe_path() / media_url() (working-dir + traversal guard)
+    backup.py               # opt-in plugin-scoped backup/restore: DB rows + working dir -> .tar.gz, FIFO-pruned
     models.py               # FacilityMapBlob (editor JSON) + Room (NetBoxModel: room polygon → Location)
     template_content.py     # PluginTemplateExtensions: FloorRooms (rooms panel on the Location page) + SiteFloors (floor-picker grid on the Site page)
     dashboard.py            # FacilityMapWidget: home-dashboard widget that iframes the SPA (registered in __init__.ready())
@@ -92,7 +93,9 @@ netbox-facilitymap/
     filtersets.py           # RoomFilterSet (used by the DRF REST API)
     api/                    # DRF REST API for Room (serializers.py / views.py / urls.py)
     management/commands/
-      facilitymap_import.py # one-shot: import the old tool's JSON files into the stores
+      facilitymap_import.py  # one-shot: import the old tool's JSON files into the stores
+      facilitymap_backup.py  # opt-in: write a backup .tar.gz (DB rows + working dir), then FIFO-prune
+      facilitymap_restore.py # opt-in: restore from a backup .tar.gz (destructive full replace)
     migrations/             # FacilityMapBlob + Room schema
     templates/netbox_facilitymap/
       index.html            # the SPA shell; injects window.MAP; loads the JS in dependency order
@@ -1004,6 +1007,30 @@ read-only at runtime), so it lives under NetBox's `MEDIA_ROOT`.
 - Constants: `MANIFEST_NAME` (`manifest.json`), `EMPTY_MANIFEST`, `SERVE_ROOTS`
   (`('images','uploads')` — the only subtrees `MediaView` will serve).
 
+### backup.py — opt-in plugin-scoped backup / restore
+A self-contained backup of just the plugin's data, for sites that don't run a whole-NetBox
+backup (`pg_dump` + a copy of `MEDIA_ROOT` already captures it otherwise). **Opt-in and
+invisible**: no UI, no route, no scheduled job, no app-ready hook — only the two management
+commands call it. Django + stdlib only (no new runtime deps).
+- **`create_backup()`** — writes one `facilitymap-backup-<YYYYMMDD-HHMMSS>.tar.gz` to
+  `backup_dir()`: a member `db.json` (`serializers.serialize` of all `FacilityMapBlob` then
+  `Room` rows — blobs first so the `Room.location` FK resolves on restore) plus `workdir/…`
+  (a tar of `storage.work_dir()`, minus the regenerable `.import.lock`/`.thumbs`). Then calls
+  `prune_backups()`. Dir is `0700`, files `0600`.
+- **`backup_dir()`** — `backup_dir` plugin setting, or `<MEDIA_ROOT>/facilitymap-backups` when
+  unset (under `MEDIA_ROOT` so a media backup sweeps the archives up too). Created lazily.
+- **`prune_backups()`** — FIFO: delete oldest archives (lexical filename sort == chronological,
+  by the timestamp) until the dir is under `backup_max_mb`, but **never** the newest. Returns a
+  summary (`removed`/`total_bytes`/`over_cap_kept`); `over_cap_kept` flags that the surviving
+  newest backup is itself larger than the cap.
+- **`restore_backup(src)`** — destructive full replace (the trusted CLI path, not the editor's
+  user-scoped `sync_rooms`): traversal-guards the archive members, then inside
+  `transaction.atomic()` deletes all `FacilityMapBlob`+`Room` and re-saves the serialized rows
+  (PKs preserved), and swaps in the `workdir/` tree (extract to a same-filesystem temp dir, then
+  rename). Same-instance restore (`Room.location` ids must still exist).
+- Settings (`PLUGINS_CONFIG`, defaults in `__init__.py`): `backup_dir` (None → the sibling
+  above) and `backup_max_mb` (default 1024).
+
 ### Routes (`urls.py`, mounted at `/plugins/facilitymap/`)
 | Method | Path | View | Auth |
 |---|---|---|---|
@@ -1033,7 +1060,9 @@ A separate **DRF REST API** for `Room` (browsable/programmatic) lives under
 `/api/plugins/facilitymap/`. The `facilitymap_import` management command
 (`management/commands/`) is the one-shot importer of the old tool's JSON files into the
 blob/Room stores (reuses `api._split_annotations`/`sync_rooms`, the latter with
-`user=None`).
+`user=None`). Two more commands wrap `backup.py`: `facilitymap_backup` (write a backup
+`.tar.gz`, then FIFO-prune) and `facilitymap_restore --src <file>` (destructive full
+restore, confirmation-gated).
 
 ---
 
@@ -1417,6 +1446,15 @@ point at the deep treatment.
   `X-Frame-Options`) — keep it image-based. `PreviewView` renders a single file **without the
   import lock**, so a preview never 409s against an in-flight scan; the `.full.png` cache lives
   under `.thumbs`, which `scan` skips and `reset` wipes.
+- **Backups never live in the package tree or the working dir** (`backup.py`). The package
+  `static/` tree is wiped by `pip upgrade`/`collectstatic`, and the working dir is actively
+  regenerated by the import pipeline (`images/`/`manifest.json` rebuilt; `reset` wipes it) — so
+  a backup in either would be clobbered. They go to `backup_dir` (default
+  `<MEDIA_ROOT>/facilitymap-backups`, a sibling of the working dir, `0700`/`0600`). Backups are
+  **opt-in** (only the `facilitymap_backup`/`facilitymap_restore` commands; nothing auto-runs)
+  and **never served** (no route — they hold user data). `facilitymap_restore` is a **destructive
+  full replace** (delete-all + re-save, in a transaction), the trusted-operator counterpart to
+  the editor's user-scoped `sync_rooms`; don't route it through `restrict()` or a public endpoint.
 
 ### Multi-sheet floors
 

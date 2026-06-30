@@ -3,6 +3,24 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.30.0 — Opt-in plugin-scoped backups (rotate + restore)
+- **New `facilitymap_backup` / `facilitymap_restore` management commands.** A self-contained
+  backup of just the plugin's data — the `FacilityMapBlob` + `Room` rows (a Django-serialized
+  `db.json`) plus a tar of the working dir (images/manifest/uploads) — written as a single
+  timestamped `.tar.gz`. `facilitymap_backup` writes one archive then **FIFO-prunes** the backup
+  dir: oldest archives are deleted once the dir exceeds `backup_max_mb` (default 1024), always
+  keeping at least the newest. `facilitymap_restore --src <file>` is the destructive inverse
+  (full replace of rows + working dir, in a transaction, confirmation-gated).
+- **Entirely opt-in and invisible** until sought: no UI, no nav item, no scheduled job, no
+  app-ready hook — nothing runs unless an operator invokes a command (e.g. from cron; the README
+  has a copy-paste nightly entry). The backup dir is created lazily (`0700`, `0600` files) on the
+  first run. Note a standard whole-NetBox backup (`pg_dump` + a copy of `MEDIA_ROOT`) already
+  captures the plugin's data, so this is the granular alternative for sites that don't run one.
+- **New logic in `backup.py`** (Django + stdlib only — no new runtime deps, `preprocess.py`
+  untouched) and two `PLUGINS_CONFIG` settings: `backup_dir` (default
+  `<MEDIA_ROOT>/facilitymap-backups`, so a media backup sweeps the archives up too) and
+  `backup_max_mb`. Adding a Python module + commands, so **restart the NetBox workers**.
+
 ## 1.29.0 — Room-page embed: rack/device markers link to their NetBox page again
 - **Markers in the native room/floor embed are clickable once more.** The SPA's rack/device
   markers open the object's NetBox detail page on click; the server-rendered `FloorRooms` embed

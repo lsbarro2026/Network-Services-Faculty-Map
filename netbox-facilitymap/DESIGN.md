@@ -282,6 +282,21 @@ class FacilityMapBlob(models.Model):
   pages.) The map editor remains authoritative for room geometry (`sync_rooms`), so REST edits
   beyond `label`/`location`/`tags` are overwritten on the editor's next save of that floor
   (last-writer-wins).
+- **Opt-in plugin-scoped backups (`backup.py`, `1.30.0`).** The plugin's data spans the DB
+  (the rows above) and the working dir (§7 — floor images/manifest/uploads). A standard
+  whole-NetBox backup (`pg_dump` + a copy of `MEDIA_ROOT`) already captures both — NetBox ships
+  no built-in backup, so that is the operator's job — and is the recommended path. For sites that
+  don't run one, `facilitymap_backup` writes a self-contained `.tar.gz` (a `serializers` dump of
+  `FacilityMapBlob`+`Room` as `db.json` + a tar of the working dir) and FIFO-prunes the backup
+  dir to `backup_max_mb`; `facilitymap_restore` is the destructive inverse. **Storage posture:**
+  backups go to `backup_dir` (default `<MEDIA_ROOT>/facilitymap-backups`) — outside the package
+  (survives `pip upgrade`/`collectstatic`) and outside the import-managed working dir (never
+  clobbered by a `build`/`reset`), under `MEDIA_ROOT` so a media backup sweeps them up too.
+  **Security posture:** the dir is `0700` and files `0600` (user data); nothing is served (no
+  route); the feature is entirely opt-in (no UI, no scheduled job, no app-ready hook) — invisible
+  until an operator runs a command; restore is a trusted full replace wrapped in
+  `transaction.atomic()`, not the editor's user-scoped `sync_rooms`. Django + stdlib only — no
+  new runtime deps, and `preprocess.py` stays untouched.
 
 ---
 

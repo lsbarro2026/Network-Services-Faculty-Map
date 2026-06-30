@@ -135,6 +135,8 @@ PLUGINS_CONFIG = {
         "max_zip_uncompressed_mb": 2048,  # cumulative decompressed cap (zip-bomb guard)
         "render_timeout_s": 300,  # kill the render subprocess after this long
         "render_mem_mb": 4096,    # RLIMIT_AS for the render subprocess (POSIX)
+        # "backup_dir": "/var/backups/facilitymap",  # default: <MEDIA_ROOT>/facilitymap-backups
+        "backup_max_mb": 1024,    # prune oldest backups once the dir exceeds this (newest always kept)
     },
 }
 ```
@@ -213,11 +215,53 @@ python /opt/netbox/netbox/manage.py migrate netbox_facilitymap zero
 Rendered images and uploads under `<MEDIA_ROOT>/netbox_facilitymap/` are not removed by
 uninstall; delete that directory manually if you want them gone.
 
+## Backups (optional)
+
+You probably don't need this. The plugin's data — the `FacilityMapBlob` + `Room` rows in the
+NetBox database, and the floor images/manifest/uploads under `MEDIA_ROOT` — is already captured
+by any standard whole-NetBox backup: a `pg_dump` of the database plus a copy of `MEDIA_ROOT`
+(NetBox has no built-in backup, so [running one is the operator's job](https://netboxlabs.com/docs/netbox/administration/replicating-netbox/)).
+**If you do that, the map is covered and you can skip this section.**
+
+For sites that *don't* run a whole-NetBox backup, the plugin ships an opt-in, self-contained
+backup of just its own data. It is invisible until you reach for it: no UI, no scheduled job,
+nothing runs on its own.
+
+```bash
+# Write one timestamped backup (DB rows + working-dir files) to the backup dir:
+python /opt/netbox/netbox/manage.py facilitymap_backup
+```
+
+Each run writes a single `facilitymap-backup-YYYYMMDD-HHMMSS.tar.gz`, then FIFO-prunes the
+backup dir — deleting the oldest archives once the dir exceeds `backup_max_mb` (default
+**1024 MB**), always keeping at least the newest. Backups are written to `backup_dir` (default
+`<MEDIA_ROOT>/facilitymap-backups`, created `0700` with `0600` files), which sits under
+`MEDIA_ROOT` so a whole-NetBox media backup sweeps them up too; set `backup_dir` to relocate
+them. Both knobs are `PLUGINS_CONFIG` settings (see Security model).
+
+**Nightly schedule** — the command doesn't schedule itself; add one cron line as the NetBox
+service user (this is the only setup):
+
+```cron
+# 02:30 every night
+30 2 * * *  /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py facilitymap_backup >> /var/log/facilitymap-backup.log 2>&1
+```
+
+**Restore** is a separate, **destructive** command — it replaces *all* current rooms/blobs and
+working-dir files with the archive's contents. Restore into the same NetBox instance the backup
+came from (room→Location links reference live Location ids):
+
+```bash
+python /opt/netbox/netbox/manage.py facilitymap_restore --src /path/to/facilitymap-backup-20260630-023000.tar.gz
+# prompts for confirmation; add --noinput for unattended use
+sudo systemctl restart netbox netbox-rq
+```
+
 ## Layout
 
 ```
 netbox_facilitymap/
-  __init__.py        FacilityMapConfig(PluginConfig) — version + render guardrails
+  __init__.py        FacilityMapConfig(PluginConfig) — version + render/backup guardrails
   navigation.py      Facility Map + Settings nav items
   urls.py            page mount + settings + /api/ JSON endpoints + import/media routes
   views.py           MapView (full-bleed TemplateView) + SettingsView (plugin settings)
@@ -225,12 +269,15 @@ netbox_facilitymap/
   imports.py         PDF import (upload/scan/build/reset) + authenticated manifest/media serving
   preprocess.py      PDF render engine (run as an isolated subprocess; pypdfium2 + Pillow)
   storage.py         work_dir() / safe_path() / media_url() helpers (MEDIA_ROOT working dir)
+  backup.py          opt-in plugin-scoped backup/restore (DB rows + working dir → .tar.gz)
   api/               DRF REST API for Room (serializers, viewset, router) → /api/plugins/facilitymap/
   models.py          FacilityMapBlob (JSON docs) + Room (NetBoxModel, FK → dcim.Location)
   filtersets.py      RoomFilterSet (used by the REST API)
   template_content.py  FloorRooms (room-polygon panel on the floor Location page)
   migrations/        0001_initial, 0002_room, 0003_backfill_rooms
-  management/commands/facilitymap_import.py  (import a legacy JSON export)
+  management/commands/facilitymap_import.py   (import a legacy JSON export)
+  management/commands/facilitymap_backup.py   (write a backup .tar.gz, then FIFO-prune)
+  management/commands/facilitymap_restore.py  (restore from a backup .tar.gz — destructive)
   templates/netbox_facilitymap/index.html        (injects window.MAP)
   templates/netbox_facilitymap/floor_rooms.html  (the Location-page room overlay)
   static/netbox_facilitymap/                     (framework-free frontend: JS/CSS/fonts)

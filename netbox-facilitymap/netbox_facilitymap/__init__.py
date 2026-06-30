@@ -16,7 +16,7 @@ class FacilityMapConfig(PluginConfig):
     name = 'netbox_facilitymap'
     verbose_name = 'Facility Map'
     description = 'Navigable siteplan → building → floor → room map linked to NetBox Locations'
-    version = '1.29.0'
+    version = '1.30.0'
     author = 'Facility Map'
     author_email = ''
     base_url = 'facilitymap'
@@ -35,6 +35,11 @@ class FacilityMapConfig(PluginConfig):
         'max_zip_uncompressed_mb': 2048,  # cumulative decompressed cap (zip-bomb guard)
         'render_timeout_s': 300,  # kill the render subprocess after this many seconds
         'render_mem_mb': 4096,   # RLIMIT_AS for the render subprocess (POSIX)
+        # Opt-in backups (run `facilitymap_backup`/`facilitymap_restore`; nothing runs on its
+        # own). `backup_dir=None` means "<MEDIA_ROOT>/facilitymap-backups" (resolved in
+        # backup.py); `backup_max_mb` caps the dir, FIFO-pruned oldest-first on every backup.
+        'backup_dir': None,      # writable dir for backup .tar.gz files (None → MEDIA_ROOT sibling)
+        'backup_max_mb': 1024,   # prune oldest backups once the dir exceeds this (newest always kept)
     }
 
     def ready(self):
