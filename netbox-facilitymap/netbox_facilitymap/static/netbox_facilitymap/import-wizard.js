@@ -1005,7 +1005,7 @@ class ImportWizard {
           Dom.el('div', { class: 'nm' }, loc.name),
           Dom.el('div', { class: 'sl' }, loc.slug),
         ]);
-        item.onclick = () => this._addFloor(b, a, loc);
+        item.onclick = async () => { await this._addFloor(b, a, loc); };
         list.append(item);
       }
     };
@@ -1024,12 +1024,13 @@ class ImportWizard {
    *  beside the auto-detected floors; the writes to `a` mirror clicking a normal Location button.
    *  Once a drawing references the token it survives a resume — `_loadFloors` rebuilds `nbFloors`
    *  each load but `_mergeAssignedFloors` re-adds floors referenced by a persisted assignment. */
-  _addFloor(b, a, loc) {
+  async _addFloor(b, a, loc) {
     if (!b.nbFloors.some(f => f.slug === loc.slug)) {
       b.nbFloors.push({ id: loc.id, name: loc.name, slug: loc.slug, parent: loc.parent });
       b.nbFloors.sort((x, y) => (x.name || '').localeCompare(y.name || '', undefined, { numeric: true }));
     }
     a.token = loc.slug; a.label = loc.name; a.type = 'level';
+    await this._saveDraft();
     this._stepMap();
   }
 
