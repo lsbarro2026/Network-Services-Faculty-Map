@@ -4,8 +4,10 @@
   which isn't loaded on dcim pages.
 {% endcomment %}
 <div class="card">
-  {# Title links into the facility map tool, deep-linked to this floor. Inline-styled (no
-     plugin stylesheet on dcim pages); plain text when no map URL resolved. #}
+  {% comment %}
+    Title links into the facility map tool, deep-linked to this floor. Inline-styled (no
+    plugin stylesheet on dcim pages); plain text when no map URL resolved.
+  {% endcomment %}
   <h5 class="card-header">{% if map_url %}<a href="{{ map_url }}" target="_blank" style="color:inherit;text-decoration:none" title="Open in facility map">Facility Map — Rooms</a>{% else %}Facility Map — Rooms{% endif %}</h5>
   <div class="card-body">
     {# `viewbox` (set for a single bound room) crops to that room; otherwise show the whole floor. #}

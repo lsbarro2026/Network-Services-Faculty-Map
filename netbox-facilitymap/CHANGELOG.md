@@ -3,6 +3,17 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.23.2 — Fix stray `{# … #}` comment text rendering in templates
+- **Multi-line `{# … #}` comments no longer render as visible text.** Django's `{# … #}` comment
+  syntax is **single-line only** — a comment spanning two or more lines isn't recognized and is
+  emitted verbatim. Two such comments leaked their text onto the page:
+  - `floor_rooms.html` showed `{# Title links into the facility map tool… #}` above the embedded
+    room map on a floor's `dcim.Location` page.
+  - `index.html` (the `{% if embed %}` head block) emitted its hide-chrome note into the
+    dashboard-widget iframe.
+- **Both are now `{% comment %}…{% endcomment %}` blocks**, which is multi-line-safe. Single-line
+  `{# … #}` comments elsewhere are unaffected.
+
 ## 1.23.1 — Fix phantom "Roof /" / "Ground /" prefix on floor-card labels
 - **Floor cards no longer get a spurious "Roof / " (or "Ground / ") prefix.** A floor mapped to
   a NetBox Location (the wizard's Location mode) uses that Location's **slug** as its floor

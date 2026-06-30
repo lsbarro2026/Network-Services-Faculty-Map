@@ -5,11 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Facility Map</title>
 <link rel="stylesheet" href="{% static 'netbox_facilitymap/style.css' %}"/>
-{% if embed %}{# Embedded in a dashboard-widget iframe: a chrome-free map that fills the card.
+{% if embed %}{% comment %}
+   Embedded in a dashboard-widget iframe: a chrome-free map that fills the card.
    Hide the chrome and let the stage fill. Pan/zoom is JS-gated (window.MAP.interactive) — not
    CSS, since the .catcher sets inline pointer-events:all — and the legend is hidden unless the
-   widget opts in. #}
-<style>#topbar,#panel,#toast{display:none!important}#stage{position:absolute;inset:0}{% if not legend %}.legend{display:none!important}{% endif %}</style>{% endif %}
+   widget opts in.
+{% endcomment %}<style>#topbar,#panel,#toast{display:none!important}#stage{position:absolute;inset:0}{% if not legend %}.legend{display:none!important}{% endif %}</style>{% endif %}
 </head>
 <body>
 
