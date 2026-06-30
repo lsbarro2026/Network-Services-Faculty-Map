@@ -48,7 +48,11 @@ Rather than a one-way projection, `Room` is authoritative: `api.AnnotationsView`
 the whole-document shape on GET (blob floors + `Room` rows merged back under `rooms`) and
 *decomposes* a POST (rooms → rows via `sync_rooms`, the rest → the blob), so the
 framework-free frontend and the JSON export round-trip unchanged. A `PluginTemplateExtension`
-(`template_content.FloorRooms`) draws the room polygons on the floor's `dcim.Location` page.
+(`template_content.FloorRooms`) draws the room polygons on the floor's `dcim.Location` page,
+and the native **Room** detail page (`RoomView`) draws the same polygon **cropped to that
+room**. Both pages also overlay the floor's rack/device **placement markers** (MVP styled
+boxes — `previews.placement_markers`; not the JS `DeviceShapes` glyphs), built server-side
+from the `placements` blob and permission-scoped to the visible room(s).
 `Room` also carries the full NetBox-native surface — DRF REST API, UI list/detail/edit/delete
 + bulk, filterset, table, global search, and a **Rooms** nav item — all object-permission
 scoped, with **no schema change** beyond the `0002_room` table. The map editor's `sync_rooms`
@@ -129,6 +133,7 @@ netbox-facilitymap/                      # distribution root
     filtersets.py  tables.py  forms.py   # RoomFilterSet / RoomTable / Room*Form
     search.py                            # RoomIndex (global search)
     template_content.py                  # FloorRooms (room panel on the floor Location page)
+    previews.py                          # room/Location preview helpers (placement markers + room-crop viewBox)
     api/                                 # DRF REST API for Room
       serializers.py  views.py  urls.py  # RoomSerializer + RoomViewSet + NetBoxRouter
     management/
@@ -138,7 +143,8 @@ netbox-facilitymap/                      # distribution root
     templates/netbox_facilitymap/
       index.html                         # injects window.MAP (api/media/static/csrf)
       floor_rooms.html                   # the Location-page room overlay
-      room.html                          # Room detail page + polygon preview
+      room.html                          # Room detail page + room-cropped polygon preview
+      inc/placement_markers.html         # shared rack/device marker boxes (room.html + floor_rooms.html)
     static/netbox_facilitymap/           # framework-free frontend only (no facility data)
       lib.js device-shapes.js netbox.js store.js grid.js panzoom.js
       editor.js floor-editor.js siteplan-editor.js import-wizard.js app.js

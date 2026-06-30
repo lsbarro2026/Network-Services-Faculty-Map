@@ -3,6 +3,23 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.17.0 — Room-fitted preview with rack/device markers
+- **The Room detail page preview now crops to the room.** Instead of the whole floor with a
+  polygon outline, `RoomView` sets the SVG `viewBox` to the room polygon's (padded) bounding
+  box, so the page shows just that room's region of the plan zoomed in. Unbound/empty-polygon
+  rooms fall back to the full-floor view.
+- **Both native previews now draw the rack/device placements.** The Room page (that room's
+  markers) and the floor **Location** panel (`template_content.FloorRooms`, all visible rooms'
+  markers) overlay a marker per placement — a styled box (rack vs device) at the placement's
+  position/rotation/size with its label. These are an **MVP**: simple boxes rendered
+  server-side from the `placements` blob, *not* the schematic `DeviceShapes` glyphs (those
+  live only in the JS editor). Markers are permission-scoped to the rooms the user may view.
+- New server-side helper module `previews.py` (`placement_markers` + `room_viewbox`), shared
+  by `views.RoomView` and `template_content.FloorRooms`; markers render via the shared
+  `templates/.../inc/placement_markers.html` partial. No new runtime dependencies; no
+  `collectstatic` needed (no static files changed). Multi-sheet floors keep the existing
+  sheet-1-only caveat (geometry is over the combined canvas).
+
 ## 1.16.0 — Smaller, more coherent device markers
 - **Unracked device glyphs are re-sized so none out-sizes a rack.** Several device
   defaults used to be *wider than a whole rack cabinet* — most visibly the **PDU/outlet**

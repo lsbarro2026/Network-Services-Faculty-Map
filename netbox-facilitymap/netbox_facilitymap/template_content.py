@@ -18,6 +18,7 @@ import json
 from netbox.plugins import PluginTemplateExtension
 
 from .models import FacilityMapBlob, Room
+from .previews import placement_markers
 from .storage import MANIFEST_NAME, media_url, work_dir
 
 
@@ -73,11 +74,16 @@ class FloorRooms(PluginTemplateExtension):
                 'url': room.location.get_absolute_url() if room.location_id else '',
             })
 
+        # Markers for every visible room on this floor (the `rooms` queryset is already
+        # `.restrict(...)`-scoped, so passing its room_ids keeps the panel permission-bounded).
+        markers = placement_markers(floor_key, w, h, {r.room_id for r in rooms})
+
         return self.render('netbox_facilitymap/floor_rooms.html', extra_context={
             'vw': w,
             'vh': h,
             'image_url': media_url(image),
             'shapes': shapes,
+            'markers': markers,
             'multisheet': _page_counts().get(floor_key, 0) > 1,
         })
 

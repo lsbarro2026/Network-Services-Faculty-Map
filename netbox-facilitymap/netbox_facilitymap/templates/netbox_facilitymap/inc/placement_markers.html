@@ -1,0 +1,14 @@
+{# Rack/device placement markers (MVP boxes), shared by room.html and floor_rooms.html.
+   Expects `markers` (from previews.placement_markers): pre-computed transform + centered
+   rect attrs + label. Styling is inline because neither host page loads the plugin CSS. #}
+{% for m in markers %}
+  <g transform="{{ m.transform }}">
+    <rect x="{{ m.x }}" y="{{ m.y }}" width="{{ m.w }}" height="{{ m.h }}" rx="2"
+          vector-effect="non-scaling-stroke"
+          style="{% if m.is_rack %}fill:#cfd6e0;stroke:#57606a{% else %}fill:#ddf4ff;stroke:#0969da{% endif %};stroke-width:1.5"/>
+    {% if m.label %}
+      <text x="0" y="{{ m.label_y }}" text-anchor="middle"
+            style="font:600 11px sans-serif;paint-order:stroke;stroke:#fff;stroke-width:3px;fill:#1a1a1a">{{ m.label }}</text>
+    {% endif %}
+  </g>
+{% endfor %}

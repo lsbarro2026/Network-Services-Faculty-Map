@@ -18,6 +18,7 @@
         </polygon>
         {% if s.url %}</a>{% endif %}
       {% endfor %}
+      {% include 'netbox_facilitymap/inc/placement_markers.html' %}
     </svg>
     {% if multisheet %}
       <p class="text-muted small mt-2 mb-0">

@@ -41,7 +41,10 @@
     <div class="card">
       <h5 class="card-header">Geometry</h5>
       <div class="card-body">
-        <svg viewBox="0 0 {{ vw }} {{ vh }}" preserveAspectRatio="xMidYMid meet"
+        {# viewBox crops to the room's bounding box (RoomView emits `viewbox`); the image and
+           overlays stay in full-floor coords, so only the visible window zooms in. #}
+        <svg viewBox="{% if viewbox %}{{ viewbox }}{% else %}0 0 {{ vw }} {{ vh }}{% endif %}"
+             preserveAspectRatio="xMidYMid meet"
              style="width:100%;height:auto;border:1px solid #ccc;background:#f4f5f7">
           {% if image_url %}
             <image href="{{ image_url }}" x="0" y="0" width="{{ vw }}" height="{{ vh }}"/>
@@ -51,6 +54,7 @@
                      fill="#2fa84f22" stroke="#2fa84f"
                      stroke-width="2" vector-effect="non-scaling-stroke"/>
           {% endif %}
+          {% include 'netbox_facilitymap/inc/placement_markers.html' %}
         </svg>
       </div>
     </div>

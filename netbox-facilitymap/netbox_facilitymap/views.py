@@ -6,6 +6,7 @@ from netbox.views import generic
 from .filtersets import RoomFilterSet
 from .forms import RoomBulkEditForm, RoomFilterForm, RoomForm
 from .models import FacilityMapBlob, Room
+from .previews import placement_markers, room_viewbox
 from .storage import media_url as _media_url
 from .tables import RoomTable
 
@@ -38,9 +39,11 @@ class RoomView(generic.ObjectView):
     queryset = Room.objects.prefetch_related('location', 'tags')
 
     def get_extra_context(self, request, instance):
-        """A polygon-over-floor preview, mirroring `template_content.FloorRooms`: the
-        normalized polygon is scaled by the floor's stored `w`×`h` (from the annotations
-        blob) and drawn over the page-1 plan image."""
+        """A floor-plan preview cropped to this room, mirroring `template_content.FloorRooms`:
+        the normalized polygon + this room's rack/device markers are scaled by the floor's
+        stored `w`×`h` (from the annotations blob) and drawn over the page-1 plan image, with
+        the SVG `viewBox` cropped to the room's bounding box (`points`/markers stay in
+        full-floor coordinates; only the viewBox zooms in)."""
         blob = FacilityMapBlob.objects.filter(kind='annotations', key='').first()
         floor = ((blob.data or {}).get(instance.floor_key) if blob else None) or {}
         w = floor.get('w') or 1000
@@ -52,6 +55,8 @@ class RoomView(generic.ObjectView):
             'vh': h,
             'image_url': _media_url(image),
             'points': points,
+            'viewbox': room_viewbox(instance.polygon, w, h),
+            'markers': placement_markers(instance.floor_key, w, h, {instance.room_id}),
         }
 
 

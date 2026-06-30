@@ -84,6 +84,7 @@ netbox-facilitymap/
     storage.py              # NEW: work_dir() / safe_path() / media_url() (working-dir + traversal guard)
     models.py               # FacilityMapBlob (editor JSON) + Room (NetBoxModel: room polygon → Location)
     template_content.py     # FloorRooms PluginTemplateExtension: rooms panel on the Location page
+    previews.py             # room/Location preview helpers: placement_markers() + room_viewbox()
     navigation.py           # plugin menu items (Facility Map, Rooms)
     forms.py tables.py filtersets.py search.py   # Room NetBox-native UI plumbing
     api/                    # DRF REST API for Room (serializers.py / views.py / urls.py)
@@ -93,7 +94,8 @@ netbox-facilitymap/
     templates/netbox_facilitymap/
       index.html            # the SPA shell; injects window.MAP; loads the JS in dependency order
       floor_rooms.html      # the Location-page room-overlay panel (server-rendered)
-      room.html             # Room detail page extra content
+      room.html             # Room detail page extra content (room-cropped preview)
+      inc/placement_markers.html  # shared rack/device marker boxes (room.html + floor_rooms.html)
     static/netbox_facilitymap/
       style.css             # all styling — light "CAD" theme; tokens in :root; @font-face
       fonts/                # bundled WOFF2 (Public Sans + IBM Plex Mono, SIL OFL); offline
@@ -1418,6 +1420,18 @@ point at the deep treatment.
   scales room polygons by the floor's stored `w×h` over the page-1 image, so for a
   multi-sheet floor it shows sheet 1 with a note (a documented minimal-scope limitation — it
   does not reproduce the runtime tiling). Single-sheet floors are pixel-exact.
+- **Native previews also draw rack/device markers, server-side (`previews.py`).** Both the
+  panel and the **Room** detail page (`views.RoomView`) overlay `previews.placement_markers(...)`
+  — one **MVP** box per placement (rack vs device, positioned/rotated/sized from the
+  `placements` blob, scaled by `w×h`), via the shared `inc/placement_markers.html` partial.
+  These are deliberately *not* the JS `DeviceShapes` glyphs (those have no Python equivalent);
+  re-tune them there if fidelity matters. Markers are permission-scoped: the helper filters to
+  the caller's `room_ids` (the panel passes its `.restrict(...)`-scoped room set, the Room page
+  the single room). The **Room page additionally crops** to the room: `RoomView` sets the SVG
+  `viewBox` to `previews.room_viewbox(polygon, w, h)` (the polygon's padded bounding box) while
+  the `<image>` stays full-floor, so only the window zooms in — empty-polygon rooms fall back to
+  `0 0 vw vh`. The panel can't crop (it draws many rooms in one SVG), so it keeps the whole-floor
+  view. Markers inherit the same multi-sheet sheet-1 caveat as the polygons.
 
 ### Node editing (`Editor.drawVertices`)
 
