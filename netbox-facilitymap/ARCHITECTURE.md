@@ -661,11 +661,13 @@ list and is re-clamped each render. Within a building, the card for the **curren
 site plan** (`this.site` match, even when it lives inside a regular building folder) shows a
 "Site plan — no floor needed" badge in place of the floor selector. When there are multiple
 mappable buildings a nav row (`_buildingNav(buildings)` — ← Previous /
-Next → with a "Building N of M" label) appears **both above and below** the building section
+Next → flanking a **building `<select>`** that jumps straight to any building, in place of the old
+"Building N of M" label) appears **both above and below** the building section
 (the bottom copy spares the user a scroll back up after assigning a building's drawings; each
-render rebuilds both, keeping them in sync). Navigating calls
+render rebuilds both, keeping them in sync). The select's option values are indices into the
+filtered `buildings` list, so they line up with `_bIdx`. Navigating — buttons or select — calls
 `_saveDraft()` (POST to `api/import/save-draft`, writes `import-map.draft.json` under the working
-dir), steps `_bIdx`, and re-renders. `_applyDraft()` (GET `api/import/load-draft`) merges a saved draft into the
+dir), sets `_bIdx`, and re-renders. `_applyDraft()` (GET `api/import/load-draft`) merges a saved draft into the
 freshly-built model by `folder` key (`name`/`slug`/`abbr`/`nbSite`/`codeRegion` + per-stem
 `assign`/`frame`), plus the top-level `codeRegion`/`codeRegionDone`/`bIdx`/`siteplanDone` — new folders not in the draft keep their
 `_modelFromInventory` defaults; removed PDF stems are ignored. `bIdx` (the paged-building index)
@@ -758,7 +760,8 @@ plain **Cancel**, and lands back on that building (`_bIdx`).
 
 **Build** (`_buildActions`/`_build`): the **Build facility map** button is gated — it stays a
 disabled button + hint (never silently hidden) until every building's drawings are assigned
-(`_unassignedBuildings()`, a cheap synchronous pass naming the offending buildings) **and** a
+(`_unassignedBuildings()`, a cheap synchronous pass naming the offending buildings — the hint
+lists them when ≤5, else collapses to a count) **and** a
 site-plan image is chosen; **+ Add drawings** and **Start over** stay available throughout.
 Before posting, `_build` runs `_orphanedFloors(map)` — a **room-safety check** (see §10 *Floor
 ids and rooms*): it computes the floor keys the rebuild will produce

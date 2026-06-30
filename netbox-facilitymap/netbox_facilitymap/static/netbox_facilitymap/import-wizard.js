@@ -675,8 +675,12 @@ class ImportWizard {
       blocked.disabled = true;
       actions.push(blocked);
       const reasons = [];
+      // Name the offending buildings when there are few; a long list is just noise, so past a
+      // handful collapse it to a count.
       if (unassigned.length)
-        reasons.push('Unassigned drawings in: ' + unassigned.join(', ') + '.');
+        reasons.push(unassigned.length <= 5
+          ? 'Unassigned drawings in: ' + unassigned.join(', ') + '.'
+          : unassigned.length + ' buildings have unassigned drawings.');
       if (needSiteplan) reasons.push('Pick a site plan (use “Change” above).');
       actions.push(Dom.el('span', { class: 'hint' }, reasons.join(' ')));
     } else {
@@ -688,18 +692,22 @@ class ImportWizard {
     return Dom.el('div', { class: 'imp-actions' }, actions);
   }
 
-  /** Building paging: ← Previous / Next → with a "Building N of M" label. Navigating saves the
-   *  draft, steps `_bIdx`, and re-renders. `buildings` is the filtered carousel list
-   *  (`_mappableBuildings`) that `_bIdx` indexes, so the count and bounds exclude the site
-   *  plan. Factored into a helper so it can be reused. */
+  /** Building paging: ← Previous / Next → with a building dropdown that jumps straight to any
+   *  building (in place of a "Building N of M" label). Navigating — via the buttons or the
+   *  select — saves the draft, sets `_bIdx`, and re-renders. `buildings` is the filtered carousel
+   *  list (`_mappableBuildings`) that `_bIdx` indexes, so the option values and bounds exclude the
+   *  site plan. Factored into a helper so it can be reused. */
   _buildingNav(buildings) {
     const nav = Dom.el('div', { class: 'imp-nav' });
     const prev = Dom.el('button', { onclick: async () => { await this._saveDraft(); this._bIdx--; this._stepMap(); } }, '← Previous');
     const next = Dom.el('button', { onclick: async () => { await this._saveDraft(); this._bIdx++; this._stepMap(); } }, 'Next →');
     prev.disabled = this._bIdx === 0;
     next.disabled = this._bIdx === buildings.length - 1;
-    nav.append(prev, Dom.el('span', { class: 'imp-nav-label' },
-      `Building ${this._bIdx + 1} of ${buildings.length}`), next);
+    const sel = Dom.el('select', { class: 'imp-nav-select', onchange: async (e) => {
+      await this._saveDraft(); this._bIdx = parseInt(e.target.value, 10); this._stepMap();
+    } }, buildings.map((b, i) => Dom.el('option', { value: String(i) }, b.name || b.folder)));
+    sel.value = String(this._bIdx);   // mark the current building once the options are attached
+    nav.append(prev, sel, next);
     return nav;
   }
 

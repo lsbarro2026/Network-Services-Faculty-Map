@@ -429,7 +429,9 @@ button.wide { width: 100%; margin-bottom: 6px; justify-content: center; }
 .imp-drop-big { font-size: 15px; font-weight: 600; }
 .imp-file { display: none; }
 .imp-nav { display: flex; align-items: center; gap: 10px; margin: 14px 0 6px; }
-.imp-nav-label { font-size: 13px; font-weight: 600; color: var(--text2); flex: 1; text-align: center; }
+.imp-nav select { flex: 1; height: 30px; padding: 0 7px; background: var(--panel);
+  color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  font-family: inherit; font-size: 12.5px; text-align: center; cursor: pointer; }
 .imp-progress { font-family: var(--mono); font-size: 12px; margin: 10px 0; color: var(--text2); }
 .imp-siteplan { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 12px 14px; margin-bottom: 14px; background: var(--panel); border: 1px solid var(--line);

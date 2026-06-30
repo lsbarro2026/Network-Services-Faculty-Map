@@ -3,6 +3,17 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.32.0 — Import map step: building dropdown + tidier gated-build hint
+- **Jump to any building from the map-step nav.** The drawings→floor "map" step's prev/next nav
+  row (`_buildingNav`) now flanks a **building dropdown** that jumps straight to any mappable
+  building, replacing the old "Building N of M" label. Selecting a building saves the draft and
+  re-renders, mirroring the ← Previous / Next → buttons; option values are indices into the
+  filtered carousel list so they stay aligned with `_bIdx`.
+- **The gated-build hint no longer lists every unassigned building.** When more than five buildings
+  still have unassigned drawings, the disabled **Build facility map** hint collapses to a count
+  ("N buildings have unassigned drawings.") instead of naming them all; five or fewer still list by
+  name. The site-plan reason and the gating behaviour are unchanged.
+
 ## 1.31.0 — Import edit hub: jump straight to any import-phase assignment
 - **Re-editing an imported facility now lands on a non-linear "edit hub"** instead of forcing the
   linear upload→bind→map→build walk. When a facility has already been built, re-opening the import
