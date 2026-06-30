@@ -506,7 +506,8 @@ Shapes are **building hotspots**. `editing()`=`app.siteEdit`.
 The in-app PDF import, in four steps rendered into `#stage` (**Upload → Map buildings to
 NetBox → Map drawings to floors → Build**). Constructor state: `inv` (scan inventory),
 `buildings` (per-folder model), `site` (chosen siteplan), `thumbWidth` (slider value),
-`_bIdx` (index of the building currently visible in the map step), `_autoMapDone` (the
+`_bIdx` (index — into the floor-mapping carousel `_mappableBuildings()`, **not** raw
+`buildings` — of the building currently visible in the map step), `_autoMapDone` (the
 building→NetBox auto-match pass runs once per scan), `_codeRegion` (the normalized 0..1 box the
 user dragged over a drawing's identifying code on a sample, applied as a crop to every card —
 `null` falls back to full-drawing thumbnails), `_codeRegionDone` (gates the code-region pick
@@ -587,8 +588,17 @@ folder isn't mistaken for a siteplan. A picked/dropped **`.zip`** is sent whole 
 matching `/site\s*plan/i` seeds the siteplan and contributes no floors; the rest default to
 Level 1..N; also seeds `nbSite = null` and a per-PDF `frame` `{scale,x,y}`), resets
 `_bIdx = 0` + `_autoMapDone = false`, and calls `_stepBuildings` (the NetBox-binding step
-above, which then continues to `_stepMap`). The map step shows **one building at a time**
-(`buildings[_bIdx]`); when there are multiple buildings a nav row (`_buildingNav` — ← Previous /
+above, which then continues to `_stepMap`). The map step shows **one building at a time**,
+paging over the floor-mapping carousel `_mappableBuildings()` (`buildings` with at least one
+non-`none` drawing) — **not** raw `buildings` — so the dedicated `Site Plan` folder, and any
+building reduced to all site-plan/`none` drawings, is never shown as a card asking for a floor;
+a siteplan-only import shows no building section at all. (`_mappableBuildings` differs from
+`_floorBuildings`: it keeps a Location-mode building whose drawings are still `unassigned` —
+no resolved floor yet, but it must stay visible to assign one.) `_bIdx` indexes this filtered
+list and is re-clamped each render. Within a building, the card for the **currently chosen
+site plan** (`this.site` match, even when it lives inside a regular building folder) shows a
+"Site plan — no floor needed" badge in place of the floor selector. When there are multiple
+mappable buildings a nav row (`_buildingNav(buildings)` — ← Previous /
 Next → with a "Building N of M" label) appears **both above and below** the building section
 (the bottom copy spares the user a scroll back up after assigning a building's drawings; each
 render rebuilds both, keeping them in sync). Navigating calls
@@ -597,8 +607,8 @@ dir), steps `_bIdx`, and re-renders. `_applyDraft()` (GET `api/import/load-draft
 freshly-built model by `folder` key (`name`/`slug`/`abbr`/`nbSite`/`codeRegion` + per-stem
 `assign`/`frame`), plus the top-level `codeRegion`/`codeRegionDone`/`bIdx`/`siteplanDone` — new folders not in the draft keep their
 `_modelFromInventory` defaults; removed PDF stems are ignored. `bIdx` (the paged-building index)
-is restored **clamped** to `[0, buildings.length-1]` so the user resumes on the building they
-last viewed even though folders can change between sessions. A global **size slider** (`_sizer`/`_applyThumbSize`,
+is restored **clamped** to `[0, _mappableBuildings().length-1]` so the user resumes on the
+building they last viewed even though folders can change between sessions. A global **size slider** (`_sizer`/`_applyThumbSize`,
 backed by `thumbWidth`) resizes every card at once by setting `--imp-card-w`/`--imp-thumb-h`
 CSS vars on the map view. Each PDF gets a thumbnail (its `src` rebased onto `window.MAP.media`)
 wired by `_attachZoomPan` for **cursor-anchored** scroll-to-zoom / drag-to-pan (clamped to the
@@ -658,7 +668,11 @@ records `this.site` **and** marks that drawing's `assign` `type:'none'` (`_setAs
 excluded from floor assignment and the code-region sample — a building drawing previously picked
 reverts to `unassigned`, while a dedicated `Site Plan` folder's drawing stays `none`. **Continue**
 sets `_siteplanDone` and proceeds. On the map step the inline picker is replaced by a compact
-read-only summary (`_siteplanSummary` — "Site plan: … · **Change**", which jumps back).
+read-only summary (`_siteplanSummary` — "Site plan: … · **Change**", which jumps back). A
+dedicated `Site Plan` folder drops out of the floor-mapping carousel entirely (`_mappableBuildings`);
+a site plan picked **inside** a regular building folder keeps that building in the carousel but
+shows its card a "Site plan — no floor needed" badge instead of the floor selector (`_pdfCard`,
+keyed on the `this.site` match).
 
 **Code-region pick** (`_stepRegionPick`, gated by `_codeRegionDone`): after the site-plan step the
 map step opens on a region pick — the user drags one box over the spot that **identifies each
@@ -1303,6 +1317,18 @@ point at the deep treatment.
   building folder, whose PDFs are also two-segment, would be misread as a siteplan. The
   signal is **position, not filename** (the map can be named anything, e.g. `2600 - Drawing
   List Plan.pdf`); naming a folder `Site Plan` still works as before.
+- **The floor-mapping carousel never shows the site plan as a card asking for a floor.**
+  `_stepMap` pages over `_mappableBuildings()` — buildings with at least one non-`none`
+  drawing — **not** raw `this.buildings`, so a dedicated `Site Plan` folder (all `none`) drops
+  out and a siteplan-only import renders no building section. **`_bIdx` indexes this filtered
+  list**, so any paging/landing logic (`_buildingNav`, `_ensureFloors`, `_stepRegionPick`'s
+  land-back, the `_applyDraft` resume clamp) must resolve the building through
+  `_mappableBuildings()`, never `this.buildings[_bIdx]`. Don't filter with `_floorBuildings()`
+  here: it would drop a Location-mode building whose drawings are still `unassigned` (no
+  resolved floor yet) mid-assignment. A site plan picked **inside** a regular building folder
+  keeps that building in the carousel; only its one card swaps the floor selector for a "Site
+  plan — no floor needed" badge (`_pdfCard`, keyed on the `this.site` match, not bare
+  `type:'none'` — a manually-`none`d card keeps its floor buttons).
 - Rendering is a **subprocess**: `imports._run_script` (via `_run_preprocess`) spawns
   `preprocess.py scan|build|preview --base <workdir>` **by file path** so Django/NetBox never
   load into the child, with a timeout + POSIX rlimits. `scan`/`build` run under a **working-dir

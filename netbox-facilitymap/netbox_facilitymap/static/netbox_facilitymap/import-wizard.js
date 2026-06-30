@@ -302,6 +302,17 @@ class ImportWizard {
     return this.buildings.filter(b => Object.keys(this._resolveFloors(b)).length > 0);
   }
 
+  /** Buildings shown in the floor-mapping carousel: those with at least one drawing that
+   *  still needs (or has) a floor — i.e. a non-`none` drawing. Excludes the dedicated
+   *  `Site Plan` folder and any building reduced to all site-plan/`none` drawings, so the
+   *  chosen site plan is never presented as a card asking for a floor. Unlike
+   *  `_floorBuildings`, this keeps a Location-mode building whose drawings are still
+   *  `unassigned` (no resolved floor yet) visible so the user can assign one. `_bIdx`
+   *  indexes this filtered list. */
+  _mappableBuildings() {
+    return this.buildings.filter(b => b.pdfs.some(p => b.assign[p.stem].type !== 'none'));
+  }
+
   /** True once every floor-contributing building is bound to a NetBox site. */
   _allBuildingsBound() {
     return this._floorBuildings().every(b => b.nbSite);
@@ -447,7 +458,7 @@ class ImportWizard {
     this._applyRegionZoom(canvas);
 
     const use = async () => {
-      if (scoped) this._bIdx = Math.max(0, this.buildings.indexOf(b));   // land back on it
+      if (scoped) this._bIdx = Math.max(0, this._mappableBuildings().indexOf(b));   // land back on it
       else this._codeRegionDone = true;
       await this._saveDraft();
       this._stepMap();
@@ -548,15 +559,22 @@ class ImportWizard {
     this._applyThumbSize();
     view.append(this._siteplanSummary());
 
-    if (this.buildings.length > 1) view.append(this._buildingNav());
-    const b = this.buildings[this._bIdx];
-    this._ensureFloors(b);   // kick off the NetBox Location fetch for this building (cached)
-    view.append(this._buildingSection(b));
-    this._applyThumbSize();   // re-apply now cards exist, so a large size upgrades them to hi-res
+    // The carousel pages over floor-mapping buildings only (`_mappableBuildings`), so the
+    // chosen site plan / a `Site Plan` folder is never shown as a card asking for a floor.
+    // A siteplan-only import has none — the step is just the summary + build actions.
+    const buildings = this._mappableBuildings();
+    if (buildings.length) {
+      this._bIdx = Math.max(0, Math.min(this._bIdx, buildings.length - 1));
+      if (buildings.length > 1) view.append(this._buildingNav(buildings));
+      const b = buildings[this._bIdx];
+      this._ensureFloors(b);   // kick off the NetBox Location fetch for this building (cached)
+      view.append(this._buildingSection(b));
+      this._applyThumbSize();   // re-apply now cards exist, so a large size upgrades them to hi-res
 
-    // A second nav at the bottom so the user isn't forced back to the top after assigning a
-    // building's drawings. Re-rendering rebuilds both bars each switch, keeping them in sync.
-    if (this.buildings.length > 1) view.append(this._buildingNav());
+      // A second nav at the bottom so the user isn't forced back to the top after assigning a
+      // building's drawings. Re-rendering rebuilds both bars each switch, keeping them in sync.
+      if (buildings.length > 1) view.append(this._buildingNav(buildings));
+    }
 
     view.append(this._buildActions());
   }
@@ -589,15 +607,17 @@ class ImportWizard {
   }
 
   /** Building paging: ← Previous / Next → with a "Building N of M" label. Navigating saves the
-   *  draft, steps `_bIdx`, and re-renders. Factored into a helper so it can be reused. */
-  _buildingNav() {
+   *  draft, steps `_bIdx`, and re-renders. `buildings` is the filtered carousel list
+   *  (`_mappableBuildings`) that `_bIdx` indexes, so the count and bounds exclude the site
+   *  plan. Factored into a helper so it can be reused. */
+  _buildingNav(buildings) {
     const nav = Dom.el('div', { class: 'imp-nav' });
     const prev = Dom.el('button', { onclick: async () => { await this._saveDraft(); this._bIdx--; this._stepMap(); } }, '← Previous');
     const next = Dom.el('button', { onclick: async () => { await this._saveDraft(); this._bIdx++; this._stepMap(); } }, 'Next →');
     prev.disabled = this._bIdx === 0;
-    next.disabled = this._bIdx === this.buildings.length - 1;
+    next.disabled = this._bIdx === buildings.length - 1;
     nav.append(prev, Dom.el('span', { class: 'imp-nav-label' },
-      `Building ${this._bIdx + 1} of ${this.buildings.length}`), next);
+      `Building ${this._bIdx + 1} of ${buildings.length}`), next);
     return nav;
   }
 
@@ -608,7 +628,7 @@ class ImportWizard {
   _ensureFloors(b) {
     if (b.nbFloors !== undefined) return;
     this._loadFloors(b).then(() => {
-      if (this._mapView && this.buildings[this._bIdx] === b) this._stepMap();
+      if (this._mapView && this._mappableBuildings()[this._bIdx] === b) this._stepMap();
     });
   }
 
@@ -842,12 +862,19 @@ class ImportWizard {
     } else {
       thumb = Dom.el('div', { class: 'imp-thumb imp-nothumb' }, p.file);
     }
+    // The chosen site plan carries no floor — show a badge instead of the floor selector so it
+    // isn't presented as a card asking for a floor. Keyed on the `this.site` match, not merely
+    // `type:'none'`, so a card manually set to "— none —" keeps its floor buttons.
+    const isSite = this.site.folder === b.folder && this.site.file === p.file;
+    const floorRow = isSite
+      ? Dom.el('div', { class: 'imp-floors' }, Dom.el('span', { class: 'hint' }, 'Site plan — no floor needed'))
+      : this._floorButtons(b, a);
     const body = Dom.el('div', { class: 'imp-cardbody' }, [
       Dom.el('div', { class: 'imp-cardfile' }, [
         Dom.el('span', { class: 'imp-cardname' }, p.file),
         this._replaceControl(b, p),
       ]),
-      this._floorButtons(b, a),
+      floorRow,
     ]);
     // Flag a still-unassigned drawing so it stands out in the grid (and in the gated build hint).
     const cls = 'imp-card' + (a.type === 'unassigned' ? ' unassigned' : '');
@@ -1137,11 +1164,13 @@ class ImportWizard {
       if (draft.codeRegion) this._codeRegion = draft.codeRegion;
       if (draft.codeRegionDone) this._codeRegionDone = true;
       if (draft.siteplanDone) this._siteplanDone = true;
-      // Resume on the building the user last viewed. Clamp — folders can be added/removed
-      // between sessions, and `_stepMap` indexes `buildings[_bIdx]` with no bounds check.
-      if (this.buildings.length) {
+      // Resume on the building the user last viewed. Clamp to the floor-mapping carousel
+      // (`_mappableBuildings`, which `_bIdx` indexes) — folders can be added/removed between
+      // sessions. `_stepMap` re-clamps too, so this is a defensive belt-and-suspenders.
+      const mappable = this._mappableBuildings();
+      if (mappable.length) {
         const n = Number.isInteger(draft.bIdx) ? draft.bIdx : 0;
-        this._bIdx = Math.max(0, Math.min(n, this.buildings.length - 1));
+        this._bIdx = Math.max(0, Math.min(n, mappable.length - 1));
       }
     } catch (e) { console.warn('Draft load failed:', e); }
   }
