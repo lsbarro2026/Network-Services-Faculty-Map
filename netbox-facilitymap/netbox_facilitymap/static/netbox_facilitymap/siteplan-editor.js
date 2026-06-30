@@ -78,22 +78,30 @@ class SiteplanEditor extends Editor {
     const editBtn = Dom.el('button', { class: this.editing() ? 'active' : '',
       html: Icons.edit + '<span>' + (this.editing() ? 'Editing areas' : 'Edit building areas') + '</span>' });
     editBtn.onclick = () => { this.app.siteEdit = !this.app.siteEdit; this.show(); };
+
+    // Page-wide labels toggle — building labels are hidden by default; this flips
+    // them all on/off (per-building opt-ins still show when it is off). Shown in
+    // both view and edit mode.
+    const labelsBtn = Dom.el('button', { class: this.app.siteLabels ? 'active' : '' },
+      this.app.siteLabels ? 'Hide labels' : 'Show labels');
+    labelsBtn.onclick = () => { this.app.siteLabels = !this.app.siteLabels; this.show(); };
+
     if (!this.editing()) {
       // Re-enter the import wizard to add/replace drawings or fix a building/floor assignment
       // (it resumes onto the current facility — distinct from the destructive Start over).
       const importBtn = Dom.el('button', { onclick: () => this.app.go('/import') },
         'Edit buildings & floors');
-      return [editBtn, importBtn,
+      return [editBtn, importBtn, labelsBtn,
         Dom.el('span', { class: 'hint' }, 'Click a building, or use the index →')];
     }
 
     const addBtn = Dom.el('button', { onclick: () => this.beginDraw(
-      'Click to outline a building · Backspace undoes a point · Enter/double-click to close'),
+      'Click to outline a building · Backspace undoes a point · Right-click removes a point · Enter/double-click to close'),
       html: Icons.draw + '<span>Add building area</span>' });
     this._badge = Dom.el('span', { class: 'badge' + (this.store.siteDirty ? ' dirty' : ''),
       html: this.badgeHtml(this.store.siteDirty) });
     const saveBtn = Dom.el('button', { class: 'primary', onclick: () => this.save() }, 'Save siteplan');
-    return [editBtn, addBtn, this.undoButton(), this.toolDivider(), this.orthoButton(),
+    return [editBtn, addBtn, labelsBtn, this.undoButton(), this.toolDivider(), this.orthoButton(),
       this.gridToggleButton(), this.gridSizeSelect(), this.gridMoveButton(), this.toolDivider(), saveBtn, this._badge];
   }
 
@@ -175,10 +183,14 @@ class SiteplanEditor extends Editor {
       poly.append(title);
       s.append(poly);
 
-      // Hide the label for the selected hotspot so it doesn't obscure the
-      // vertices/edges while editing the polygon — unless its label is the thing
-      // being edited, in which case show it (with its move/rotate/resize handles).
-      if (hs.id !== this.selected || this.editingLabel === hs.id) this._drawLabel(s, hs, W, H);
+      // Labels are hidden by default: a hotspot's label shows only when the
+      // page-wide toggle is on (app.siteLabels) or this building opted in
+      // (hs.ref.showLabel). Still hide it for the selected hotspot so it doesn't
+      // obscure the vertices/edges while editing the polygon — unless its label is
+      // the thing being edited, in which case always show it (with its handles).
+      const labelEditing = this.editingLabel === hs.id;
+      const labelVisible = this.app.siteLabels || (hs.ref && hs.ref.showLabel);
+      if (labelEditing || (labelVisible && hs.id !== this.selected)) this._drawLabel(s, hs, W, H);
 
       if (editing && hs.source === 'user' && hs.id === this.selected && this.editingLabel !== hs.id)
         this.drawVertices(s, hs.poly, W, H, hs.id, () => this.markDirty());
@@ -332,6 +344,12 @@ class SiteplanEditor extends Editor {
         const dn = (hs.name && hs.name.trim()) || (hs.dir ? Util.code(hs.dir) : '') || '';
         this.openLabelPanel(hs, () => { this.editingLabel = null; this.render(); this.openHotspotPanel(hs); }, dn);
       } }));
+    // Per-building label visibility — opts this one building's label in even when the
+    // page-wide toggle is off. Persisted on the store hotspot (separate from labelStyle
+    // so "Reset to auto" never wipes it); Save siteplan writes it.
+    body.append(Dom.el('button', { class: 'wide',
+      html: Icons.edit + '<span>' + (hs.showLabel ? 'Hide label' : 'Show label') + '</span>',
+      onclick: () => { hs.showLabel = !hs.showLabel; this.markDirty(); this.render(); this.openHotspotPanel(hs); } }));
     body.append(Dom.el('button', { class: 'danger wide', onclick: () => {
       const i = this.store.siteHotspots.indexOf(hs);
       if (i >= 0) this.store.siteHotspots.splice(i, 1);

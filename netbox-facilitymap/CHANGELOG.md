@@ -3,6 +3,16 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.15.0 — Siteplan building labels hidden by default
+- **Building-name labels on the siteplan are now hidden by default.** A new **Show/Hide
+  labels** toggle in the siteplan toolbar (both view and edit mode) flips every building
+  label on or off page-wide (`app.siteLabels`, default off).
+- **Per-building opt-in.** Each building area's panel (edit mode) gains a **Show/Hide label**
+  button that reveals just that one building's label even when the page-wide toggle is off.
+  The flag (`showLabel`) persists with the siteplan and is kept separate from `labelStyle`,
+  so "Reset to auto" on the label style never clears it. Label editing
+  (move/rotate/resize/text/font/colour) is unchanged — a label being edited always shows.
+
 ## 1.14.0 — Racks/devices on any room (datacenter concept removed)
 - **The `datacenter` room flag is gone.** It used to gate everything rack-related — only
   datacenter rooms were interactive in racks mode, could hold placements, and pulled NetBox

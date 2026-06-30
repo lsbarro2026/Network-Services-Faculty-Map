@@ -472,15 +472,19 @@ Shapes are **building hotspots**. `editing()`=`app.siteEdit`.
   the index stays put while the map pans/zooms beside it. The index has a live **search
   box** (`.legend-search`) above re-renderable rows (`renderRows(q)` filters numbered +
   trailer groups on name/code/dir; empty groups are dropped; `◌` = not placed on map).
-  `_toolbar()` — Edit toggle; in edit: Add area/Undo/Right angle/Grid/Size/Move/Save (no
-  Snap button — the siteplan editor always vertex/edge-snaps).
+  `_toolbar()` — Edit toggle + **Show/Hide labels** toggle (`app.siteLabels`, both modes);
+  in edit: Add area/Undo/Right angle/Grid/Size/Move/Save (no Snap button — the siteplan
+  editor always vertex/edge-snaps).
 - `render()` draws hotspots. In **view mode** they get the `.view` class (invisible
   at rest, neutral grey fill on hover or when the index row is hovered); in **edit
   mode** PDF hotspots are dashed `.ref`, user hotspots `.user`. View click →
   `openBuilding`; edit click on a user hotspot → select + panel; edit click on a PDF
-  hotspot → `promoteHotspot` (see below) then select + panel. The **selected**
-  hotspot's `_drawLabel` is suppressed so the name doesn't obscure its
-  vertices/edges while the polygon is being edited.
+  hotspot → `promoteHotspot` (see below) then select + panel. **Building labels are
+  hidden by default**: a hotspot's `_drawLabel` runs only when the page-wide toggle is on
+  (`app.siteLabels`) **or** the building opted in (`hs.ref.showLabel`). On top of that, the
+  **selected** hotspot's label is suppressed so the name doesn't obscure its vertices/edges
+  while the polygon is being edited — unless its label is the thing being edited
+  (`editingLabel === hs.id`), which always shows it regardless of the toggles.
 - **Editing PDF areas (promotion).** PDF/source hotspots are read-only geometry, so
   to reshape one it is *promoted* to a user hotspot on edit-click: `promoteHotspot(pdfHs)`
   deep-copies its `poly` (never mutate the manifest) into `store.siteHotspots` with the
@@ -510,6 +514,11 @@ Shapes are **building hotspots**. `editing()`=`app.siteEdit`.
   goes through `promoteHotspot` (the panel only opens on a user hotspot); the first
   `labelStyle` change calls `markDirty`, which commits the promotion. `onPanelClosed` /
   `deselect` / Escape clear `editingLabel`.
+- **Label visibility (per building):** `openHotspotPanel` also adds a **Show/Hide label**
+  button that flips `hs.showLabel` (a boolean on the persistent store hotspot, kept
+  **outside** `labelStyle` so "Reset to auto" never wipes it) → `markDirty` → `render`.
+  Saved via the normal `siteDirty`/`saveSiteplan` path. It opts a single building's label in
+  even when the page-wide `app.siteLabels` toggle is off, independent of any `labelStyle`.
 - `finish()` (push hotspot, open panel), `openHotspotPanel(hs)` (assign building /
   delete), `save()`.
 
@@ -742,8 +751,8 @@ a multipart form rather than the raw body.)
 
 ### app.js — `App` (orchestrator + entry)
 Owns singletons `store`, `netbox`, `grid`, and cross-view state `mode`
-(floor `'edit'|'view'|'racks'`), `siteEdit`, `highlight`, plus `current` (active
-Editor or null).
+(floor `'edit'|'view'|'racks'`), `siteEdit`, `siteLabels` (siteplan building-label
+visibility, default **false**), `highlight`, plus `current` (active Editor or null).
 - `init()` → `store.load()` then `_bindGlobal()` + `router()`.
 - `router()` parses the hash: `#/import` → `showImport()`, `#/settings` →
   `showSettings()`, `#/b/<dir>` → `renderBuilding()`, `#/f/<dir>/<fid>` → `showFloor()`,
@@ -1437,6 +1446,13 @@ point at the deep treatment.
   (`{x,y,rot,size,font,color,text}`) — move, rotate-snapped to `ANGLE_STEP`°,
   resize→font-size, font from `LABEL_FONTS`, colour, and a **display-only** `text` whose
   `\n`s set line breaks (it never changes the bound name).
+- **Building labels are hidden by default.** `SiteplanEditor.render` only calls `_drawLabel`
+  for a hotspot when the page-wide `app.siteLabels` toggle is on **or** the building opted in
+  via `hs.ref.showLabel` (the label-being-edited case overrides both). `showLabel` is a plain
+  boolean on the persistent store hotspot, kept **separate from `labelStyle`** so
+  `openLabelPanel`'s "Reset to auto" (`delete shape.labelStyle`) doesn't wipe it, and it is
+  independent of whether the building has any `labelStyle` styling. Visibility is orthogonal
+  to styling — don't fold the flag into `labelStyle`.
 - **Floor rooms are NOT labelled** — the floor-plan images already print room
   names/numbers (a stray `labelStyle` on an old room record is ignored). But **rack/device
   placements and route-arrow notes are**: `FloorEditor` overrides `_labelKey` →
