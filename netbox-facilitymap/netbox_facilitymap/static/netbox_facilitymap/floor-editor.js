@@ -18,6 +18,7 @@ class FloorEditor extends Editor {
     this.layout = null;              // display geometry (padded while arranging)
     this.baseLayout = null;          // the floor's true (unpadded) sheet geometry
     this._peeked = false;            // first mount frames sheet 1 (peek), later shows full-fit
+    this._switchingMode = false;     // guards onPanelClosed while _switchMode closes the panel
   }
 
   // ---- Editor hooks ----
@@ -126,7 +127,7 @@ class FloorEditor extends Editor {
     const racksMode = this.app.mode === 'racks';
     const modeBtn = Dom.el('button', { class: this.editing() ? 'active' : '',
       html: Icons.edit + '<span>' + (this.editing() ? 'Edit mode' : 'View mode') + '</span>' });
-    modeBtn.onclick = () => { this.app.mode = this.editing() ? 'view' : 'edit'; this.show(); };
+    modeBtn.onclick = () => this._switchMode(this.editing() ? 'view' : 'edit');
 
     this._badge = Dom.el('span', { class: 'badge' + (this._dirty() ? ' dirty' : ''),
       html: this.badgeHtml(this._dirty()) });
@@ -136,7 +137,7 @@ class FloorEditor extends Editor {
     const racksBtn = Dom.el('button', { class: racksMode ? 'active' : '',
       title: 'Place racks/devices inside datacenter rooms',
       html: Icons.rack + '<span>Place racks</span>' });
-    racksBtn.onclick = () => { this.app.mode = racksMode ? 'edit' : 'racks'; this.show(); };
+    racksBtn.onclick = () => this._switchMode(racksMode ? 'edit' : 'racks');
 
     if (this.editing()) {
       const drawBtn = Dom.el('button', { onclick: () => this.beginDraw(
@@ -163,6 +164,28 @@ class FloorEditor extends Editor {
     });
     hlSel.onchange = () => { this.app.highlight = hlSel.value; this.render(); };
     return [modeBtn, hlSel, saveBtn, this._badge];
+  }
+
+  /** Toggle between edit/view/racks WITHOUT tearing down the stage. The three modes
+   *  render the same sheet images + geometry — only the toolbar and interactive layer
+   *  differ — so we rebuild the toolbar and re-`render()` against the existing `.map-wrap`,
+   *  leaving the live `PanZoom` transform (the user's zoom/pan) intact. Contrast `show()`,
+   *  which rebuilds the stage and refits — reserved for first mount and arrange relayout.
+   *  Arrange pads the canvas geometry, so leaving it needs a full `show()` relayout. */
+  _switchMode(mode) {
+    if (this.arranging) { this.arranging = false; this.app.mode = mode; this.show(); return; }
+    this.app.mode = mode;
+    this.draft = null; this.selected = null; this.selectedArrow = null;
+    this.selectedPlacement = null; this.rackRoom = null; this.editingLabel = null;
+    this.grid.adjust = false;
+    // Dismiss any stale panel, but suppress the close hook: it would (re-)interpret a
+    // racks-mode close as "drop to edit" and bounce us straight back out of racks.
+    this._switchingMode = true;
+    this.app.closePanel();
+    this._switchingMode = false;
+    this.app.setToolbar(this._toolbar());   // rebuild: the badge/_dirty() meaning is per-mode
+    this.render();
+    if (mode === 'racks' || mode === 'view') this._ensurePlacementInventory();
   }
 
   async save() {
@@ -947,16 +970,19 @@ class FloorEditor extends Editor {
         return;
       }
       if (this.selectedPlacement) { this.selectedPlacement = null; this.render(); return; }
-      if (this.rackRoom) { this.app.closePanel(); return; }   // closePanel → onPanelClosed clears the active room
+      if (this.rackRoom) { this.app.closePanel(); return; }   // closePanel → onPanelClosed drops back to edit
     }
     super.handleKey(e);
   }
 
-  /** App.closePanel hook: a closed panel means no active room/marker/arrow. */
+  /** App.closePanel hook: a closed sidebar means we've left whatever it was driving.
+   *  In racks mode that's placement itself — drop back to edit so the Place-racks button
+   *  reflects reality (one click re-enters) and the zoom survives (in-place `_switchMode`,
+   *  not `show()`). Skipped during a deliberate `_switchMode` (which already closes the
+   *  panel) so entering/leaving racks doesn't recurse. */
   onPanelClosed() {
-    if (this.app.mode === 'racks' && (this.rackRoom || this.selectedPlacement || this.editingLabel)) {
-      this.rackRoom = null; this.selectedPlacement = null; this.editingLabel = null; this.render();
-    }
+    if (this._switchingMode) return;
+    if (this.app.mode === 'racks') { this._switchMode('edit'); return; }
     if (this.selectedArrow) { this.selectedArrow = null; this.editingLabel = null; this.render(); }
   }
 }

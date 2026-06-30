@@ -381,6 +381,14 @@ else `null` → full `fit()`).
   grid draw + move/resize so they work in racks mode too. `_dirty()`/
   `_setBadge()`/`save()` track placements in racks mode, else rooms **+ sheet layout**;
   edit `save()` writes both `saveAnnotations` and `saveLayouts`.
+- `_switchMode(mode)` toggles edit/view/racks **in place** — the three modes render the
+  same sheet images + geometry, so it rebuilds the toolbar + re-`render()`s against the
+  existing `.map-wrap` instead of calling `show()`, leaving the live `PanZoom` transform
+  (the user's zoom/pan) untouched. The mode buttons (`modeBtn`, `racksBtn`) route through
+  it; it kicks `_ensurePlacementInventory()` when entering racks/view, and falls back to a
+  full `show()` when **arranging** (arrange pads the canvas, so it needs a relayout). It
+  closes any stale panel under a `_switchingMode` guard so `onPanelClosed` doesn't bounce
+  the mode change.
 - **Arrange mode** (`arranging`, `_arrangeButton`): drag whole sheets into grid cells.
   `_drawArrange(s,W,H)` draws the cell grid, a `.sheet-drop` target, and a draggable
   `.sheet-tile` per sheet; `_startSheetDrag` opens the `Editor.dragSheet` channel whose
@@ -403,8 +411,10 @@ else `null` → full `fit()`).
 - `finish()` (branches: arrow draft → `_finishArrow`; else push room, open panel),
   `duplicateRoom(src)`, `deleteRoom(room)`,
   `loadNbRooms()` (cached), `openRoomPanel(room)` (NetBox Location autocomplete +
-  datacenter checkbox + duplicate). `onPanelClosed()` clears the racks-mode active room
-  and any `selectedArrow`.
+  datacenter checkbox + duplicate). `onPanelClosed()` — closing the sidebar in **racks
+  mode** means placement is done, so it drops back to **edit** (`_switchMode('edit')`),
+  de-activating the Place-racks button so a single click re-enters; otherwise it just
+  clears any `selectedArrow`. (It no-ops while `_switchMode` is mid-toggle.)
 - **Route arrows (wayfinding).** A floor record also holds `arrows` (see §5). The
   **Draw arrow** tool (`beginArrow` → `beginDraw(msg,'arrow')`) draws an open polyline;
   `_finishArrow()` drops a trailing duplicate point, needs ≥2 points, and pushes
@@ -1380,6 +1390,13 @@ point at the deep treatment.
   `layouts` blob and `FloorEditor._remapLayout` re-projects existing rooms/racks so each
   shape follows its sheet. First view of a multi-sheet floor opens framed on sheet 1
   (`PanZoom.fitRegion`, via `initialFocus`). See §3 `floor-editor.js`.
+- **Mode toggles re-render in place, not via `show()`.** Switching a floor between
+  edit/view/racks goes through `FloorEditor._switchMode`, which rebuilds the toolbar and
+  re-`render()`s the existing `.map-wrap` — it does **not** rebuild the stage or refit, so
+  the user's `PanZoom` zoom/pan survives the toggle. Only first mount and an arrange
+  relayout call `show()` (which remounts `PanZoom` and `fit()`s). Closing the racks sidebar
+  drops back to edit via the same in-place path. Don't reintroduce `app.mode = …; show()`
+  for a plain toggle — it resets the viewport.
 - The **Location-page rooms panel** (`template_content.FloorRooms`) is a static overlay: it
   scales room polygons by the floor's stored `w×h` over the page-1 image, so for a
   multi-sheet floor it shows sheet 1 with a note (a documented minimal-scope limitation — it
