@@ -82,17 +82,10 @@ class SiteplanEditor extends Editor {
       html: Icons.edit + '<span>' + (this.editing() ? 'Editing areas' : 'Edit building areas') + '</span>' });
     editBtn.onclick = () => { this.app.siteEdit = !this.app.siteEdit; this.show(); };
 
-    // Page-wide labels toggle — building labels are hidden by default; this flips
-    // them all on/off (per-building opt-ins still show when it is off). Shown in
-    // both view and edit mode.
-    const labelsBtn = Dom.el('button', { class: this.app.siteLabels ? 'active' : '' },
-      this.app.siteLabels ? 'Hide labels' : 'Show labels');
-    labelsBtn.onclick = () => { this.app.siteLabels = !this.app.siteLabels; this.show(); };
-
     if (!this.editing()) {
-      // The wizard entry point lives in Settings now (App.showSettings) — the siteplan
-      // toolbar no longer carries a redundant shortcut to it.
-      return [editBtn, labelsBtn];
+      // The wizard entry point and the page-wide labels toggle both live in Settings now
+      // (App.showSettings) — the siteplan toolbar no longer carries them.
+      return [editBtn];
     }
 
     const addBtn = Dom.el('button', { onclick: () => this.beginDraw(
@@ -101,7 +94,7 @@ class SiteplanEditor extends Editor {
     this._badge = Dom.el('span', { class: 'badge' + (this.store.siteDirty ? ' dirty' : ''),
       html: this.badgeHtml(this.store.siteDirty) });
     const saveBtn = Dom.el('button', { class: 'primary', onclick: () => this.save() }, 'Save siteplan');
-    return [editBtn, addBtn, labelsBtn, this.undoButton(), this.toolDivider(), this.orthoButton(),
+    return [editBtn, addBtn, this.undoButton(), this.toolDivider(), this.orthoButton(),
       this.gridToggleButton(), this.gridSizeSelect(), this.gridMoveButton(), this.toolDivider(), saveBtn, this._badge];
   }
 

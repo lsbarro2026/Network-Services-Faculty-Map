@@ -61,6 +61,13 @@ class App {
     this.crumbs([{ label: 'Siteplan', hash: '/' }, { label: 'Settings' }]);
     this.setToolbar([]);
     const stage = Dom.$('#stage'); stage.innerHTML = '';
+    // Page-wide siteplan building-labels toggle (was in the siteplan toolbar). `siteLabels`
+    // is a runtime-only flag, so flipping it here just records the preference and re-renders
+    // this view for the button state — it takes visible effect next time the siteplan renders.
+    const labelsBtn = Dom.el('button', { class: this.siteLabels ? 'active' : '' },
+      this.siteLabels ? 'Hide building labels' : 'Show building labels');
+    labelsBtn.onclick = () => { this.siteLabels = !this.siteLabels; this.showSettings(); };
+
     stage.append(Dom.el('div', { class: 'settings-view' }, [
       Dom.el('h2', {}, 'Settings'),
       Dom.el('button', { class: 'primary', onclick: () => this.go('/import') },
@@ -68,6 +75,9 @@ class App {
       Dom.el('div', { class: 'hint' },
         'Render floor-plan PDFs into the map. Re-open it to add, replace, or reassign drawings '
         + 'without starting over.'),
+      labelsBtn,
+      Dom.el('div', { class: 'hint' },
+        'Show the building name labels on the siteplan. Applies the next time the siteplan opens.'),
     ]));
   }
 

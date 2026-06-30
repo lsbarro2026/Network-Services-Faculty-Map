@@ -3,6 +3,14 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.33.0 — Move the siteplan labels toggle into Settings
+- **The page-wide "Show/Hide labels" toggle moved out of the siteplan toolbar into the Settings
+  view** (the gear → `/settings`, `App.showSettings`). The siteplan view-mode toolbar is now just
+  the Edit toggle; the edit-mode toolbar drops the labels button too. `app.siteLabels` is
+  runtime-only, so toggling it in Settings records the preference and takes visible effect the next
+  time the siteplan renders. Per-building label opt-ins (`hs.ref.showLabel`) are unchanged.
+- Frontend-only (`siteplan-editor.js` + `app.js`): no backend, security, or coordinate changes.
+
 ## 1.32.0 — Import map step: building dropdown + tidier gated-build hint
 - **Jump to any building from the map-step nav.** The drawings→floor "map" step's prev/next nav
   row (`_buildingNav`) now flanks a **building dropdown** that jumps straight to any mappable

@@ -490,9 +490,10 @@ Shapes are **building hotspots**. `editing()`=`app.siteEdit`.
   the index stays put while the map pans/zooms beside it. The index has a live **search
   box** (`.legend-search`) above re-renderable rows (`renderRows(q)` filters numbered +
   trailer groups on name/code/dir; empty groups are dropped; `◌` = not placed on map).
-  `_toolbar()` — Edit toggle + **Show/Hide labels** toggle (`app.siteLabels`, both modes);
-  in edit: Add area/Undo/Right angle/Grid/Size/Move/Save (no Snap button — the siteplan
-  editor always vertex/edge-snaps).
+  `_toolbar()` — Edit toggle only in view mode; in edit: Add area/Undo/Right angle/Grid/
+  Size/Move/Save (no Snap button — the siteplan editor always vertex/edge-snaps). The
+  page-wide **Show/Hide labels** toggle (`app.siteLabels`) lives in the Settings view, not
+  the toolbar (see `showSettings()`).
 - `render()` draws hotspots. In **view mode** they get the `.view` class (invisible
   at rest, neutral grey fill on hover or when the index row is hovered); in **edit
   mode** PDF hotspots are dashed `.ref`, user hotspots `.user`. View click →
@@ -811,8 +812,11 @@ every room), plus `current` (active Editor or null).
 - `renderBuilding(dir)` = floor-card grid (no editor; `current=null`). Building floor-card
   thumbnails rebase their `src` onto `window.MAP.media`.
 - `showSettings()` = settings view (no editor): an **Edit buildings & floors** button
-  (→ `#/import`) plus a note — the single entry point to the import/edit wizard. Rack inventory syncs per room from the floor's Place-racks
-  panel, so nothing rack-related is here.
+  (→ `#/import`) plus a note — the single entry point to the import/edit wizard — and the
+  page-wide **Show/Hide building labels** toggle (`app.siteLabels`; runtime-only, so it just
+  records the preference and re-renders this view — it takes visible effect the next time the
+  siteplan renders). Rack inventory syncs per room from the floor's Place-racks panel, so
+  nothing rack-related is here.
 - Chrome: `crumbs(items)`, `setToolbar(nodes)`, `closePanel()` (calls
   `current.onPanelClosed()` if present — e.g. to restore the racks-mode room label),
   `go(hash)`.
