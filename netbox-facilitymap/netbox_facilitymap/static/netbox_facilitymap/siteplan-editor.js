@@ -92,8 +92,7 @@ class SiteplanEditor extends Editor {
     if (!this.editing()) {
       // The wizard entry point lives in Settings now (App.showSettings) — the siteplan
       // toolbar no longer carries a redundant shortcut to it.
-      return [editBtn, labelsBtn,
-        Dom.el('span', { class: 'hint' }, 'Click a building, or use the index →')];
+      return [editBtn, labelsBtn];
     }
 
     const addBtn = Dom.el('button', { onclick: () => this.beginDraw(
