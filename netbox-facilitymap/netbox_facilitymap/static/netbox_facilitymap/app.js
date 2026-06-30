@@ -15,9 +15,12 @@ class App {
     this.siteLabels = false;            // siteplan: show building name labels (hidden by default)
     this.highlight = 'placements';      // floor view-mode highlight: rooms with devices
     this.current = null;                // active Editor (or null on building view)
-    // Static embed (dashboard-widget iframe, ?embed=1): chrome + pan/zoom/drill are killed in
-    // index.html (CSS); this also stops the keyboard shortcuts so the card is a fixed map.
+    // Embedded in a dashboard-widget iframe (?embed=1): chrome hidden + no navigation (drill-in
+    // is gated in SiteplanEditor.openBuilding). Interactivity (pan/zoom + zoom controls +
+    // keyboard) is opt-in there and always on in the standalone app; the editors and the
+    // keyboard handler consult `interactive`.
     this.embed = !!(window.MAP && window.MAP.embed);
+    this.interactive = !this.embed || !!(window.MAP && window.MAP.interactive);
   }
 
   async init() {
@@ -151,7 +154,7 @@ class App {
       this.router();
     });
     document.addEventListener('keydown', (e) => {
-      if (this.embed) return;   // static embed: no keyboard zoom/pan/shortcuts
+      if (!this.interactive) return;   // non-interactive embed: no keyboard zoom/shortcuts
       if (e.target.matches('input, textarea, select')) return;
       if (this.current instanceof Editor) this.current.handleKey(e);
     });

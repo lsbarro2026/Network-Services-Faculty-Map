@@ -14,8 +14,11 @@ class MapView(LoginRequiredMixin, TemplateView):
     template_name = 'netbox_facilitymap/index.html'
 
     def get_context_data(self, **kwargs):
-        # `?embed=1` (set by the dashboard widget's iframe) drops the SPA chrome so the map
-        # sits cleanly inside a card. See `index.html` and `dashboard.py`.
+        # `?embed=1` (set by the dashboard widget's iframe) drops the SPA chrome and navigation
+        # so the map sits cleanly inside a card; `interactive`/`legend` are opt-in relaxations
+        # of that static default. See `index.html` and `dashboard.py`.
         context = super().get_context_data(**kwargs)
         context['embed'] = 'embed' in self.request.GET
+        context['interactive'] = 'interactive' in self.request.GET
+        context['legend'] = 'legend' in self.request.GET
         return context

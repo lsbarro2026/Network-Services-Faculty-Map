@@ -31,6 +31,9 @@ class SiteplanEditor extends Editor {
   }
 
   openBuilding(dir, name) {
+    // The dashboard-widget embed is a preview with no navigation (no breadcrumbs to return) —
+    // both hotspot clicks and legend rows route through here, so this one gate covers both.
+    if (this.app.embed) return;
     const b = this.store.building(dir);
     (b && b.floors.length) ? this.app.go('/b/' + encodeURIComponent(dir))
       : Toast.show('No floor maps for ' + (name || dir));

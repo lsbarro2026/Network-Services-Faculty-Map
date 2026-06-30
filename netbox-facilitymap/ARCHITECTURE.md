@@ -39,7 +39,8 @@ window.MAP = {
   media:  "/plugins/facilitymap/api/media/",  // authenticated floor images / thumbnails / PDFs
   static: "/static/netbox_facilitymap/",      // framework-free JS/CSS/fonts (collectstatic)
   csrf:   "<session csrf token>",              // threaded into Api.post's X-CSRFToken header
-  embed:  false                                // true under ?embed=1 → App static mode (no keyboard nav)
+  embed:  false,                               // true under ?embed=1 → chrome-free widget, no navigation
+  interactive: false                           // embed pan/zoom opt-in (?interactive=1); gates Editor wiring + keyboard
 };
 ```
 
@@ -1461,17 +1462,26 @@ point at the deep treatment.
   ORM-backed auth and authenticated `media_url` images just work; nothing to scope here). Unlike
   `navigation.py`/`template_content.py`, NetBox does **not** auto-discover dashboard widgets, so
   `FacilityMapConfig.ready()` imports `dashboard` to run its `@register_widget`. The iframe always
-  loads **`?embed=1`**, the SPA's **static mode**: `MapView.get_context_data` sets an `embed` flag,
-  `index.html` mirrors it into `window.MAP.embed`, and the embed `<style>` hides every chrome
-  element (`#topbar`, `#panel`, `.zoom-ctl`, `#toast`), fills the stage, and sets
-  `pointer-events:none` on `.map-viewport` — so there is no pan/zoom/drill-in, just the map fitted
-  to the card (`PanZoom.fit` already runs on mount + resize). `App` reads `window.MAP.embed` to also
-  short-circuit its `keydown` handler (no keyboard zoom). Because `?embed=1` is consumed *only* by
-  this iframe (the Site/Location embeds are server-rendered SVG, not iframes of the SPA), this is
-  safe to treat as a dedicated static-preview mode. The CSS/flag changes touch `index.html` (no
-  `collectstatic`) and `app.js` (needs `collectstatic`). The widget config carries iframe height
-  and an optional deep-link hash (appended **after** the `?embed=1` querystring). The iframe relies
-  on NetBox's default `X-Frame-Options: SAMEORIGIN`.
+  loads **`?embed=1`** — a chrome-free, non-navigating preview by default — with two opt-in
+  relaxations the widget config appends to the querystring: `&interactive=1` (pan/zoom) and
+  `&legend=1` (the "All buildings" list). `MapView.get_context_data` reads all three into context;
+  `index.html` mirrors `embed`/`interactive` into `window.MAP` and the embed `<style>` hides the
+  chrome (`#topbar`, `#panel`, `#toast`), fills the stage, and hides `.legend` unless `legend` is
+  set. **Three behaviours are gated, each at the right layer:**
+  - *Chrome + legend* — pure CSS in the embed `<style>` (display:none), the established pattern.
+  - *Pan/zoom* — **JS, not CSS.** `Editor.attach` only calls `_bindPointer()` and appends
+    `_zoomControls()` when `app.interactive` (the fit + `ResizeObserver` re-fit stay
+    unconditional), and `App` short-circuits its `keydown` handler when `!interactive`. CSS
+    `pointer-events:none` does **not** work here: the pan/draw `.catcher` rect sets *inline*
+    `pointer-events:all` (`editor.js`), which overrides an inherited value.
+  - *Navigation* — `SiteplanEditor.openBuilding` returns early when `app.embed`. Both hotspot
+    clicks and legend-row clicks route through it, so one gate covers both regardless of toggles.
+  `App.interactive` is `!embed || window.MAP.interactive`, so the standalone app (no `?embed`) is
+  fully interactive and unchanged. `?embed=1` is consumed *only* by this iframe (the Site/Location
+  embeds are server-rendered SVG, not iframes of the SPA). Edits to the JS files need
+  `collectstatic`; `index.html`/`views.py` do not (but Python edits need a worker restart). The
+  widget config also carries iframe height and an optional deep-link hash (appended **after** the
+  querystring). The iframe relies on NetBox's default `X-Frame-Options: SAMEORIGIN`.
 - **Native previews also draw rack/device markers, server-side (`previews.py`).** The panel
   overlays `previews.placement_markers(...)` — one **MVP** box per placement (rack vs device,
   positioned/rotated/sized from the `placements` blob, scaled by `w×h`), via the shared

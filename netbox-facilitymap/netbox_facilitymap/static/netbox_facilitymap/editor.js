@@ -166,11 +166,13 @@ class Editor {
    *  (the clip box / pan viewport). */
   attach(img, svgEl, dims) {
     this.img = img; this.svg = svgEl; this.dims = dims;
-    this._bindPointer();
+    // A non-interactive embed (dashboard widget, pan/zoom off) skips all interaction wiring and
+    // the floating zoom controls — the map is still fitted (below) and re-fits on resize.
+    if (this.app.interactive) this._bindPointer();
     const wrap = svgEl.parentNode, container = wrap.parentNode;
     this.wrap = wrap;
     this.viewport.mount(wrap, container);
-    container.append(this._zoomControls());
+    if (this.app.interactive) container.append(this._zoomControls());
     // Fit once the wrap has real dimensions. A floor can tile several sheets, so
     // wait for every <img> to load before measuring (each one grows the wrap). A
     // multi-sheet floor frames its first sheet (this.initialFocus); else full fit.

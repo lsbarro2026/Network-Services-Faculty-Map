@@ -5,10 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Facility Map</title>
 <link rel="stylesheet" href="{% static 'netbox_facilitymap/style.css' %}"/>
-{% if embed %}{# Embedded in a dashboard-widget iframe: a static, chrome-free map that fills the card.
-   Hide every chrome element, let the stage fill, and kill pointer-events on the map viewport so
-   there is no pan/zoom/drill-in — just the fitted map (PanZoom.fit runs on mount + resize). #}
-<style>#topbar,#panel,.zoom-ctl,#toast{display:none!important}#stage{position:absolute;inset:0}.map-viewport{pointer-events:none}</style>{% endif %}
+{% if embed %}{# Embedded in a dashboard-widget iframe: a chrome-free map that fills the card.
+   Hide the chrome and let the stage fill. Pan/zoom is JS-gated (window.MAP.interactive) — not
+   CSS, since the .catcher sets inline pointer-events:all — and the legend is hidden unless the
+   widget opts in. #}
+<style>#topbar,#panel,#toast{display:none!important}#stage{position:absolute;inset:0}{% if not legend %}.legend{display:none!important}{% endif %}</style>{% endif %}
 </head>
 <body>
 
@@ -17,14 +18,16 @@
      media  -> /plugins/facilitymap/api/media/  (authenticated floor images / thumbnails)
      static -> /static/netbox_facilitymap/  (framework-free JS/CSS/fonts)
      csrf   -> session token threaded into Api.post so saves don't 403.
-     embed  -> true in the dashboard-widget iframe (?embed=1): App goes static (no keyboard nav). -->
+     embed  -> true in the dashboard-widget iframe (?embed=1): chrome-free, no navigation.
+     interactive -> embed pan/zoom opt-in (?interactive=1); false ⇒ App skips interaction wiring. -->
 <script>
   window.MAP = {
     api:    "{% url 'plugins:netbox_facilitymap:map' %}api/",
     media:  "{% url 'plugins:netbox_facilitymap:map' %}api/media/",
     static: "{% static 'netbox_facilitymap/' %}",
     csrf:   "{{ csrf_token }}",
-    embed:  {% if embed %}true{% else %}false{% endif %}
+    embed:  {% if embed %}true{% else %}false{% endif %},
+    interactive: {% if interactive %}true{% else %}false{% endif %}
   };
 </script>
 
