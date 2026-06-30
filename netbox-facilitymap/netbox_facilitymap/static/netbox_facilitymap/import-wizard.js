@@ -20,7 +20,7 @@ class ImportWizard {
     this.inv = null;        // scan inventory { folders:[{folder, pdfs:[...]}] }
     this.buildings = [];    // per-folder editable model (see _modelFromInventory)
     this.site = { folder: '', file: '' };  // chosen siteplan PDF (or empty = none)
-    this.thumbWidth = 170;  // map-step card width (px); the size slider drives it
+    this.thumbWidth = 480;  // map-step card width (px); the size slider drives it (its centred default)
     this._bIdx = 0;         // index of the building currently visible in the map step
     this._autoMapDone = false;  // the building→NetBox auto-match pass runs once per scan
     // Floor assignment shows a cropped close-up of each drawing's identifying code so floors
@@ -710,7 +710,7 @@ class ImportWizard {
   _sizer() {
     return Dom.el('div', { class: 'imp-sizer' }, [
       Dom.el('span', {}, 'Thumbnail size'),
-      Dom.el('input', { type: 'range', min: '150', max: '480', step: '10',
+      Dom.el('input', { type: 'range', min: '150', max: '810', step: '10',
         value: String(this.thumbWidth),
         oninput: (e) => { this.thumbWidth = parseInt(e.target.value, 10); this._applyThumbSize(); } }),
     ]);
