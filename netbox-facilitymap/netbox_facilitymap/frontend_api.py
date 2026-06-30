@@ -92,7 +92,6 @@ def _serialize_room(room, request):
         'id': room.room_id,
         'label': room.label,
         'polygon': room.polygon,
-        'datacenter': room.datacenter,
         'location': _trim(room.location, request) if room.location_id else None,
     }
 
@@ -152,7 +151,6 @@ def sync_rooms(rooms_by_floor, user=None):
                 defaults={
                     'label': room.get('label') or '',
                     'polygon': room.get('polygon') or [],
-                    'datacenter': bool(room.get('datacenter')),
                     'location_id': loc_id,
                 })
         del_qs.filter(floor_key=fkey).exclude(room_id__in=seen).delete()

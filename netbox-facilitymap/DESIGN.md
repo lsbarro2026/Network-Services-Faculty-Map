@@ -54,7 +54,7 @@ framework-free frontend and the JSON export round-trip unchanged. A `PluginTempl
 scoped, with **no schema change** beyond the `0002_room` table. The map editor's `sync_rooms`
 POST stays authoritative for room **geometry**, so a natively created/edited room is durable
 only until the editor next saves that floor (last-writer-wins; native edit is most useful for
-`label`/`location`/`datacenter`/`tags`). The remaining blobs (siteplan/placements/layouts) are
+`label`/`location`/`tags`). The remaining blobs (siteplan/placements/layouts) are
 **not** promoted.
 
 The supported NetBox range is pinned to **`4.1.7`–`4.6.0`**.
@@ -230,7 +230,7 @@ class FacilityMapBlob(models.Model):
   live from the ORM (§0).
 - **Room promotion (the real payoff):** the room polygon is a first-class
   `Room(NetBoxModel)` with `floor_key`, `room_id`, `label`, `polygon` (JSONField,
-  normalized 0..1), `datacenter`, and `location` FK → `dcim.Location`, backfilled from the
+  normalized 0..1), and `location` FK → `dcim.Location`, backfilled from the
   annotations blob by migration `0003_backfill_rooms` (reversible). `Room` is the source of
   truth; `AnnotationsView` composes/decomposes so the blob keeps only
   `image`/`w`/`h`/`arrows`. Hotspots / placements / layouts / arrows stay blobs
@@ -239,7 +239,7 @@ class FacilityMapBlob(models.Model):
   subpackage), UI list/detail/edit/delete + bulk, `RoomFilterSet`, `RoomTable`, global-search
   `RoomIndex`, and the **Rooms** nav item — all object-permission scoped, reusing the
   `0002_room` table. The map editor remains authoritative for room geometry (`sync_rooms`),
-  so native edits beyond `label`/`location`/`datacenter`/`tags` are overwritten on the
+  so native edits beyond `label`/`location`/`tags` are overwritten on the
   editor's next save of that floor (last-writer-wins).
 
 ---
@@ -478,7 +478,7 @@ Hash routing (`app.js router()`) is already prefix-agnostic — no change.
 - **Room model:** `makemigrations netbox_facilitymap` reports **no changes** (no schema
   delta); room polygons render on a NetBox Location page; backfilled `Room` rows FK to the
   correct Locations; `GET /api/plugins/facilitymap/rooms/` lists rooms and
-  `?floor_key=`/`?datacenter=`/`?location_id=` filter; the **Rooms** nav item opens a
+  `?floor_key=`/`?location_id=` filter; the **Rooms** nav item opens a
   filterable list, a row opens the native detail view, edit/bulk/delete work; global search
   finds a room by label; a user lacking `view_room` sees neither the list rows nor the REST
   results; and a native field edit survives until the map editor next saves that floor

@@ -1,6 +1,6 @@
 'use strict';
 /* device-shapes.js — DeviceShapes: schematic, instantly-recognizable glyphs for the
-   rack/device markers placed inside datacenter rooms. Pure static (no instances, no
+   rack/device markers placed inside rooms. Pure static (no instances, no
    state), in the spirit of Icons/Geom in lib.js; depends only on Dom.svg.
 
    Every glyph is drawn CENTERED AT THE ORIGIN and sized to a wpx×hpx box — the marker

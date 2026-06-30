@@ -32,10 +32,6 @@
             {% endif %}
           </td>
         </tr>
-        <tr>
-          <th scope="row">Datacenter</th>
-          <td>{% checkmark object.datacenter %}</td>
-        </tr>
       </table>
     </div>
     {% include 'inc/panels/tags.html' %}
@@ -52,8 +48,7 @@
           {% endif %}
           {% if points %}
             <polygon points="{{ points }}"
-                     fill="{% if object.datacenter %}#066fd133{% else %}#2fa84f22{% endif %}"
-                     stroke="{% if object.datacenter %}#066fd1{% else %}#2fa84f{% endif %}"
+                     fill="#2fa84f22" stroke="#2fa84f"
                      stroke-width="2" vector-effect="non-scaling-stroke"/>
           {% endif %}
         </svg>

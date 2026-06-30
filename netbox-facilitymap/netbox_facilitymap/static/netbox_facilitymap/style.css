@@ -237,15 +237,15 @@ svg.grid-adjust .clickzone, svg.grid-adjust .arrow-hit { pointer-events: none; }
 .draw-active .room, .draw-active .hotspot, .draw-active .clickzone,
 .draw-active .arrow-hit { pointer-events: none; }
 
-/* datacenter / rack rooms (visible in view mode) — blue accent */
-.room.dc { fill: rgba(6,111,209,.28); stroke: none; }
-.room.dc:hover { fill: rgba(6,111,209,.44); }
-.room.dc.selected { stroke: var(--warn); }   /* edit-mode selection still outlined */
+/* rooms holding rack/device markers (highlighted in view mode) — blue accent */
+.room.placed { fill: rgba(6,111,209,.28); stroke: none; }
+.room.placed:hover { fill: rgba(6,111,209,.44); }
+.room.placed.selected { stroke: var(--warn); }   /* edit-mode selection still outlined */
 
 /* invisible-but-clickable room (default in view mode) */
 .clickzone { fill: transparent; stroke: none; cursor: pointer; }
 
-/* rack / device markers placed inside datacenter rooms. The glyph (DeviceShapes)
+/* rack / device markers placed inside rooms. The glyph (DeviceShapes)
    is built from classed primitives: `dev-body` (the unit outline), `dev-line`
    (rails / bays / brick courses), `dev-port` (ports / outlets), `dev-led` (status
    dots). Racks are accent-blue, unracked devices grey; stale = faded + dashed. */

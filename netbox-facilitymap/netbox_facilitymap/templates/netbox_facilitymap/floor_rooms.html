@@ -12,8 +12,7 @@
       {% for s in shapes %}
         {% if s.url %}<a href="{{ s.url }}" target="_blank">{% endif %}
         <polygon points="{{ s.points }}"
-                 fill="{% if s.datacenter %}#066fd133{% else %}#2fa84f22{% endif %}"
-                 stroke="{% if s.datacenter %}#066fd1{% else %}#2fa84f{% endif %}"
+                 fill="#2fa84f22" stroke="#2fa84f"
                  stroke-width="2" vector-effect="non-scaling-stroke">
           <title>{{ s.label }}</title>
         </polygon>

@@ -11,7 +11,7 @@ class App {
     this.grid = new GridController();   // shared by both editors
     this.mode = 'edit';                 // floor editor: 'edit' | 'view' | 'racks'
     this.siteEdit = false;              // siteplan: editing building areas
-    this.highlight = 'datacenters';     // floor view-mode highlight
+    this.highlight = 'placements';      // floor view-mode highlight: rooms with devices
     this.current = null;                // active Editor (or null on building view)
   }
 

@@ -69,7 +69,6 @@ class FloorRooms(PluginTemplateExtension):
                 continue
             shapes.append({
                 'points': pts,
-                'datacenter': room.datacenter,
                 'label': room.label or room.room_id,
                 'url': room.location.get_absolute_url() if room.location_id else '',
             })

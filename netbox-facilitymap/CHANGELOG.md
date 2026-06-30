@@ -3,6 +3,24 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.14.0 — Racks/devices on any room (datacenter concept removed)
+- **The `datacenter` room flag is gone.** It used to gate everything rack-related — only
+  datacenter rooms were interactive in racks mode, could hold placements, and pulled NetBox
+  inventory. Racks/devices can now be placed in **any** room bound to a NetBox Location;
+  inventory loading and marker drawing key off the room's bound Location instead of the flag.
+- **View-mode highlight repurposed.** "Highlight: datacenters" is now **"Highlight: rooms
+  with devices"** — it highlights rooms that actually hold rack/device markers (a placement in
+  a bound room). It stays on by default (`app.highlight` default `'datacenters'` → `'placements'`);
+  the CSS accent class `.room.dc` → `.room.placed`.
+- **Field fully removed**, including a migration that drops the column
+  (`0004_remove_room_datacenter`, irreversible — existing per-room datacenter flags are
+  discarded). Stripped from the model, REST serializer/filter, native forms (edit/filter/bulk),
+  table, search index, `frontend_api` read+`sync_rooms` write paths, the Location floor panel,
+  and the room edit panel's "Datacenter / racks here" checkbox. The Room and Location pages
+  now draw every room in green (the blue datacenter fill is gone).
+- Migrate (`migrate` drops the column) and reload workers; re-run `collectstatic`.
+  Version → `1.14.0`.
+
 ## 1.13.0 — Clearer per-building code-region button label
 - **"Mark this building's code" → "Set this building's code region".** The per-building button
   in `_buildingSection` that overrides the code-crop region (`building.codeRegion`) had an

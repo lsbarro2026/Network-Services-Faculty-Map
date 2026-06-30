@@ -398,9 +398,10 @@ else `null` → full `fit()`).
   and placement from its old cell to the sheet's new cell so shapes follow their sheet —
   pure arithmetic on the combined-normalized coords (no schema/engine change). Esc exits.
 - `render()` — rooms; in **view mode** rooms are invisible `.clickzone`s that open
-  `location.url`, except `datacenter` rooms when `app.highlight==='datacenters'`;
-  in **racks mode** only datacenter rooms are drawn/interactive (click →
-  `openRackPanel`). Placement markers draw in view + racks modes.
+  `location.url`, except rooms holding device markers (a placement in a bound room) when
+  `app.highlight==='placements'`, which get the `.room.placed` accent; in **racks mode**
+  **every** room is drawn/interactive (click → `openRackPanel`) so racks/devices can be
+  placed on any room. Placement markers draw in view + racks modes.
   - **No room labels.** The floor-plan images already carry the printed room
     names/numbers, so the floor editor draws **no** centroid text overlay on a room —
     only the polygon (and its vertices while selected/editing). The shared label engine
@@ -411,7 +412,7 @@ else `null` → full `fit()`).
 - `finish()` (branches: arrow draft → `_finishArrow`; else push room, open panel),
   `duplicateRoom(src)`, `deleteRoom(room)`,
   `loadNbRooms()` (cached), `openRoomPanel(room)` (NetBox Location autocomplete +
-  datacenter checkbox + duplicate). `onPanelClosed()` — closing the sidebar in **racks
+  duplicate). `onPanelClosed()` — closing the sidebar in **racks
   mode** means placement is done, so it drops back to **edit** (`_switchMode('edit')`),
   de-activating the Place-racks button so a single click re-enters; otherwise it just
   clears any `selectedArrow`. (It no-ops while `_switchMode` is mid-toggle.)
@@ -436,7 +437,7 @@ else `null` → full `fit()`).
   (Delete/Backspace) or deselects (Esc) `selectedArrow` in edit mode. `deleteArrow`/
   `onPanelClosed` also clear `editingLabel`. The base
   `beginDraw` is overridden to also clear `selectedArrow`. View-mode arrows are inert
-  (`pointer-events:none`) so room/datacenter clicks underneath still work.
+  (`pointer-events:none`) so room clicks underneath still work.
 - **Rack placement:** `drawPlacements(s,W,H)` draws a `.rack-marker`
   `translate(centre) rotate(rot)` `<g>` per placement. The glyph is a per-type
   `DeviceShapes.glyph(type,wpx,hpx)` (type via `DeviceShapes.typeFor` off the NetBox
@@ -1030,7 +1031,7 @@ it so the frontend round-trips byte-for-byte):
 ```jsonc
 { "<dir>/<floorId>": { "image","w","h",
     "rooms":[ {"id","label","polygon":[[nx,ny]...],         // each room == a Room row
-      "location":{"id","name","slug","url"}, "datacenter":bool } ],
+      "location":{"id","name","slug","url"} } ],
     "arrows":[ {"id","points":[[nx,ny]...],   // open polyline (≥2), wayfinding route
       "room":"<roomId|null>",                 // destination room under the arrowhead (auto)
       "label":"", "color":"#066fd1",          // note shown at the start; route colour
@@ -1185,7 +1186,7 @@ Nested Locations: **Site (building) → Location (floor) → Location (room)**.
   building in `openHotspotPanel` → Save siteplan → POST `/api/siteplan`.
 - **Navigate (view):** siteplan hotspot / index → building floor grid → floor; in
   view mode a room click opens `location.url` (the NetBox Location page).
-- **Place racks:** Edit mode → **Place racks** toggle → click a datacenter room →
+- **Place racks:** Edit mode → **Place racks** toggle → click any Location-bound room →
   `openRackPanel` → **Refresh racks** → `Store.ensureRacks(netbox, locId, true)` fetches
   that Location's racks (`api/netbox/racks`) + unracked devices (`api/netbox/devices`)
   **live** → the panel lists them → click a row → `placeItem` drops a per-type
@@ -1494,7 +1495,7 @@ canvas gets the whole viewport, matching the standalone tool.
   floor-card `.cnt.mapped` (green pill) / `.cnt.unmapped` (grey pill) /
   `.cnt.sheets` (blue pill, shown when a floor has >1 stacked sheet).
 - **SVG drawing layer (over a light image):** blue = PDF/source hotspots &
-  datacenter `.room.dc`; green = user hotspots & bound `.room`; `--warn` =
+  device-bearing `.room.placed`; green = user hotspots & bound `.room`; `--warn` =
   selected/draft; `--danger` = `.unbound`. In siteplan **view mode** hotspots are
   `.hotspot.view` — invisible at rest, neutral grey fill on `:hover`/`.hot` (index
   hover). `.grid-line` is **dark** translucent (visible on the light canvas).

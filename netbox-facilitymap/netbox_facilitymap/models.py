@@ -61,7 +61,6 @@ class Room(NetBoxModel):
     room_id = models.CharField(max_length=40)
     label = models.CharField(max_length=200, blank=True)
     polygon = models.JSONField(default=list)  # [[nx, ny], ...] normalized 0..1
-    datacenter = models.BooleanField(default=False)
     # The bound *room* Location (a child of the floor Location). Null = unbound.
     location = models.ForeignKey(
         'dcim.Location', on_delete=models.SET_NULL, null=True, blank=True,

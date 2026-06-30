@@ -18,7 +18,7 @@ class RoomFilterSet(NetBoxModelFilterSet):
 
     class Meta:
         model = Room
-        fields = ('id', 'floor_key', 'room_id', 'label', 'datacenter')
+        fields = ('id', 'floor_key', 'room_id', 'label')
 
     def search(self, queryset, name, value):
         # `q` free-text across the human-meaningful identity fields.

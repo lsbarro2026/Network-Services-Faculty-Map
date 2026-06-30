@@ -5,7 +5,7 @@ to be confused with the page-mount `frontend_api.py` views that feed the map fro
 the same `Room` rows the editor writes through `sync_rooms`, so a room is now reachable
 both ways. `polygon` is exposed read/write but is editor-owned geometry (see the roadmap
 "last-writer-wins" note); the high-value writable fields here are `label`, `location`,
-`datacenter`, and the `NetBoxModel` extras (`tags`, `custom_fields`).
+and the `NetBoxModel` extras (`tags`, `custom_fields`).
 """
 
 from rest_framework import serializers
@@ -27,6 +27,6 @@ class RoomSerializer(NetBoxModelSerializer):
         model = Room
         fields = (
             'id', 'url', 'display', 'floor_key', 'room_id', 'label', 'polygon',
-            'datacenter', 'location', 'tags', 'custom_fields', 'created', 'last_updated',
+            'location', 'tags', 'custom_fields', 'created', 'last_updated',
         )
         brief_fields = ('id', 'url', 'display', 'floor_key', 'room_id', 'label')

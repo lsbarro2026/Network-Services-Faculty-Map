@@ -27,15 +27,15 @@ tool or external build step.
   `dcim.Location` (the source of truth behind the editor's JSON), so they are queryable and
   object-permission scopable. Each floor's `dcim.Location` page shows a **Rooms** panel that
   draws the floor plan with its room polygons, each linking to its bound room Location.
-- **Place racks/devices** in datacenter rooms: inventory is fetched live from NetBox
-  (`netbox/racks`, `netbox/devices`), restricted to the requester's object permissions.
+- **Place racks/devices** in any room bound to a Location: inventory is fetched live from
+  NetBox (`netbox/racks`, `netbox/devices`), restricted to the requester's object permissions.
 - **Native Room UI + REST.** Rooms have a **Rooms** nav item with a filterable list,
   detail (with a polygon-over-floor preview), edit/delete, and bulk edit/delete; a REST API
-  at `/api/plugins/facilitymap/rooms/` (filter by `floor_key`/`datacenter`/`location_id`);
+  at `/api/plugins/facilitymap/rooms/` (filter by `floor_key`/`location_id`);
   and global-search coverage — all object-permission scoped. The **map editor stays
   authoritative for room geometry**, so a native room create/edit is durable only until the
   editor next saves that floor (last-writer-wins); native editing is best for
-  `label`/`location`/`datacenter`/`tags`.
+  `label`/`location`/`tags`.
 
 ## Importing a facility
 

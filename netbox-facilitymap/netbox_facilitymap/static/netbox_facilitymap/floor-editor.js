@@ -1,7 +1,8 @@
 'use strict';
 /* floor-editor.js — FloorEditor: draw/edit room polygons on a floor image and
    bind each to a NetBox Location. In view mode rooms are invisible clickable
-   zones (datacenters stay highlighted). Extends Editor for the shared engine. */
+   zones (rooms holding rack/device markers stay highlighted). Extends Editor for
+   the shared engine. */
 
 class FloorEditor extends Editor {
   constructor(app, building, floor) {
@@ -135,7 +136,7 @@ class FloorEditor extends Editor {
 
     // Place-racks toggle lives in edit mode; racks is a sub-mode reached from edit.
     const racksBtn = Dom.el('button', { class: racksMode ? 'active' : '',
-      title: 'Place racks/devices inside datacenter rooms',
+      title: 'Place racks/devices in rooms',
       html: Icons.rack + '<span>Place racks</span>' });
     racksBtn.onclick = () => this._switchMode(racksMode ? 'edit' : 'racks');
 
@@ -157,7 +158,7 @@ class FloorEditor extends Editor {
       this.toolDivider(), saveBtn, this._badge];
 
     const hlSel = Dom.el('select', { title: 'Highlight in view mode' });
-    [['Highlight: datacenters', 'datacenters'], ['Highlight: none', 'none']].forEach(([l, v]) => {
+    [['Highlight: rooms with devices', 'placements'], ['Highlight: none', 'none']].forEach(([l, v]) => {
       const o = Dom.el('option', { value: v }, l);
       if (v === this.app.highlight) o.selected = true;
       hlSel.append(o);
@@ -226,25 +227,28 @@ class FloorEditor extends Editor {
 
     if (arranging) { this._drawArrange(s, W, H); return; }
 
+    // Rooms holding rack/device markers (a placement needs a bound Location to draw),
+    // used to highlight them in view mode.
+    const placedRooms = new Set(
+      this.store.placementData(this.building.dir, this.floor.id).placements.map(p => p.room));
     for (const room of this.data().rooms) {
-      const isDC = !!room.datacenter;
-      // Racks mode: only datacenter rooms are interactive (others are inert).
-      if (racks && !isDC) continue;
+      const placed = placedRooms.has(room.id) && !!room.location;
       const pts = room.polygon.map(p => `${p[0] * W},${p[1] * H}`).join(' ');
-      // View mode: invisible clickable zones, except highlighted datacenters.
-      const showShape = editing || (isDC && (racks || this.app.highlight === 'datacenters'));
+      // Racks mode draws every room as a clickable target. View mode keeps rooms as
+      // invisible click-zones, except those highlighted because they hold markers.
+      const showShape = editing || racks || (placed && this.app.highlight === 'placements');
       let cls;
       if (!showShape) cls = 'clickzone';
       else {
         cls = 'room';
-        if (isDC) cls += ' dc';
+        if (placed) cls += ' placed';
         if (editing && room.id === this.selected) cls += ' selected';
         if (editing && !room.location) cls += ' unbound';
       }
       const poly = Dom.svg('polygon', { points: pts, class: cls });
       if (cls === 'clickzone') poly.style.pointerEvents = 'all';
       const title = Dom.svg('title');
-      title.textContent = (room.label || '(unbound)') + (isDC ? ' — datacenter' : '');
+      title.textContent = (room.label || '(unbound)') + (placed ? ' — has devices' : '');
       poly.append(title);
       poly.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -384,8 +388,8 @@ class FloorEditor extends Editor {
     if (placements.length) this.store.markPlacementsDirty();
   }
 
-  // ---- rack/device placement markers (datacenter rooms only) ----
-  /** Live-load inventory for every datacenter room that has placements on this floor,
+  // ---- rack/device placement markers (rooms bound to a Location) ----
+  /** Live-load inventory for every bound room that has placements on this floor,
    *  so markers render with their real glyphs instead of the stale fallback. Each
    *  Location is fetched once and kept in the in-memory cache; one re-render restyles
    *  the markers when the inventory lands (roadmap §10 risk 3: brief stale flash). */
@@ -397,7 +401,7 @@ class FloorEditor extends Editor {
     const locIds = new Set();
     for (const p of pdata.placements) {
       const room = roomById[p.room];
-      if (room && room.datacenter && room.location) locIds.add(room.location.id);
+      if (room && room.location) locIds.add(room.location.id);
     }
     const pending = [...locIds].filter(id => !this.store.rackCache.locations[id]);
     if (!pending.length) return;
@@ -427,7 +431,7 @@ class FloorEditor extends Editor {
     // Draw the selected marker last so its handles sit above its neighbours.
     const visible = pdata.placements.filter(p => {
       const room = roomById[p.room];
-      return room && room.datacenter;
+      return room && room.location;
     });
     visible.sort((a, b) => (a === this.selectedPlacement ? 1 : 0) - (b === this.selectedPlacement ? 1 : 0));
 
@@ -561,7 +565,7 @@ class FloorEditor extends Editor {
     if (this.draft.kind === 'arrow') return this._finishArrow();
     const dp = this.draft.points;
     if (dp.length < 3) { this.draft = null; this.render(); return; }
-    const room = { id: Util.uid(), label: '', polygon: dp.slice(), location: null, datacenter: false };
+    const room = { id: Util.uid(), label: '', polygon: dp.slice(), location: null };
     this.data().rooms.push(room);
     this.draft = null; this.selected = room.id; this.markDirty();
     this.render(); this.openRoomPanel(room);
@@ -710,7 +714,7 @@ class FloorEditor extends Editor {
   duplicateRoom(src) {
     const off = 0.01;
     const poly = src.polygon.map(p => [+Math.min(1, p[0] + off).toFixed(5), +Math.min(1, p[1] + off).toFixed(5)]);
-    const room = { id: Util.uid(), label: '', polygon: poly, location: null, datacenter: false };
+    const room = { id: Util.uid(), label: '', polygon: poly, location: null };
     this.data().rooms.push(room);
     this.selected = room.id; this.markDirty();
     this.render(); this.openRoomPanel(room);
@@ -749,12 +753,6 @@ class FloorEditor extends Editor {
       Dom.el('button', { onclick: () => { room.location = null; room.label = ''; this.markDirty(); this.render(); this.openRoomPanel(room); } }, 'Unbind'),
       Dom.el('button', { class: 'danger', onclick: () => this.deleteRoom(room) }, 'Delete'),
     ]));
-
-    const dcChk = Dom.el('input', { type: 'checkbox' });
-    dcChk.checked = !!room.datacenter;
-    dcChk.onchange = () => { room.datacenter = dcChk.checked; this.markDirty(); this.render(); };
-    body.append(Dom.el('label', { class: 'check' }, [dcChk,
-      Dom.el('span', {}, ' Datacenter / racks here (stays highlighted in view mode)')]));
 
     body.append(Dom.el('button', { class: 'wide', onclick: () => this.duplicateRoom(room),
       html: Icons.dup + '<span>Duplicate as new room</span>' }));

@@ -13,4 +13,4 @@ class RoomIndex(SearchIndex):
         ('room_id', 200),
         ('floor_key', 500),
     )
-    display_attrs = ('floor_key', 'location', 'datacenter')
+    display_attrs = ('floor_key', 'location')

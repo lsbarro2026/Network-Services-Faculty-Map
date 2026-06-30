@@ -2,7 +2,7 @@
 
 `NetBoxModelViewSet` gives the full CRUD surface plus NetBox's object-permission
 restriction, brief mode, and change logging for free. The same `RoomFilterSet` backs both
-this viewset and the UI list view, so REST `?floor_key=`/`?datacenter=`/`?location_id=`
+this viewset and the UI list view, so REST `?floor_key=`/`?location_id=`
 filtering matches the UI filters.
 """
 
