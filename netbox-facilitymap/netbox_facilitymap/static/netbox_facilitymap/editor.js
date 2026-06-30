@@ -405,7 +405,17 @@ class Editor {
       const tri = Geom.arrowHead(a[0] * W, a[1] * H, b[0] * W, b[1] * H, ARROW_HEAD_PX);
       s.append(Dom.svg('polygon', { points: tri.map(p => p.join(',')).join(' '), class: 'draft-head' }));
     }
-    dp.forEach((p, i) => s.append(Dom.svg('circle', { cx: p[0] * W, cy: p[1] * H, r: 5, class: 'vertex' + (!arrow && i === 0 ? ' first' : '') })));
+    dp.forEach((p, i) => {
+      const v = Dom.svg('circle', { cx: p[0] * W, cy: p[1] * H, r: 5, class: 'vertex' + (!arrow && i === 0 ? ' first' : '') });
+      // Right-click removes this node mid-draft (like drawVertices for committed shapes).
+      // No minPts floor: the draft isn't closed yet, so dropping below 3/2 is fine.
+      // stopPropagation keeps the press from also reaching the background click/pan handlers.
+      v.addEventListener('contextmenu', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        this.draft.points.splice(i, 1); this.draft.cursor = null; this.render();
+      });
+      s.append(v);
+    });
     if (cur && cur.ortho) this._drawOrthoGuide(s, cur.pt, cur.ortho, W, H);
     if (cur) s.append(Dom.svg('circle', { cx: cur.pt[0] * W, cy: cur.pt[1] * H, r: cur.kind === 'vertex' ? 7 : 5, class: 'snap-cursor' + (cur.kind ? ' k-' + cur.kind : '') }));
   }
