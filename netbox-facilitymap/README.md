@@ -135,6 +135,13 @@ automatically (the last bundles its offline OCR models in the wheel — no extra
 NetBox's `MEDIA_ROOT` must be writable by the service (it already is for NetBox's own
 uploads).
 
+> **Headless servers:** `rapidocr-onnxruntime` pulls in OpenCV (`opencv-python`), whose `cv2`
+> needs X11 runtime libraries that bare server images often lack — so the *automatic* floor-code
+> OCR can fail with `import failed: libGL.so.1 …` / `libxcb.so.1 …`. Install them once
+> (RHEL/Rocky: `dnf install mesa-libGL libxcb`; Debian/Ubuntu: `apt install libgl1 libxcb1`), or
+> swap in `opencv-python-headless`. Manual floor assignment doesn't need OpenCV. (If you upgrade
+> with `pip --no-deps`, also `pip install rapidocr-onnxruntime` so the dep actually lands.)
+
 The plugin lives in the `netbox-facilitymap/` subdirectory of the
 [Network-Services-Faculty-Map](https://github.com/lsbarro2026/Network-Services-Faculty-Map)
 repository, so installing straight from GitHub uses pip's `#subdirectory=` syntax.

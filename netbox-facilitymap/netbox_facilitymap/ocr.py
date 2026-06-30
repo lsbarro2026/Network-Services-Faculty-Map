@@ -38,8 +38,10 @@ except ImportError:
 
 try:
     from rapidocr_onnxruntime import RapidOCR
-except ImportError:
-    RapidOCR = None
+    _RAPIDOCR_IMPORT_ERROR = None
+except Exception as exc:   # not just ImportError: an installed-but-unloadable cv2/onnxruntime
+    RapidOCR = None        # (e.g. headless box missing libGL/libxcb) raises here too — keep the
+    _RAPIDOCR_IMPORT_ERROR = exc   # real reason so the "required" message can name it.
 
 
 class FloorCodeReader:
@@ -114,7 +116,10 @@ class FloorCodeReader:
         if Image is None:
             sys.exit("Pillow is required for OCR")
         if RapidOCR is None:
-            sys.exit("rapidocr-onnxruntime is required for OCR")
+            msg = "rapidocr-onnxruntime is required for OCR"
+            if _RAPIDOCR_IMPORT_ERROR is not None:
+                msg += " — import failed: %s" % (_RAPIDOCR_IMPORT_ERROR,)
+            sys.exit(msg)
         with open(os.path.join(self.base_dir, job_rel), encoding="utf-8") as f:
             job = json.load(f)
         region = job["region"]

@@ -16,7 +16,7 @@ class FacilityMapConfig(PluginConfig):
     name = 'netbox_facilitymap'
     verbose_name = 'Facility Map'
     description = 'Navigable siteplan → building → floor → room map linked to NetBox Locations'
-    version = '1.6.0'
+    version = '1.6.1'
     author = 'Facility Map'
     author_email = ''
     base_url = 'facilitymap'

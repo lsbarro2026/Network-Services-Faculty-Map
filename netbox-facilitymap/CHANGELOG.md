@@ -3,6 +3,16 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.6.1 — Name the real reason OCR can't load
+- **The "rapidocr-onnxruntime is required" message now includes the real import error.** The
+  guard caught any `ImportError` and reported the same generic line, so an *installed* but
+  *unloadable* dependency (e.g. on a headless server, OpenCV's `cv2` failing on a missing
+  `libGL.so.1`/`libxcb.so.1`) looked identical to a missing package. `ocr.py` now captures the
+  actual import exception and appends it (`… — import failed: libxcb.so.1: cannot open shared
+  object file`), so the toast points at the fix. Note for headless installs: OpenCV (pulled in
+  by rapidocr) needs the X11 runtime libs — `dnf install mesa-libGL libxcb` (or the
+  `opencv-python-headless` swap). Version → `1.6.1`.
+
 ## 1.6.0 — Site plan first, zoomable floor-code picker, clearer OCR errors
 - **Real error messages, not "HTTP 500".** `Api.get`/`Api.post` now surface the server's own
   message on a failed request (the `error` field of a JSON body, or the plain-text body) instead
