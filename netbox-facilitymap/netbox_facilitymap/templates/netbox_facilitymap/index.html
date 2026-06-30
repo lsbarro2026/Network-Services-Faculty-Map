@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Facility Map</title>
 <link rel="stylesheet" href="{% static 'netbox_facilitymap/style.css' %}"/>
-{% if embed %}{# Embedded in a dashboard-widget iframe: drop the chrome so the map fills the card. #}<style>#topbar{display:none}#panel{top:0}</style>{% endif %}
+{% if embed %}{# Embedded in a dashboard-widget iframe: a static, chrome-free map that fills the card.
+   Hide every chrome element, let the stage fill, and kill pointer-events on the map viewport so
+   there is no pan/zoom/drill-in — just the fitted map (PanZoom.fit runs on mount + resize). #}
+<style>#topbar,#panel,.zoom-ctl,#toast{display:none!important}#stage{position:absolute;inset:0}.map-viewport{pointer-events:none}</style>{% endif %}
 </head>
 <body>
 
@@ -13,13 +16,15 @@
      api    -> /plugins/facilitymap/api/   (Django reverses the plugin page mount)
      media  -> /plugins/facilitymap/api/media/  (authenticated floor images / thumbnails)
      static -> /static/netbox_facilitymap/  (framework-free JS/CSS/fonts)
-     csrf   -> session token threaded into Api.post so saves don't 403. -->
+     csrf   -> session token threaded into Api.post so saves don't 403.
+     embed  -> true in the dashboard-widget iframe (?embed=1): App goes static (no keyboard nav). -->
 <script>
   window.MAP = {
     api:    "{% url 'plugins:netbox_facilitymap:map' %}api/",
     media:  "{% url 'plugins:netbox_facilitymap:map' %}api/media/",
     static: "{% static 'netbox_facilitymap/' %}",
-    csrf:   "{{ csrf_token }}"
+    csrf:   "{{ csrf_token }}",
+    embed:  {% if embed %}true{% else %}false{% endif %}
   };
 </script>
 

@@ -38,7 +38,8 @@ window.MAP = {
   api:    "/plugins/facilitymap/api/",        // logical /api/* rebased onto the plugin mount
   media:  "/plugins/facilitymap/api/media/",  // authenticated floor images / thumbnails / PDFs
   static: "/static/netbox_facilitymap/",      // framework-free JS/CSS/fonts (collectstatic)
-  csrf:   "<session csrf token>"               // threaded into Api.post's X-CSRFToken header
+  csrf:   "<session csrf token>",              // threaded into Api.post's X-CSRFToken header
+  embed:  false                                // true under ?embed=1 → App static mode (no keyboard nav)
 };
 ```
 
@@ -1459,12 +1460,18 @@ point at the deep treatment.
   than re-rendering it server-side — same-origin, so it rides the user's session (the SPA's own
   ORM-backed auth and authenticated `media_url` images just work; nothing to scope here). Unlike
   `navigation.py`/`template_content.py`, NetBox does **not** auto-discover dashboard widgets, so
-  `FacilityMapConfig.ready()` imports `dashboard` to run its `@register_widget`. Chrome-hiding
-  uses a new **`?embed=1`** mode: `MapView.get_context_data` sets an `embed` flag and `index.html`
-  drops `#topbar` (and pulls `#panel` to `top:0`) via an inline `<style>` when it's set — a
-  template change, so no `collectstatic`. The widget config carries iframe height, the hide-chrome
-  toggle, and an optional deep-link hash (appended **after** the `?embed=1` querystring). The
-  iframe relies on NetBox's default `X-Frame-Options: SAMEORIGIN`.
+  `FacilityMapConfig.ready()` imports `dashboard` to run its `@register_widget`. The iframe always
+  loads **`?embed=1`**, the SPA's **static mode**: `MapView.get_context_data` sets an `embed` flag,
+  `index.html` mirrors it into `window.MAP.embed`, and the embed `<style>` hides every chrome
+  element (`#topbar`, `#panel`, `.zoom-ctl`, `#toast`), fills the stage, and sets
+  `pointer-events:none` on `.map-viewport` — so there is no pan/zoom/drill-in, just the map fitted
+  to the card (`PanZoom.fit` already runs on mount + resize). `App` reads `window.MAP.embed` to also
+  short-circuit its `keydown` handler (no keyboard zoom). Because `?embed=1` is consumed *only* by
+  this iframe (the Site/Location embeds are server-rendered SVG, not iframes of the SPA), this is
+  safe to treat as a dedicated static-preview mode. The CSS/flag changes touch `index.html` (no
+  `collectstatic`) and `app.js` (needs `collectstatic`). The widget config carries iframe height
+  and an optional deep-link hash (appended **after** the `?embed=1` querystring). The iframe relies
+  on NetBox's default `X-Frame-Options: SAMEORIGIN`.
 - **Native previews also draw rack/device markers, server-side (`previews.py`).** The panel
   overlays `previews.placement_markers(...)` — one **MVP** box per placement (rack vs device,
   positioned/rotated/sized from the `placements` blob, scaled by `w×h`), via the shared

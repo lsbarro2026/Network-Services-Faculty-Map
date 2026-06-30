@@ -64,9 +64,10 @@ The map also surfaces on the **home dashboard**: `dashboard.FacilityMapWidget` i
 widget that `<iframe>`s the SPA. Unlike the template extensions, a dashboard widget isn't
 auto-discovered, so `FacilityMapConfig.ready()` imports `dashboard` to register it. The iframe is
 same-origin and so inherits the user's session — no second rendering path, and the SPA's own
-ORM-backed auth and authenticated media carry over. A `?embed=1` mode (an `embed` context flag in
-`MapView`, read by `index.html`) hides the SPA chrome so the map fills the card; the widget's
-config sets height, the hide-chrome toggle, and an optional deep-link hash.
+ORM-backed auth and authenticated media carry over. The iframe always loads `?embed=1` — the SPA's
+**static mode** (an `embed` context flag in `MapView`, mirrored into `window.MAP.embed`, read by
+`index.html` and `app.js`): no chrome, no side panel, and no pan/zoom or drill-in, just the map
+fitted to fill the card. The widget's config sets height and an optional deep-link hash.
 `Room` also carries a NetBox-native **DRF REST API** (`api/`, registered at `rooms`), with **no
 schema change** beyond the `0002_room` table. (The standalone Room browse UI — list/detail/edit/
 bulk, table, forms, global-search index, and the **Rooms** nav item — was removed in `1.18.0`

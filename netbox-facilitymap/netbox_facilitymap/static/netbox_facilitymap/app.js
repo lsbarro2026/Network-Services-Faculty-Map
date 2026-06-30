@@ -15,6 +15,9 @@ class App {
     this.siteLabels = false;            // siteplan: show building name labels (hidden by default)
     this.highlight = 'placements';      // floor view-mode highlight: rooms with devices
     this.current = null;                // active Editor (or null on building view)
+    // Static embed (dashboard-widget iframe, ?embed=1): chrome + pan/zoom/drill are killed in
+    // index.html (CSS); this also stops the keyboard shortcuts so the card is a fixed map.
+    this.embed = !!(window.MAP && window.MAP.embed);
   }
 
   async init() {
@@ -148,6 +151,7 @@ class App {
       this.router();
     });
     document.addEventListener('keydown', (e) => {
+      if (this.embed) return;   // static embed: no keyboard zoom/pan/shortcuts
       if (e.target.matches('input, textarea, select')) return;
       if (this.current instanceof Editor) this.current.handleKey(e);
     });

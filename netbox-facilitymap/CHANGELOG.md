@@ -3,6 +3,19 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.23.0 — Dashboard widget is a static map-only preview
+- **The Facility Map dashboard widget now shows only the map, fitted to fill the card.** Its
+  iframe always loads `?embed=1`, which is now the SPA's **static mode**: all chrome is hidden
+  (toolbar, breadcrumbs, the side panel, the zoom controls), the map fills the card, and
+  `pointer-events` is removed from the viewport — so there is no pan/zoom or drill-in navigation,
+  just the fitted map (`PanZoom.fit` runs on mount + resize). `App` also reads `window.MAP.embed`
+  to disable its keyboard shortcuts in this mode.
+- The widget's **hide-chrome toggle is gone** — the widget is always a static preview. It still
+  takes an iframe **height** and an optional **deep-link** hash to pin a specific building/floor.
+- Safe because `?embed=1` is consumed only by this iframe; the Site/Location embeds are
+  server-rendered SVG, not iframes of the SPA. Touches `index.html` and `app.js`, so **re-run
+  `collectstatic`** and **restart the NetBox workers** after upgrading.
+
 ## 1.22.0 — Embed the facility map as a home-dashboard widget
 - **The facility map is now a NetBox dashboard widget.** From the home dashboard's "Add Widget"
   picker, users can drop in a **Facility Map** card (`dashboard.FacilityMapWidget`). It embeds
