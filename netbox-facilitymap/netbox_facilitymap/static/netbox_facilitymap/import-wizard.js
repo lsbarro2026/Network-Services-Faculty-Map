@@ -665,13 +665,17 @@ class ImportWizard {
    *  assigned to a floor (no building left with an `unassigned` drawing) and a site-plan image is
    *  chosen; while gated it shows a disabled button + a hint naming what's missing, so the button
    *  never silently vanishes. "Add drawings" (additive upload) and "Start over" stay available
-   *  regardless. */
+   *  regardless. The label tracks whether this is a fresh import or a re-edit: a facility already
+   *  in the store (`hasContent()`, the same edit-mode test `show()` routes the hub on) means the
+   *  action regenerates an existing map, so the button reads **Rebuild map** rather than the
+   *  from-scratch **Build facility map** — the rebuild itself is identical either way. */
   _buildActions() {
     const unassigned = this._unassignedBuildings();
     const needSiteplan = !this.site.file;
+    const label = this.app.store.hasContent() ? 'Rebuild map' : 'Build facility map';
     const actions = [];
     if (unassigned.length || needSiteplan) {
-      const blocked = Dom.el('button', { class: 'primary' }, 'Build facility map');
+      const blocked = Dom.el('button', { class: 'primary' }, label);
       blocked.disabled = true;
       actions.push(blocked);
       const reasons = [];
@@ -684,8 +688,7 @@ class ImportWizard {
       if (needSiteplan) reasons.push('Pick a site plan (use “Change” above).');
       actions.push(Dom.el('span', { class: 'hint' }, reasons.join(' ')));
     } else {
-      actions.push(Dom.el('button', { class: 'primary', onclick: () => this._build() },
-        'Build facility map'));
+      actions.push(Dom.el('button', { class: 'primary', onclick: () => this._build() }, label));
     }
     actions.push(Dom.el('button', { onclick: () => this._addDrawings() }, '+ Add drawings'));
     actions.push(Dom.el('button', { onclick: () => this._reset() }, 'Start over'));

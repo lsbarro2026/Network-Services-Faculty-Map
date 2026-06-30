@@ -3,6 +3,18 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.34.0 — Build button reads "Rebuild map" when re-editing a built facility
+- **The map step's primary build button now relabels itself in edit mode.** When the import
+  wizard is opened on an already-built facility (the *Settings → Edit buildings & floors* path
+  that lands on the edit hub), the button reads **Rebuild map** instead of **Build facility map**,
+  so retweaking a few assignments no longer surfaces a from-scratch-sounding action. A fresh
+  import is unchanged. The label switches on `store.hasContent()` — the same edit-mode test
+  `show()` already uses to route to the hub — so no new fresh-vs-edit flag was needed.
+- The gating (unassigned drawings / missing site plan still block), the `_orphanedFloors`
+  room-safety confirm, and the full rebuild itself are all unchanged; only the label differs.
+- Frontend + docs only (`import-wizard.js` `_buildActions`, `ARCHITECTURE.md`): no backend,
+  security, endpoint, or coordinate changes.
+
 ## 1.33.0 — Move the siteplan labels toggle into Settings
 - **The page-wide "Show/Hide labels" toggle moved out of the siteplan toolbar into the Settings
   view** (the gear → `/settings`, `App.showSettings`). The siteplan view-mode toolbar is now just

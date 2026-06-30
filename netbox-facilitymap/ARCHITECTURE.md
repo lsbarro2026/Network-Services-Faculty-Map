@@ -759,11 +759,15 @@ skipped (no `_codeRegion`). It re-enters `_stepRegionPick(b)` scoped to that bui
 button — **Use the global region** when one exists, else **Clear — show full drawing** — and a
 plain **Cancel**, and lands back on that building (`_bIdx`).
 
-**Build** (`_buildActions`/`_build`): the **Build facility map** button is gated — it stays a
+**Build** (`_buildActions`/`_build`): the primary build button is gated — it stays a
 disabled button + hint (never silently hidden) until every building's drawings are assigned
 (`_unassignedBuildings()`, a cheap synchronous pass naming the offending buildings — the hint
 lists them when ≤5, else collapses to a count) **and** a
-site-plan image is chosen; **+ Add drawings** and **Start over** stay available throughout.
+site-plan image is chosen; **+ Add drawings** and **Start over** stay available throughout. Its
+label tracks fresh-vs-edit via `store.hasContent()` (the same edit-mode test `show()` routes the
+hub on): **Build facility map** on a first import, **Rebuild map** when re-editing an
+already-built facility — the gating, room-safety check, and rebuild itself are identical either
+way; only the label changes so it doesn't read as a from-scratch action after small edits.
 Before posting, `_build` runs `_orphanedFloors(map)` — a **room-safety check** (see §10 *Floor
 ids and rooms*): it computes the floor keys the rebuild will produce
 (`siteSlug/(abbr+token)`, mirroring `preprocess.build`) and compares them against the live
