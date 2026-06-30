@@ -3,6 +3,20 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.22.0 — Embed the facility map as a home-dashboard widget
+- **The facility map is now a NetBox dashboard widget.** From the home dashboard's "Add Widget"
+  picker, users can drop in a **Facility Map** card (`dashboard.FacilityMapWidget`). It embeds
+  the map SPA in an `<iframe>` of the existing map view — same-origin, so it inherits the user's
+  session: the SPA's ORM-backed auth and authenticated `media_url` images work with no extra
+  plumbing, and there's no second rendering path.
+- The widget is configurable: iframe **height**, a **hide map chrome** toggle (default on), and
+  an optional **deep-link** hash (e.g. `#/b/<dir>` or `#/f/<dir>/<fid>`; blank opens the
+  siteplan). Hiding chrome works via a new `?embed=1` mode on the map view: `MapView` sets an
+  `embed` context flag and `index.html` drops `#topbar` when it's set.
+- Widgets aren't auto-discovered, so `FacilityMapConfig.ready()` now imports `dashboard` to run
+  its `@register_widget`. No `collectstatic` needed (only a template changed); **restart the
+  NetBox workers** after upgrading.
+
 ## 1.21.0 — Embed a building's floor picker on its NetBox Site page
 - **A Site's detail page now embeds a floor picker.** A second `PluginTemplateExtension`
   (`template_content.SiteFloors`, on `dcim.site`) renders a grid of floor cards mirroring the

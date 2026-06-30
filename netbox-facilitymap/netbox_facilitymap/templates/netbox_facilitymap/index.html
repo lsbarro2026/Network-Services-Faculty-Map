@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Facility Map</title>
 <link rel="stylesheet" href="{% static 'netbox_facilitymap/style.css' %}"/>
+{% if embed %}{# Embedded in a dashboard-widget iframe: drop the chrome so the map fills the card. #}<style>#topbar{display:none}#panel{top:0}</style>{% endif %}
 </head>
 <body>
 

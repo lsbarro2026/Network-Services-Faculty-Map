@@ -12,3 +12,10 @@ class MapView(LoginRequiredMixin, TemplateView):
     the data access.
     """
     template_name = 'netbox_facilitymap/index.html'
+
+    def get_context_data(self, **kwargs):
+        # `?embed=1` (set by the dashboard widget's iframe) drops the SPA chrome so the map
+        # sits cleanly inside a card. See `index.html` and `dashboard.py`.
+        context = super().get_context_data(**kwargs)
+        context['embed'] = 'embed' in self.request.GET
+        return context

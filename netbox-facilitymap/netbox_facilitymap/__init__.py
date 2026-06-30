@@ -16,7 +16,7 @@ class FacilityMapConfig(PluginConfig):
     name = 'netbox_facilitymap'
     verbose_name = 'Facility Map'
     description = 'Navigable siteplan → building → floor → room map linked to NetBox Locations'
-    version = '1.21.0'
+    version = '1.22.0'
     author = 'Facility Map'
     author_email = ''
     base_url = 'facilitymap'
@@ -36,6 +36,12 @@ class FacilityMapConfig(PluginConfig):
         'render_timeout_s': 300,  # kill the render subprocess after this many seconds
         'render_mem_mb': 4096,   # RLIMIT_AS for the render subprocess (POSIX)
     }
+
+    def ready(self):
+        # NetBox auto-discovers navigation/template_content but NOT dashboard widgets, so
+        # import the module here to run its `@register_widget` decorator at app-ready.
+        super().ready()
+        from . import dashboard  # noqa: F401
 
 
 config = FacilityMapConfig

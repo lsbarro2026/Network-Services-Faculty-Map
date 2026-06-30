@@ -60,6 +60,13 @@ server-side from the `placements` blob and permission-scoped to the visible room
 A second extension (`template_content.SiteFloors`) embeds a **floor picker** on the `dcim.Site`
 page (here a Site = one building): a grid of floor cards mirroring the SPA's building view,
 read fresh from the manifest, each card linking to that floor's NetBox Location page.
+The map also surfaces on the **home dashboard**: `dashboard.FacilityMapWidget` is a draggable
+widget that `<iframe>`s the SPA. Unlike the template extensions, a dashboard widget isn't
+auto-discovered, so `FacilityMapConfig.ready()` imports `dashboard` to register it. The iframe is
+same-origin and so inherits the user's session — no second rendering path, and the SPA's own
+ORM-backed auth and authenticated media carry over. A `?embed=1` mode (an `embed` context flag in
+`MapView`, read by `index.html`) hides the SPA chrome so the map fills the card; the widget's
+config sets height, the hide-chrome toggle, and an optional deep-link hash.
 `Room` also carries a NetBox-native **DRF REST API** (`api/`, registered at `rooms`), with **no
 schema change** beyond the `0002_room` table. (The standalone Room browse UI — list/detail/edit/
 bulk, table, forms, global-search index, and the **Rooms** nav item — was removed in `1.18.0`
@@ -141,6 +148,7 @@ netbox-facilitymap/                      # distribution root
     models.py                            # FacilityMapBlob; Room(NetBoxModel) FK → dcim.Location
     filtersets.py                        # RoomFilterSet (used by the DRF REST API)
     template_content.py                  # FloorRooms (room panel on the Location page) + SiteFloors (floor picker on the Site page)
+    dashboard.py                         # FacilityMapWidget: home-dashboard widget that iframes the SPA
     previews.py                          # room/Location preview helpers (placement markers + room-crop viewBox)
     api/                                 # DRF REST API for Room
       serializers.py  views.py  urls.py  # RoomSerializer + RoomViewSet + NetBoxRouter

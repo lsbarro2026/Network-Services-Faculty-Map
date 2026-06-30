@@ -74,7 +74,7 @@ netbox-facilitymap/
   pyproject.toml            # packaging + version (lockstep with PluginConfig.version)
   README.md  DESIGN.md  CHANGELOG.md  ARCHITECTURE.md
   netbox_facilitymap/
-    __init__.py             # FacilityMapConfig(PluginConfig): version, base_url, default_settings
+    __init__.py             # FacilityMapConfig(PluginConfig): version, base_url, default_settings; ready() registers the dashboard widget
     urls.py                 # all routes: page mount, api/*, api/import/*, media
     views.py                # MapView (the SPA shell)
     frontend_api.py         # frontend JSON views: AnnotationsView, BlobView, NbRooms/Locations/Racks/Devices
@@ -84,6 +84,7 @@ netbox-facilitymap/
     storage.py              # NEW: work_dir() / safe_path() / media_url() (working-dir + traversal guard)
     models.py               # FacilityMapBlob (editor JSON) + Room (NetBoxModel: room polygon → Location)
     template_content.py     # PluginTemplateExtensions: FloorRooms (rooms panel on the Location page) + SiteFloors (floor-picker grid on the Site page)
+    dashboard.py            # FacilityMapWidget: home-dashboard widget that iframes the SPA (registered in __init__.ready())
     previews.py             # Location preview helpers: floor_sheets() (sheet tiling) + placement_markers() + room_viewbox()
     navigation.py           # plugin menu item (Facility Map)
     filtersets.py           # RoomFilterSet (used by the DRF REST API)
@@ -1453,6 +1454,17 @@ point at the deep treatment.
   then draws the plan. Returns `''` (no panel) when no building matches or no card is produced.
   The template (`site_floors.html`) is inline-styled like `floor_rooms.html` (no plugin CSS on
   dcim pages). Both extensions are listed in `template_extensions`.
+- **The dashboard widget is an iframe, registered manually.** `dashboard.FacilityMapWidget`
+  (the home-dashboard "Facility Map" card) embeds the SPA as an `<iframe>` of `MapView` rather
+  than re-rendering it server-side — same-origin, so it rides the user's session (the SPA's own
+  ORM-backed auth and authenticated `media_url` images just work; nothing to scope here). Unlike
+  `navigation.py`/`template_content.py`, NetBox does **not** auto-discover dashboard widgets, so
+  `FacilityMapConfig.ready()` imports `dashboard` to run its `@register_widget`. Chrome-hiding
+  uses a new **`?embed=1`** mode: `MapView.get_context_data` sets an `embed` flag and `index.html`
+  drops `#topbar` (and pulls `#panel` to `top:0`) via an inline `<style>` when it's set — a
+  template change, so no `collectstatic`. The widget config carries iframe height, the hide-chrome
+  toggle, and an optional deep-link hash (appended **after** the `?embed=1` querystring). The
+  iframe relies on NetBox's default `X-Frame-Options: SAMEORIGIN`.
 - **Native previews also draw rack/device markers, server-side (`previews.py`).** The panel
   overlays `previews.placement_markers(...)` — one **MVP** box per placement (rack vs device,
   positioned/rotated/sized from the `placements` blob, scaled by `w×h`), via the shared
