@@ -625,13 +625,21 @@ class FloorEditor extends Editor {
         hit.addEventListener('click', (e) => { e.stopPropagation(); if (!this.draft) this.selectArrow(a); });
         s.append(hit);
       }
-      const line = Dom.svg('polyline', { points: pts, fill: 'none',
+      const n = a.points.length, p0 = a.points[n - 2], p1 = a.points[n - 1];
+      // The visible line stops at the arrowhead's base centre (pulled back ARROW_HEAD_PX
+      // toward p0) so its round end-cap doesn't poke past the opaque triangle tip. Clamp
+      // the pull to the last segment so a short final hop can't flip the point past p0.
+      let dx = (p1[0] - p0[0]) * W, dy = (p1[1] - p0[1]) * H;
+      const len = Math.hypot(dx, dy) || 1, pull = Math.min(ARROW_HEAD_PX, len);
+      const cx = p1[0] * W - dx / len * pull, cy = p1[1] * H - dy / len * pull;
+      const linePts = a.points.slice(0, n - 1).map(p => `${p[0] * W},${p[1] * H}`)
+        .concat(`${cx},${cy}`).join(' ');
+      const line = Dom.svg('polyline', { points: linePts, fill: 'none',
         class: 'arrow' + (editing && a === this.selectedArrow ? ' selected' : '') });
       line.style.stroke = color;
       line.style.pointerEvents = 'none';   // all hit-testing goes through .arrow-hit (edit only)
       s.append(line);
 
-      const n = a.points.length, p0 = a.points[n - 2], p1 = a.points[n - 1];
       const tri = Geom.arrowHead(p0[0] * W, p0[1] * H, p1[0] * W, p1[1] * H, ARROW_HEAD_PX);
       const head = Dom.svg('polygon', { points: tri.map(p => p.join(',')).join(' '), class: 'arrow-head' });
       head.style.fill = color; head.style.pointerEvents = 'none';

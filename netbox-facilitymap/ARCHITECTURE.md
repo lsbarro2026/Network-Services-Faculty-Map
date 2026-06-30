@@ -427,7 +427,10 @@ else `null` → full `fit()`).
   room polygon contains the arrowhead (last point) — re-run on every node drag so it stays
   fresh. `_drawArrows(s,W,H)` renders each route (edit + view, **not** racks): a fat
   transparent `.arrow-hit` polyline (edit-only, for selection), the coloured `.arrow`
-  polyline (constant width via non-scaling-stroke), an `.arrow-head` triangle
+  polyline (constant width via non-scaling-stroke; its visible last point is pulled back to
+  the arrowhead's base centre — `ARROW_HEAD_PX` toward the previous node, clamped to the last
+  segment — so its round end-cap doesn't poke past the tip; `.arrow-hit`, the editable nodes,
+  and `_bindArrowDest` keep the full-length geometry), an `.arrow-head` triangle
   (`Geom.arrowHead`, fixed `ARROW_HEAD_PX` layout px so it scales with the map), and the
   optional note at the start. The note is a `.arrow-label` drawn by `_drawArrowLabel` via the
   shared label engine (`_setLabelLines`/`attachLabel`): auto-placed just above `points[0]`, an
