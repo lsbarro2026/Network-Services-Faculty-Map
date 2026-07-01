@@ -1,3 +1,10 @@
+"""Plugin navigation entries.
+
+Two `PluginMenuItem`s under the plugin's menu: **Facility Map** (the full-page map, gated on
+`view_facilitymapblob`) and **Settings** (the settings page, gated on the write permission
+`change_facilitymapblob` so only editors see it). NetBox auto-discovers `menu_items`.
+"""
+
 from netbox.plugins import PluginMenuItem
 
 menu_items = (

@@ -1,3 +1,12 @@
+"""URL map for the plugin, rooted at `/plugins/facilitymap/`.
+
+Routes the full-page map (`MapView`) and settings page (`SettingsView`), plus the browser
+JSON endpoints the frontend calls: blob persistence (`frontend_api`) and the PDF-import
+pipeline + authenticated media/manifest serving (`imports`). These `api/` paths mirror the
+standalone tool's logical layout and are exposed to the frontend via `window.MAP.api` in
+index.html; they are distinct from the DRF REST package under `api/`.
+"""
+
 from django.urls import path
 
 from . import frontend_api, imports, views

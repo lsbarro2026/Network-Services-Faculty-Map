@@ -17,8 +17,8 @@ class FacilityMapConfig(PluginConfig):
     verbose_name = 'Facility Map'
     description = 'Navigable siteplan → building → floor → room map linked to NetBox Locations'
     version = '1.36.0'
-    author = 'Facility Map'
-    author_email = ''
+    author = 'Liam Sbarro'
+    author_email = 'ljs.social2005@gmail.com'
     base_url = 'facilitymap'
     # Supported NetBox range. Plugin/menu/restrict()/template-extension APIs shift between
     # 4.x minors, so keep this pinned to the tested span and re-verify when widening it.

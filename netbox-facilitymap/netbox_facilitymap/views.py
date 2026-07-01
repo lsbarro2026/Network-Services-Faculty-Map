@@ -1,3 +1,12 @@
+"""Server-rendered UI pages for the plugin.
+
+`MapView` serves the full-bleed map application shell (the framework-free frontend then
+talks back through `frontend_api`); `SettingsView` is the permission-gated page for the
+editable plugin settings. Both are login-gated and read NetBox data straight from the ORM —
+there is no API token in play. Room/Location page content lives in `template_content.py`,
+not here.
+"""
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.shortcuts import redirect, render

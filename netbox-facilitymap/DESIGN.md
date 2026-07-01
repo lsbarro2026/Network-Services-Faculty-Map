@@ -350,6 +350,11 @@ recursive-include netbox_facilitymap/static *
 - **Compatibility gate.** `min_version`/`max_version` in `PluginConfig` are enforced by
   NetBox at load — they are pinned to the tested range because NetBox plugin APIs
   (`PluginConfig`, menu, `restrict()`, template extensions) shift between 4.x minors.
+- **Distribution metadata.** Beyond the snippet above, the real `pyproject.toml` also carries
+  trove `classifiers` and a `[project.urls]` table (Homepage/Source/Issues). These are pure
+  PyPI metadata — they don't affect the build and don't require a version bump on their own.
+  Runtime deps declare floors (`pypdfium2>=4.0.0`, `Pillow>=10.0.0`) matching the render APIs
+  `preprocess.py` uses.
 
 ---
 

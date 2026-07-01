@@ -1,3 +1,12 @@
+"""The plugin's persisted data — two models with distinct jobs.
+
+`FacilityMapBlob` stores editor state as whole-document JSON rows (one per `kind`), staying
+byte-compatible with the standalone tool's flat JSON files. `Room` is a `NetBoxModel`
+holding the authoritative, relational room geometry bound to a `dcim.Location`; the editor's
+`sync_rooms` owns its lifecycle (see CLAUDE.md §Data safety). See DESIGN.md §3 for how the
+two compose.
+"""
+
 from django.db import models
 from django.urls import reverse
 

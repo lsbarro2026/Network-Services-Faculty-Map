@@ -9,16 +9,35 @@ description = "Facility map plugin for NetBox — siteplan → building → floo
 requires-python = ">=3.10"
 readme = "README.md"
 license = { text = "MIT" }
-authors = [{ name = "Facility Map" }]
+authors = [{ name = "Liam Sbarro", email = "ljs.social2005@gmail.com" }]
+classifiers = [
+    "Framework :: Django",
+    "Environment :: Plugins",
+    "Environment :: Web Environment",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Intended Audience :: System Administrators",
+    "Topic :: System :: Networking",
+]
 # PDF import runs in-plugin: PDFs are rasterized to floor images by `preprocess.py`.
 # pypdfium2 embeds Google's PDFium (the renderer Chrome uses) as a self-contained wheel
 # — no system Ghostscript/poppler. It is invoked as a *subprocess* (see imports.py), so
 # this native code never loads into a long-lived NetBox worker; these are still declared
-# runtime deps because the subprocess shares the NetBox virtualenv.
+# runtime deps because the subprocess shares the NetBox virtualenv. The floors track the
+# APIs this code uses: pypdfium2 4.0 introduced the `render().to_pil()` v4 API used in
+# preprocess.py (4.x/5.x both satisfy it); Pillow 10 is a safe modern baseline.
 dependencies = [
-    "pypdfium2",
-    "Pillow",
+    "pypdfium2>=4.0.0",
+    "Pillow>=10.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/lsbarro2026/Network-Services-Faculty-Map"
+Source = "https://github.com/lsbarro2026/Network-Services-Faculty-Map"
+Issues = "https://github.com/lsbarro2026/Network-Services-Faculty-Map/issues"
 
 [tool.setuptools.packages.find]
 include = ["netbox_facilitymap*"]
