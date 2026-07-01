@@ -16,14 +16,14 @@ class FacilityMapConfig(PluginConfig):
     name = 'netbox_facilitymap'
     verbose_name = 'Facility Map'
     description = 'Navigable siteplan → building → floor → room map linked to NetBox Locations'
-    version = '1.36.0'
+    version = '1.37.0'
     author = 'Liam Sbarro'
     author_email = 'ljs.social2005@gmail.com'
     base_url = 'facilitymap'
     # Supported NetBox range. Plugin/menu/restrict()/template-extension APIs shift between
     # 4.x minors, so keep this pinned to the tested span and re-verify when widening it.
     min_version = '4.1.7'
-    max_version = '4.6.0'
+    max_version = '4.6.99'  # whole 4.6.x patch line; only minors shift the APIs we depend on
     # Import/render guardrails (all overridable in PLUGINS_CONFIG). `work_dir=None` means
     # "<MEDIA_ROOT>/netbox_facilitymap" (resolved in storage.py); the caps bound the
     # untrusted-PDF attack surface.

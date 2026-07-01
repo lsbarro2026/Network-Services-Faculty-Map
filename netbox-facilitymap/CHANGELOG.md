@@ -3,6 +3,20 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.37.0 — Support the NetBox 4.6.x patch line
+- **`max_version` widened `4.6.0` → `4.6.99`.** A real deploy on **NetBox 4.6.4** was rejected by
+  NetBox's plugin loader because the pin stopped at `4.6.0`. Patch releases within a minor don't
+  shift the plugin/menu/`restrict()`/template-extension APIs the plugin depends on (only minors do),
+  so the pin now covers the whole `4.6.x` line without claiming the untested `4.7` minor. Supported
+  range is now **`4.1.7`–`4.6.99`**.
+- **Docs: surviving NetBox upgrades.** NetBox's `upgrade.sh` rebuilds the venv into a new versioned
+  dir and only reinstalls plugins listed in `/opt/netbox/local_requirements.txt`. The README's
+  Upgrade section now tells you to add the plugin's `git+https://…#subdirectory=netbox-facilitymap`
+  line there so a NetBox upgrade doesn't silently drop the pip-installed plugin (which otherwise
+  crashes `migrate` with `ModuleNotFoundError: No module named 'netbox_facilitymap'`).
+- Metadata + docs only (`__init__.py`, `pyproject.toml`, `README.md`, `DESIGN.md`,
+  `template_content.py`): no code, endpoint, write path, or coordinate change.
+
 ## 1.36.0 — Route arrows on the room-page embed
 - **A room's Location page now draws the wayfinding arrows that end in that room.** When a
   route arrow's arrowhead lands inside the room (the editor's auto-bound destination), the

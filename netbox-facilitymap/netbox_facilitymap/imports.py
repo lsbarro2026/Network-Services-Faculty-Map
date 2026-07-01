@@ -182,7 +182,7 @@ def _count_pdfs(base):
 
 def _zip_targets(names):
     """Map a zip's `.pdf` member paths to `(folder, file)` upload destinations, mirroring the
-    wizard's folder-upload split (see `ImportWizard._split`). A single directory shared by
+    wizard's folder-upload split (see `ImportUploader.split`). A single directory shared by
     every drawing — the wrapper folder a zip usually has — is stripped first; a PDF then
     sitting at the root alongside subfoldered drawings is treated as the overall site map."""
     pdfs = [n for n in names if n.lower().endswith('.pdf') and not n.endswith('/')]

@@ -35,7 +35,7 @@ from .storage import MANIFEST_NAME, media_url, work_dir
 
 class FloorRooms(PluginTemplateExtension):
     # Plural `models` is the NetBox 4.x API (the legacy singular `model` was removed);
-    # verify against the pinned minor (4.1.7–4.6.0) — template-extension APIs shift.
+    # verify against the pinned minor (4.1.7–4.6.99) — template-extension APIs shift.
     models = ['dcim.location']
 
     def right_page(self):

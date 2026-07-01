@@ -11,7 +11,7 @@ out of was retired at `1.2.0`; its sources and docs no longer exist in the repo.
 > Status: **built** in this directory — all phases (skeleton → read-only map →
 > editing/save → ORM racks/devices + auth hardening → relational `Room` +
 > NetBox-native render → full Room UI + REST → **in-app PDF import**) are implemented and
-> were first shipped as `1.2.0` (current: `1.5.0`). As of `1.2.0` the plugin is **self-contained**: the standalone tool's
+> were first shipped as `1.2.0` (current: `1.37.0`). As of `1.2.0` the plugin is **self-contained**: the standalone tool's
 > PDF-import pipeline was folded in (§7) and the tool retired, so this directory is the
 > whole project. References to `../tool/` below are historical (where the code came from).
 
@@ -85,7 +85,7 @@ only until the editor next saves that floor (last-writer-wins; native edit is mo
 `label`/`location`/`tags`). The remaining blobs (siteplan/placements/layouts) are
 **not** promoted.
 
-The supported NetBox range is pinned to **`4.1.7`–`4.6.0`**.
+The supported NetBox range is pinned to **`4.1.7`–`4.6.99`**.
 
 ---
 
@@ -222,7 +222,7 @@ class FacilityMapConfig(PluginConfig):
     author = 'Facility Map'
     base_url = 'facilitymap'
     min_version = '4.1.7'     # pinned to the tested range; NetBox enforces at load
-    max_version = '4.6.0'
+    max_version = '4.6.99'
     default_settings = {      # import/render guardrails (overridable in PLUGINS_CONFIG, §7)
         'work_dir': None, 'max_pdf_mb': 50, 'max_pdfs': 400,
         'max_zip_mb': 200, 'max_zip_uncompressed_mb': 2048,   # .zip upload caps
@@ -313,7 +313,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netbox-facilitymap"
-version = "1.5.0"
+version = "1.37.0"
 description = "Facility map plugin for NetBox"
 requires-python = ">=3.10"
 dependencies = ["pypdfium2", "Pillow"]   # PDF render engine; Django/DRF from NetBox
@@ -384,7 +384,7 @@ a login — importing rewrites the whole map and `reset` wipes it:
   existing siteplan auto-detect/build path handles it). Naming a folder `Site Plan` still
   works; the loose-PDF route is recognized by **position, not filename**.
 - `POST api/import/upload-zip` — multipart `.zip`; the server extracts it into the same
-  `uploads/<folder>/<file>` layout (`_zip_targets` mirrors the upload `_split`, stripping a
+  `uploads/<folder>/<file>` layout (`_zip_targets` mirrors the upload `ImportUploader.split`, stripping a
   shared wrapper directory the archive usually carries). Extraction runs in the worker — it
   only writes bytes and re-checks `%PDF-` magic, so it does **not** breach the "untrusted PDFs
   parsed only in the subprocess" rule — and is hardened against zip bombs / traversal: `.zip`

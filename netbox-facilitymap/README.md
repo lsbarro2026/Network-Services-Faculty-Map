@@ -187,7 +187,8 @@ sudo systemctl restart netbox netbox-rq
 Open **NetBox → Plugins → Facility Map** (or `/plugins/facilitymap/`) and import your PDFs.
 
 > **NetBox version.** `min_version`/`max_version` in `netbox_facilitymap/__init__.py` are
-> pinned to `4.1.7`–`4.6.0`. NetBox's plugin/menu/`restrict()`/template-extension APIs shift
+> pinned to `4.1.7`–`4.6.99` (the whole 4.6 patch line; patch releases don't shift the plugin
+> APIs, only minors do). NetBox's plugin/menu/`restrict()`/template-extension APIs shift
 > between 4.x minors, so re-verify against your exact minor before widening the range. The
 > `Room` schema migration (`0002_room`) is authored to 4.x conventions; if
 > `makemigrations netbox_facilitymap` against your minor produces a different file, prefer
@@ -203,6 +204,21 @@ python /opt/netbox/netbox/manage.py migrate
 python /opt/netbox/netbox/manage.py collectstatic --no-input
 sudo systemctl restart netbox netbox-rq
 ```
+
+> **Surviving NetBox upgrades.** NetBox's own `upgrade.sh` rebuilds the virtualenv into a new
+> versioned directory and reinstalls **only** the plugins listed in
+> `/opt/netbox/local_requirements.txt`. A plugin installed with the bare `pip install` above is
+> **not** in that file, so a NetBox upgrade silently drops it while `PLUGINS` still enables it —
+> `migrate` then crashes with `ModuleNotFoundError: No module named 'netbox_facilitymap'`. To make
+> the install durable, add the same install target to that file once:
+>
+> ```bash
+> echo "git+https://github.com/lsbarro2026/Network-Services-Faculty-Map.git#subdirectory=netbox-facilitymap" \
+>   | sudo -u netbox tee -a /opt/netbox/local_requirements.txt
+> ```
+>
+> (Append `@<tag>` before the `#` to pin a version, as in the install command.) `upgrade.sh` then
+> reinstalls the plugin on every NetBox upgrade.
 
 ## Uninstall
 
