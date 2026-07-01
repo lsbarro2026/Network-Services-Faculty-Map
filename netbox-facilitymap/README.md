@@ -273,12 +273,16 @@ netbox_facilitymap/
   api/               DRF REST API for Room (serializers, viewset, router) → /api/plugins/facilitymap/
   models.py          FacilityMapBlob (JSON docs) + Room (NetBoxModel, FK → dcim.Location)
   filtersets.py      RoomFilterSet (used by the REST API)
-  template_content.py  FloorRooms (room-polygon panel on the floor Location page)
-  migrations/        0001_initial, 0002_room, 0003_backfill_rooms
+  template_content.py  FloorRooms (room panel on the floor Location page) + SiteFloors (floor picker on the Site page)
+  migrations/        0001_initial, 0002_room, 0003_backfill_rooms, 0004_remove_room_datacenter, 0005_alter_facilitymapblob_kind
   management/commands/facilitymap_import.py   (import a legacy JSON export)
   management/commands/facilitymap_backup.py   (write a backup .tar.gz, then FIFO-prune)
   management/commands/facilitymap_restore.py  (restore from a backup .tar.gz — destructive)
   templates/netbox_facilitymap/index.html        (injects window.MAP)
   templates/netbox_facilitymap/floor_rooms.html  (the Location-page room overlay)
+  templates/netbox_facilitymap/site_floors.html  (the Site-page floor picker)
+  templates/netbox_facilitymap/settings.html     (chrome'd form for the Settings view)
+  templates/netbox_facilitymap/inc/floor_sheets.html      (tiled floor-plan sheets; included by floor_rooms.html)
+  templates/netbox_facilitymap/inc/placement_markers.html (rack/device marker boxes; included by floor_rooms.html)
   static/netbox_facilitymap/                     (framework-free frontend: JS/CSS/fonts)
 ```

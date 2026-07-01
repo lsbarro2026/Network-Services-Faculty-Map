@@ -100,6 +100,8 @@ netbox-facilitymap/
     templates/netbox_facilitymap/
       index.html            # the SPA shell; injects window.MAP; loads the JS in dependency order
       floor_rooms.html      # the Location-page room-overlay panel (server-rendered)
+      site_floors.html      # the Site-page floor-picker grid (server-rendered)
+      settings.html         # chrome'd form for the Settings view
       inc/floor_sheets.html       # tiled floor-plan sheet images (included by floor_rooms.html)
       inc/placement_markers.html  # rack/device marker boxes (included by floor_rooms.html)
     static/netbox_facilitymap/

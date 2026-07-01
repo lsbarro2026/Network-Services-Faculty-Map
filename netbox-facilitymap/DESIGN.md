@@ -157,7 +157,7 @@ netbox-facilitymap/                      # distribution root
     filtersets.py                        # RoomFilterSet (used by the DRF REST API)
     template_content.py                  # FloorRooms (room panel on the Location page) + SiteFloors (floor picker on the Site page)
     dashboard.py                         # FacilityMapWidget: home-dashboard widget that iframes the SPA
-    previews.py                          # room/Location preview helpers (placement markers + room-crop viewBox)
+    previews.py                          # room/Location preview helpers: floor_sheets + placement_markers + room_viewbox + room_arrows + room_embed_zoom
     api/                                 # DRF REST API for Room
       serializers.py  views.py  urls.py  # RoomSerializer + RoomViewSet + NetBoxRouter
     management/
@@ -167,6 +167,9 @@ netbox-facilitymap/                      # distribution root
     templates/netbox_facilitymap/
       index.html                         # injects window.MAP (api/media/static/csrf)
       floor_rooms.html                   # the Location-page room overlay
+      site_floors.html                   # the Site-page floor picker
+      settings.html                      # chrome'd form for the Settings view
+      inc/floor_sheets.html              # tiled floor-plan sheets (included by floor_rooms.html)
       inc/placement_markers.html         # rack/device marker boxes (included by floor_rooms.html)
     static/netbox_facilitymap/           # framework-free frontend only (no facility data)
       lib.js device-shapes.js netbox.js store.js grid.js panzoom.js
