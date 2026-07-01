@@ -1625,7 +1625,11 @@ point at the deep treatment.
   room polygons' `s.url` wrap.
 - **The single-room views crop** via `previews.room_viewbox(polygon, w, h, zoom=…)` (the polygon's
   padded bounding box, then scaled ×`zoom` about the room's centre so the preview shows surrounding
-  floor context, and clamped to the floor's `0..w`×`0..h` extent so
+  floor context, floored to `previews.ROOM_MIN_CROP_FRAC` (0.18) of the floor on each axis so a
+  *tiny* room still pulls neighbouring rooms into view rather than being magnified into blank floor
+  — the zoom-scaled box is a proportion of the room, so without this floor a small room's crop stays
+  absolutely small; the floor derives from `w`/`h` so it's resolution-independent and never binds a
+  room big enough to fill it — and clamped to the floor's `0..w`×`0..h` extent so
   an edge room shows real floor not blank space) set as the SVG `viewBox` while the `<image>`
   stays full-floor, so only the window zooms in — empty-polygon rooms fall back to
   `0 0 vw vh`. The whole-floor panel can't crop (many rooms, one SVG). Polygons and markers

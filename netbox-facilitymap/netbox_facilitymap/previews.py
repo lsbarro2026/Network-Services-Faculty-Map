@@ -42,6 +42,15 @@ ZOOM_MIN = 1.0
 ZOOM_MAX = 5.0
 ZOOM_DEFAULT = 2.0
 
+# Minimum crop span as a fraction of the floor on each axis. The zoom-scaled crop is a
+# *proportion* of the room's own bbox, so a tiny room's crop stays absolutely small and its
+# surrounding "context" all falls inside a neighbour's blank interior — no neighbouring rooms
+# are visible however hard we zoom. This floors the crop to a minimum absolute span so a tiny
+# room still pulls real neighbours into view. Derived from the combined-canvas `w`/`h`, so it
+# stays resolution-independent and correct on multi-sheet floors. A context floor, not a zoom
+# override: rooms whose zoom-scaled crop already exceeds it are untouched.
+ROOM_MIN_CROP_FRAC = 0.18
+
 
 def clamp_zoom(value):
     """Coerce `value` to a float within `[ZOOM_MIN, ZOOM_MAX]`, or `ZOOM_DEFAULT` if it
@@ -197,10 +206,13 @@ def room_viewbox(polygon, w, h, pad=0.08, zoom=ZOOM_DEFAULT):
     side (with a small px floor so a tiny room still gets margin), then the whole box is
     scaled about the room's centre by `zoom` to pull surrounding floor into view — `zoom=1`
     is the tight pad-only crop; the default `2` doubles each visible side (~4× the area). The
-    box is finally clamped to the floor's `0..w`×`0..h` extent so a room near an edge shows
-    real floor rather than blank space past the image (a box larger than the floor on an axis
-    just falls back to that axis's full extent). Returned as "minx miny width height"; the
-    caller falls back to the full floor view on None.
+    zoom-scaled box is a *proportion* of the room, so it's floored to `ROOM_MIN_CROP_FRAC` of
+    the floor on each axis: a tiny room's crop would otherwise stay absolutely small and show
+    only blank floor, never a neighbouring room. The box is finally clamped to the floor's
+    `0..w`×`0..h` extent so a room near an edge shows real floor rather than blank space past
+    the image (a box larger than the floor on an axis just falls back to that axis's full
+    extent). Returned as "minx miny width height"; the caller falls back to the full floor
+    view on None.
     """
     if not polygon:
         return None
@@ -209,8 +221,10 @@ def room_viewbox(polygon, w, h, pad=0.08, zoom=ZOOM_DEFAULT):
     minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
     margin = max(max((maxx - minx), (maxy - miny)) * pad, 8)
     cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
-    bw = min(((maxx - minx) + 2 * margin) * zoom, w)
-    bh = min(((maxy - miny) + 2 * margin) * zoom, h)
+    # Zoom-scale about the centre, floor to a minimum absolute span (so tiny rooms show
+    # context), then clamp to the floor's extent.
+    bw = min(max(((maxx - minx) + 2 * margin) * zoom, w * ROOM_MIN_CROP_FRAC), w)
+    bh = min(max(((maxy - miny) + 2 * margin) * zoom, h * ROOM_MIN_CROP_FRAC), h)
     bx = min(max(cx - bw / 2, 0), w - bw)
     by = min(max(cy - bh / 2, 0), h - bh)
     return f'{bx:.1f} {by:.1f} {bw:.1f} {bh:.1f}'
