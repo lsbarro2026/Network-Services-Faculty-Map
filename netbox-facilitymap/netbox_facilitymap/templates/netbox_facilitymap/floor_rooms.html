@@ -10,10 +10,19 @@
   {% endcomment %}
   <h5 class="card-header">{% if map_url %}<a href="{{ map_url }}" target="_blank" style="color:inherit;text-decoration:none" title="Open in facility map">Facility Map — Rooms</a>{% else %}Facility Map — Rooms{% endif %}</h5>
   <div class="card-body">
-    {# `viewbox` (set for a single bound room) crops to that room; otherwise show the whole floor. #}
+    {% comment %}
+      `viewbox` (set for a single bound room) crops to that room; otherwise show the whole floor.
+      On the cropped room embed, `embed_aspect`/`embed_size` (operator settings) wrap the SVG in a
+      box: `embed_size` caps its width (% of the column, the "footprint" knob) and `embed_aspect`
+      fixes the box aspect (the orientation knob). The crop's viewBox is reshaped to the same
+      aspect server-side, so `meet` fills the box with real floor (no letterbox). Both are unset on
+      the whole-floor view, which keeps the plain `width:100%;height:auto` markup. Inline only —
+      no plugin stylesheet on dcim pages.
+    {% endcomment %}
+    {% if embed_aspect %}<div style="max-width:{{ embed_size }}%;margin-inline:auto;aspect-ratio:{{ embed_aspect|floatformat:4 }}">{% endif %}
     <svg viewBox="{% if viewbox %}{{ viewbox }}{% else %}0 0 {{ vw }} {{ vh }}{% endif %}"
          preserveAspectRatio="xMidYMid meet"
-         style="width:100%;height:auto;border:1px solid #ccc;background:#f4f5f7">
+         style="{% if embed_aspect %}display:block;width:100%;height:100%{% else %}width:100%;height:auto{% endif %};border:1px solid #ccc;background:#f4f5f7">
       {% include 'netbox_facilitymap/inc/floor_sheets.html' %}
       {% comment %}
         Spotlight: on the cropped single-room embed, dim the floor outside the room's own
@@ -57,5 +66,6 @@
         <polygon points="{{ a.head }}" style="fill:{{ a.color }};stroke:none"/>
       {% endfor %}
     </svg>
+    {% if embed_aspect %}</div>{% endif %}
   </div>
 </div>

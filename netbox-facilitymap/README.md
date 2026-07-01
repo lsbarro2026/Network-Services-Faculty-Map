@@ -94,10 +94,18 @@ editable in the browser, no config-file edit or worker restart needed. Saving re
 `netbox_facilitymap.change_facilitymapblob` permission (the same as every map write), and the
 nav entry only appears for users who hold it.
 
-- **Room embed zoom** — how far the cropped per-room map embed (the panel shown on a room's
-  `dcim.Location` page) zooms in. `1.0` is a tight crop to the room itself; higher values pull
-  more of the surrounding floor into view. Range **1.0–5.0**, default **2.0**. It affects only
-  the cropped room embed, not whole-floor views, and takes effect on the next page load.
+The cropped per-room map embed (the panel shown on a room's `dcim.Location` page) has three
+independent controls. All three affect only that cropped embed, not whole-floor views, and take
+effect on the next page load:
+
+- **Room embed zoom** — how far the embed zooms in. `1.0` is a tight crop to the room itself;
+  higher values pull more of the surrounding floor into view. Range **1.0–5.0**, default **2.0**.
+- **Room embed size** — the embed's *footprint*: how much of the page column it fills, as a
+  percent, independent of zoom (the magnification is unchanged). Range **40–100 %**, default
+  **100 %**.
+- **Room embed orientation** — the box shape: **vertical** (a taller box) or **landscape** (a
+  short, wide box). Either way the crop is reshaped to fill the box with surrounding floor, so the
+  room stays centred and fully visible. Default **vertical**.
 
 (These are distinct from the `PLUGINS_CONFIG` render guardrails below, which are edited in the
 server config and need a restart.)

@@ -28,7 +28,8 @@ from netbox.plugins import PluginTemplateExtension
 
 from .models import Room
 from .previews import (
-    floor_sheets, placement_markers, room_arrows, room_embed_zoom, room_viewbox,
+    ORIENTATION_ASPECT, floor_sheets, placement_markers, room_arrows, room_embed_orientation,
+    room_embed_size, room_embed_zoom, room_viewbox,
 )
 from .storage import MANIFEST_NAME, media_url, work_dir
 
@@ -107,9 +108,18 @@ class FloorRooms(PluginTemplateExtension):
             map_url = (reverse('plugins:netbox_facilitymap:map')
                        + f'#/f/{quote(dir_part, safe="")}/{quote(fid_part, safe="")}')
 
-        # The cropped room embed honours the configurable zoom; the whole-floor view
-        # (crop_to=None) passes no viewBox, so the setting never affects floor views.
-        viewbox = room_viewbox(crop_to.polygon, w, h, zoom=room_embed_zoom()) if crop_to else None
+        # The cropped room embed honours the configurable zoom, footprint and orientation; the
+        # whole-floor view (crop_to=None) passes none of them, so the settings never affect floor
+        # views. `orientation` picks the box aspect ratio and `room_viewbox` reshapes the crop to
+        # match it (fills the box with real floor); `embed_size`/`embed_aspect` drive the template
+        # wrapper (footprint width % + CSS aspect-ratio).
+        embed_size = embed_aspect = None
+        if crop_to:
+            embed_aspect = ORIENTATION_ASPECT[room_embed_orientation()]
+            embed_size = room_embed_size()
+            viewbox = room_viewbox(crop_to.polygon, w, h, zoom=room_embed_zoom(), aspect=embed_aspect)
+        else:
+            viewbox = None
 
         # Draw the wayfinding arrows whose destination is *this* room, on the per-room embed
         # only. The editor's fixed head size reads magnified under the zoomed crop, so size
@@ -127,6 +137,8 @@ class FloorRooms(PluginTemplateExtension):
             'shapes': shapes,
             'markers': markers,
             'viewbox': viewbox,
+            'embed_size': embed_size,
+            'embed_aspect': embed_aspect,
             'spotlight': spotlight,
             'arrows': arrows,
             'map_url': map_url,

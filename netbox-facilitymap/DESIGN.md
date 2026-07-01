@@ -157,7 +157,7 @@ netbox-facilitymap/                      # distribution root
     filtersets.py                        # RoomFilterSet (used by the DRF REST API)
     template_content.py                  # FloorRooms (room panel on the Location page) + SiteFloors (floor picker on the Site page)
     dashboard.py                         # FacilityMapWidget: home-dashboard widget that iframes the SPA
-    previews.py                          # room/Location preview helpers: floor_sheets + placement_markers + room_viewbox + room_arrows + room_embed_zoom
+    previews.py                          # room/Location preview helpers: floor_sheets + placement_markers + room_viewbox + room_arrows + room_embed_{zoom,size,orientation}
     api/                                 # DRF REST API for Room
       serializers.py  views.py  urls.py  # RoomSerializer + RoomViewSet + NetBoxRouter
     management/
@@ -245,7 +245,8 @@ config = FacilityMapConfig
   View)` at `path('settings', …, name='settings')`, gated on `change_facilitymapblob` (every
   map write is). GET renders a chrome'd form (`settings.html`, which **does** `{% extends
   'base/layout.html' %}`); POST validates/clamps and upserts the `kind='settings'` blob, then
-  redirects (PRG) with a success message. First setting: `room_embed_zoom` (§5).
+  redirects (PRG) with a success message. Settings: `room_embed_zoom`, `room_embed_size`,
+  `room_embed_orientation` — the three per-room-embed controls (§5).
 
 ---
 
@@ -267,10 +268,15 @@ class FacilityMapBlob(models.Model):
 - A blob-CRUD view upserts the row; `rackcache` is **not** modelled — it is regenerated
   live from the ORM (§0).
 - The **`settings`** kind is a single `key=''` row holding the plugin's in-app settings
-  (not a tool document) — currently `{'room_embed_zoom': <float>}`. `SettingsView` writes it
-  (clamped to `1.0–5.0`); `previews.room_embed_zoom()` reads it (re-clamped, default `2.0`
-  when unset) to set the cropped room embed's `room_viewbox` zoom. Stored in the DB so it is
-  editable in-app without a worker restart, unlike the PLUGINS_CONFIG render guardrails (§7).
+  (not a tool document) — `{'room_embed_zoom': <float>, 'room_embed_size': <float>,
+  'room_embed_orientation': <str>}`, the three cropped-per-room-embed controls. `SettingsView`
+  writes them (each clamped: zoom `1.0–5.0`, size `40–100`%, orientation `vertical|landscape`);
+  the matching `previews.room_embed_zoom()`/`room_embed_size()`/`room_embed_orientation()` read
+  each back (re-clamped, defaults `2.0`/`100`/`vertical` when unset). Zoom sets the
+  `room_viewbox` crop magnification; orientation picks the box aspect ratio that `room_viewbox`
+  reshapes the crop to (so the box fills with real floor); size drives the template wrapper's
+  width. Older blobs holding only `room_embed_zoom` fall back to the new defaults. Stored in the
+  DB so it is editable in-app without a worker restart, unlike the PLUGINS_CONFIG guardrails (§7).
 - **Room promotion (the real payoff):** the room polygon is a first-class
   `Room(NetBoxModel)` with `floor_key`, `room_id`, `label`, `polygon` (JSONField,
   normalized 0..1), and `location` FK → `dcim.Location`, backfilled from the

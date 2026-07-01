@@ -88,7 +88,7 @@ netbox-facilitymap/
     models.py               # FacilityMapBlob (editor JSON) + Room (NetBoxModel: room polygon → Location)
     template_content.py     # PluginTemplateExtensions: FloorRooms (rooms panel on the Location page) + SiteFloors (floor-picker grid on the Site page)
     dashboard.py            # FacilityMapWidget: home-dashboard widget that iframes the SPA (registered in __init__.ready())
-    previews.py             # Location preview helpers: floor_sheets() (sheet tiling) + placement_markers() + room_viewbox() + room_arrows() (per-room route arrows) + room_embed_zoom() (settings read)
+    previews.py             # Location preview helpers: floor_sheets() (sheet tiling) + placement_markers() + room_viewbox() + room_arrows() (per-room route arrows) + room_embed_{zoom,size,orientation}() (settings reads)
     navigation.py           # plugin menu items (Facility Map, Settings)
     filtersets.py           # RoomFilterSet (used by the DRF REST API)
     api/                    # DRF REST API for Room (serializers.py / views.py / urls.py)
@@ -1220,9 +1220,11 @@ w×h). Absent (or pruned) = the default vertical stack (`col 0, row = page index
 
 Each editor document above (siteplan / placements / layouts / the residual annotations) is
 one `FacilityMapBlob` row keyed `(kind, key='')`; `Room` rows hold room polygons. A further
-`kind='settings'` row (not an editor document) holds the plugin's in-app settings — currently
-`{'room_embed_zoom': …}`, written by `views.SettingsView` and read by `previews.room_embed_zoom`.
-See `models.py` / `DESIGN.md`.
+`kind='settings'` row (not an editor document) holds the plugin's in-app settings —
+`{'room_embed_zoom': …, 'room_embed_size': …, 'room_embed_orientation': …}` (the three
+per-room-embed controls), written by `views.SettingsView` and read back by the matching
+`previews.room_embed_{zoom,size,orientation}` helpers (each re-clamped, so blobs written before a
+setting existed fall back to its default). See `models.py` / `DESIGN.md`.
 
 ---
 
@@ -1623,7 +1625,7 @@ point at the deep treatment.
   object was deleted since the last sync, or which the user may not view, resolves to no `url` and the
   partial renders it as a plain box — the `inc/placement_markers.html` wrap on `m.url` mirrors the
   room polygons' `s.url` wrap.
-- **The single-room views crop** via `previews.room_viewbox(polygon, w, h, zoom=…)` (the polygon's
+- **The single-room views crop** via `previews.room_viewbox(polygon, w, h, zoom=…, aspect=…)` (the polygon's
   padded bounding box, then scaled ×`zoom` about the room's centre so the preview shows surrounding
   floor context, floored to `previews.ROOM_MIN_CROP_FRAC` (0.18) of the floor on each axis so a
   *tiny* room still pulls neighbouring rooms into view rather than being magnified into blank floor
@@ -1636,10 +1638,24 @@ point at the deep treatment.
   share the combined-canvas `w×h` from `floor_sheets`, so both are correct on multi-sheet
   floors. (A `Room` has no standalone plugin page;
   it is surfaced on its bound Location, so `Room.get_absolute_url()` resolves to that Location
-  — or the map app when unbound.) The crop `zoom` is **operator-configurable** via the Settings
-  page: `_panel` passes `zoom=previews.room_embed_zoom()`, which reads the `settings` blob's
-  `room_embed_zoom` (clamped to `1.0–5.0`, default `2.0` when unset). Only the cropped room view
-  uses it — the whole-floor panel passes `viewbox=None`, so the setting never affects floor views.
+  — or the map app when unbound.) The cropped embed has **three operator-configurable settings**
+  (Settings page → the single `settings` blob), all cropped-view-only; the whole-floor panel
+  passes `viewbox=None`/`embed_aspect=None`, so none of them affect floor views:
+  - **Zoom** — `_panel` passes `zoom=previews.room_embed_zoom()` (clamped `1.0–5.0`, default `2.0`),
+    the base crop magnification.
+  - **Orientation** — `_panel` looks up `previews.ORIENTATION_ASPECT[room_embed_orientation()]`
+    (`vertical`→`3/4`, `landscape`→`16/9`; default `vertical`) and passes it as `room_viewbox`'s
+    `aspect`. `room_viewbox` reshapes the crop to that width/height ratio by *growing the shorter
+    axis only* (re-clamped to the floor extent), so the room stays fully visible while the box
+    fills with real floor. The **same** ratio is passed to the template as `embed_aspect`, applied
+    as the wrapper's CSS `aspect-ratio` — so the viewBox aspect and the container aspect match and
+    `preserveAspectRatio="…meet"` fills the box rather than letterboxing. This is why zoom and
+    footprint no longer resize each other: the container aspect is now fixed by orientation, not by
+    whatever shape the zoomed crop happened to have.
+  - **Footprint** — `_panel` passes `embed_size=previews.room_embed_size()` (percent, clamped
+    `40–100`, default `100`); the template caps the wrapper's `max-width` to that percent of its
+    column. Pure container concern — it changes how much page space the embed takes without
+    touching the crop/zoom.
   Because the zoomed crop shows neighbouring rooms in the raster floor image (no green overlay,
   but still visibly present), the cropped view also **spotlights its room**: `_panel` passes a
   `spotlight` points string (the room's polygon scaled by the combined `w×h`) and

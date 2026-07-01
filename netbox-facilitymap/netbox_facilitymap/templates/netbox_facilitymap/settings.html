@@ -32,6 +32,36 @@
             </div>
           </div>
 
+          <div class="mb-3">
+            <label for="id_room_embed_size" class="form-label">Room embed size</label>
+            <input type="number" name="room_embed_size" id="id_room_embed_size"
+                   class="form-control" style="max-width:10rem"
+                   value="{{ room_embed_size }}"
+                   min="{{ size_min }}" max="{{ size_max }}" step="5" required>
+            <div class="form-text">
+              How much page width the per-room embed takes up, as a percent of its column —
+              the widget's <em>footprint</em>, independent of zoom (magnification is unchanged).
+              Range {{ size_min }}–{{ size_max }}%; default {{ size_default }}%.
+              Only affects the cropped room embed, not whole-floor views.
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label for="id_room_embed_orientation" class="form-label">Room embed orientation</label>
+            <select name="room_embed_orientation" id="id_room_embed_orientation"
+                    class="form-control" style="max-width:10rem">
+              {% for value, label in orientations %}
+                <option value="{{ value }}"{% if value == room_embed_orientation %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">
+              The shape of the per-room embed box. <strong>Vertical</strong> is a taller box;
+              <strong>landscape</strong> is a short, wide box. Either way the crop is reshaped to
+              fill the box with surrounding floor, keeping the room centred and fully visible.
+              Default {{ orientation_default }}. Only affects the cropped room embed.
+            </div>
+          </div>
+
         </div>
         <div class="card-footer text-end">
           <button type="submit" class="btn btn-primary">Save</button>

@@ -3,6 +3,30 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.38.0 — Split the room embed into zoom, footprint and orientation
+- **The per-room map embed (a room's Location page) now has three independent operator settings**
+  instead of one. Previously the single `room_embed_zoom` both magnified the room *and* resized
+  the widget, because the SVG's height followed the viewBox aspect ratio and zoom reshaped that box.
+  Now:
+  - **Zoom** (`room_embed_zoom`, unchanged) — magnification only.
+  - **Footprint** (`room_embed_size`, `40`–`100`%, default `100`) — how much of the page column the
+    embed occupies, independent of zoom. Drives a `max-width` on the SVG's wrapper.
+  - **Orientation** (`room_embed_orientation`, `vertical` | `landscape`, default `vertical`) — the box
+    shape. The crop's viewBox is reshaped to the box aspect (growing the shorter axis, clamped to the
+    floor extent) so the box fills with real surrounding floor — the room stays centred and fully
+    visible, no letterboxing.
+- **`previews.room_viewbox` gains an optional `aspect` argument** that fits the crop to a target
+  width/height ratio after the zoom + minimum-context-span steps. New settings helpers mirror the
+  `clamp_zoom`/`room_embed_zoom` single-source-of-truth pattern: `SIZE_*`/`clamp_embed_size`/
+  `room_embed_size` and `ORIENTATION_ASPECT`/`ORIENTATION_DEFAULT`/`clamp_orientation`/
+  `room_embed_orientation`. All three settings live in the one `kind='settings'` blob; the Settings
+  view validates/clamps on write and each helper re-clamps on read.
+- **Backward-compatible:** settings blobs written before this release (zoom only) fall back to the new
+  defaults, so existing embeds keep rendering. The whole-floor embed (`crop_to=None`) is unchanged —
+  footprint and orientation apply to the cropped per-room embed only, matching zoom.
+- Touches `previews.py`, `views.py`, `template_content.py`, `settings.html`, `floor_rooms.html`, and
+  the docs. No endpoint, write-permission, or coordinate-convention change.
+
 ## 1.37.0 — Support the NetBox 4.6.x patch line
 - **`max_version` widened `4.6.0` → `4.6.99`.** A real deploy on **NetBox 4.6.4** was rejected by
   NetBox's plugin loader because the pin stopped at `4.6.0`. Patch releases within a minor don't

@@ -15,7 +15,15 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from .models import FacilityMapBlob
-from .previews import ZOOM_DEFAULT, ZOOM_MAX, ZOOM_MIN, clamp_zoom, room_embed_zoom
+from .previews import (
+    ORIENTATION_DEFAULT, SIZE_DEFAULT, SIZE_MAX, SIZE_MIN, ZOOM_DEFAULT, ZOOM_MAX, ZOOM_MIN,
+    clamp_embed_size, clamp_orientation, clamp_zoom, room_embed_orientation, room_embed_size,
+    room_embed_zoom,
+)
+
+# Orientation choices for the Settings <select> (value → human label). The values are the keys
+# of `previews.ORIENTATION_ASPECT`; `clamp_orientation` rejects anything else on read/write.
+ORIENTATION_CHOICES = [('vertical', 'Vertical (taller)'), ('landscape', 'Landscape (wide)')]
 
 
 class MapView(LoginRequiredMixin, TemplateView):
@@ -44,39 +52,64 @@ class SettingsView(LoginRequiredMixin, PermissionRequiredMixin, View):
     """In-app plugin settings (NetBox → Plugins → Facility Map → Settings).
 
     Persists the editable settings to the single `kind='settings'` blob row. Gated on
-    `change_facilitymapblob` to match every other map write — reads of the setting happen
-    server-side in `template_content`, never through this page. The first (and currently
-    only) setting is `room_embed_zoom`, validated/clamped at this boundary; a value edited
-    outside this form (admin/REST) is re-clamped on read by `previews.room_embed_zoom`.
+    `change_facilitymapblob` to match every other map write — reads of the settings happen
+    server-side in `template_content`, never through this page. The settings govern the
+    per-room map embed: `room_embed_zoom` (magnification), `room_embed_size` (footprint —
+    the box's width as a percent of its column) and `room_embed_orientation` (box shape).
+    Each is validated/clamped at this boundary; a value edited outside this form (admin/REST)
+    is re-clamped on read by the matching `previews.room_embed_*` helper.
     """
     permission_required = 'netbox_facilitymap.change_facilitymapblob'
     template_name = 'netbox_facilitymap/settings.html'
 
-    def _context(self, zoom):
+    def _context(self):
         return {
-            'room_embed_zoom': zoom,
+            'room_embed_zoom': room_embed_zoom(),
             'zoom_min': ZOOM_MIN,
             'zoom_max': ZOOM_MAX,
             'zoom_default': ZOOM_DEFAULT,
+            'room_embed_size': room_embed_size(),
+            'size_min': SIZE_MIN,
+            'size_max': SIZE_MAX,
+            'size_default': SIZE_DEFAULT,
+            'room_embed_orientation': room_embed_orientation(),
+            'orientation_default': ORIENTATION_DEFAULT,
+            'orientations': ORIENTATION_CHOICES,
         }
 
     def get(self, request):
-        return render(request, self.template_name, self._context(room_embed_zoom()))
+        return render(request, self.template_name, self._context())
 
     def post(self, request):
-        raw = request.POST.get('room_embed_zoom')
+        # Both numeric fields must parse as numbers before we clamp; orientation is enum-safe
+        # (clamp_orientation falls back to the default for anything unrecognised) so it needs
+        # no separate error path.
+        raw_zoom = request.POST.get('room_embed_zoom')
+        raw_size = request.POST.get('room_embed_size')
         try:
-            float(raw)
+            float(raw_zoom)
         except (TypeError, ValueError):
             messages.error(request, 'Room embed zoom must be a number.')
-            return render(request, self.template_name, self._context(room_embed_zoom()))
+            return render(request, self.template_name, self._context())
+        try:
+            float(raw_size)
+        except (TypeError, ValueError):
+            messages.error(request, 'Room embed size must be a number.')
+            return render(request, self.template_name, self._context())
 
-        zoom = clamp_zoom(raw)
+        zoom = clamp_zoom(raw_zoom)
+        size = clamp_embed_size(raw_size)
+        orientation = clamp_orientation(request.POST.get('room_embed_orientation'))
         blob, _ = FacilityMapBlob.objects.get_or_create(kind='settings', key='')
         data = dict(blob.data or {})
         data['room_embed_zoom'] = zoom
+        data['room_embed_size'] = size
+        data['room_embed_orientation'] = orientation
         blob.data = data
         blob.save(update_fields=['data', 'updated'])
 
-        messages.success(request, f'Settings saved — room embed zoom set to {zoom:g}.')
+        messages.success(
+            request,
+            f'Settings saved — room embed zoom {zoom:g}, size {size:g}%, {orientation}.',
+        )
         return redirect(reverse('plugins:netbox_facilitymap:settings'))

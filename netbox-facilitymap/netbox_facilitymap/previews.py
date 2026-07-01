@@ -51,6 +51,21 @@ ZOOM_DEFAULT = 2.0
 # override: rooms whose zoom-scaled crop already exceeds it are untouched.
 ROOM_MIN_CROP_FRAC = 0.18
 
+# Room-embed footprint: how much of its Location-page column the cropped embed occupies, as a
+# percent. Independent of zoom (magnification) — it drives a `max-width` on the template wrapper,
+# not the viewBox. Bounded on both write (Settings view) and read (`room_embed_size`).
+SIZE_MIN = 40
+SIZE_MAX = 100
+SIZE_DEFAULT = 100
+
+# Room-embed orientation → box aspect ratio (width / height). "Fill box with map": `room_viewbox`
+# reshapes the crop to this ratio so the oriented container fills with real floor (no letterbox),
+# and the same ratio is emitted to the template as the wrapper's CSS `aspect-ratio`, so the two
+# never drift. `landscape` is a short/wide box, `vertical` a taller one (~today's shape). Keys are
+# the only accepted values; `clamp_orientation` rejects anything else on read/write.
+ORIENTATION_ASPECT = {'landscape': 16 / 9, 'vertical': 3 / 4}
+ORIENTATION_DEFAULT = 'vertical'
+
 
 def clamp_zoom(value):
     """Coerce `value` to a float within `[ZOOM_MIN, ZOOM_MAX]`, or `ZOOM_DEFAULT` if it
@@ -74,6 +89,46 @@ def room_embed_zoom():
     blob = FacilityMapBlob.objects.filter(kind='settings', key='').first()
     raw = (blob.data or {}).get('room_embed_zoom') if blob else None
     return clamp_zoom(raw) if raw is not None else ZOOM_DEFAULT
+
+
+def clamp_embed_size(value):
+    """Coerce `value` to a float within `[SIZE_MIN, SIZE_MAX]`, or `SIZE_DEFAULT` if it isn't a
+    finite number. Shared by the Settings view (write) and `room_embed_size` (read) so a stored
+    value is sane even if edited outside the form (admin/REST)."""
+    try:
+        s = float(value)
+    except (TypeError, ValueError):
+        return SIZE_DEFAULT
+    if s != s:  # NaN
+        return SIZE_DEFAULT
+    return min(max(s, SIZE_MIN), SIZE_MAX)
+
+
+def clamp_orientation(value):
+    """`value` if it's a recognised orientation, else `ORIENTATION_DEFAULT`. Enum-safe on both
+    write and read, mirroring `clamp_zoom`/`clamp_embed_size` for the string-valued setting."""
+    return value if value in ORIENTATION_ASPECT else ORIENTATION_DEFAULT
+
+
+def room_embed_size():
+    """The configured room-embed footprint percent, clamped to `[SIZE_MIN, SIZE_MAX]`.
+
+    Reads the single `kind='settings'` blob; falls back to `SIZE_DEFAULT` when the row, the key,
+    or a sane value is absent — so an embed keeps rendering full-width until an operator changes
+    it (and so blobs written before this setting existed stay valid)."""
+    blob = FacilityMapBlob.objects.filter(kind='settings', key='').first()
+    raw = (blob.data or {}).get('room_embed_size') if blob else None
+    return clamp_embed_size(raw) if raw is not None else SIZE_DEFAULT
+
+
+def room_embed_orientation():
+    """The configured room-embed orientation, one of `ORIENTATION_ASPECT`'s keys.
+
+    Reads the single `kind='settings'` blob; falls back to `ORIENTATION_DEFAULT` when the row,
+    the key, or a recognised value is absent (so pre-existing settings blobs stay valid)."""
+    blob = FacilityMapBlob.objects.filter(kind='settings', key='').first()
+    raw = (blob.data or {}).get('room_embed_orientation') if blob else None
+    return clamp_orientation(raw) if raw is not None else ORIENTATION_DEFAULT
 
 
 def _manifest_pages(floor_key):
@@ -199,7 +254,7 @@ def placement_markers(floor_key, w, h, room_ids, user):
     return markers
 
 
-def room_viewbox(polygon, w, h, pad=0.08, zoom=ZOOM_DEFAULT):
+def room_viewbox(polygon, w, h, pad=0.08, zoom=ZOOM_DEFAULT, aspect=None):
     """SVG `viewBox` string cropping a single room's polygon, or None if it has no points.
 
     Bounding box of the normalized polygon scaled by `w`×`h`, padded by `pad` of the larger
@@ -208,11 +263,19 @@ def room_viewbox(polygon, w, h, pad=0.08, zoom=ZOOM_DEFAULT):
     is the tight pad-only crop; the default `2` doubles each visible side (~4× the area). The
     zoom-scaled box is a *proportion* of the room, so it's floored to `ROOM_MIN_CROP_FRAC` of
     the floor on each axis: a tiny room's crop would otherwise stay absolutely small and show
-    only blank floor, never a neighbouring room. The box is finally clamped to the floor's
-    `0..w`×`0..h` extent so a room near an edge shows real floor rather than blank space past
-    the image (a box larger than the floor on an axis just falls back to that axis's full
-    extent). Returned as "minx miny width height"; the caller falls back to the full floor
-    view on None.
+    only blank floor, never a neighbouring room.
+
+    When `aspect` (a width/height ratio, e.g. from the embed's orientation setting) is given,
+    the box is then reshaped to that ratio by *growing* its shorter axis — never shrinking, so
+    the room's padded bbox always stays inside the box (fully visible). This lets the template's
+    fixed-aspect container fill with real floor under `preserveAspectRatio="…meet"` instead of
+    letterboxing. Zoom is unaffected: it still sets the base span; aspect only reshapes it.
+
+    The box is finally clamped to the floor's `0..w`×`0..h` extent so a room near an edge shows
+    real floor rather than blank space past the image (a box larger than the floor on an axis
+    just falls back to that axis's full extent — which, at the extreme, can leave the container
+    a slight `meet` letterbox when the floor itself can't supply the requested aspect). Returned
+    as "minx miny width height"; the caller falls back to the full floor view on None.
     """
     if not polygon:
         return None
@@ -225,6 +288,13 @@ def room_viewbox(polygon, w, h, pad=0.08, zoom=ZOOM_DEFAULT):
     # context), then clamp to the floor's extent.
     bw = min(max(((maxx - minx) + 2 * margin) * zoom, w * ROOM_MIN_CROP_FRAC), w)
     bh = min(max(((maxy - miny) + 2 * margin) * zoom, h * ROOM_MIN_CROP_FRAC), h)
+    # Grow the shorter axis to the target orientation aspect (never shrink), then re-clamp to
+    # the floor so the reshape can't push the box past the image.
+    if aspect:
+        if bw / bh < aspect:
+            bw = min(bh * aspect, w)
+        else:
+            bh = min(bw / aspect, h)
     bx = min(max(cx - bw / 2, 0), w - bw)
     by = min(max(cy - bh / 2, 0), h - bh)
     return f'{bx:.1f} {by:.1f} {bw:.1f} {bh:.1f}'
