@@ -185,10 +185,13 @@ when `window.MAP` is absent).
   `layoutDirty`, `nbRoomsByFloor` (cache), `rackCache` (`{locations:{<locId>:{racks,devices}}}`,
   **in-memory only** — fetched live per Location, never persisted), `placements`
   (`"dir/fid"→{placements:[…]}`), `layouts` (`"dir/fid"→{grid:[[col,row]…]}`, sheet
-  arrangement), `onDirty` (optional callback `'floor'|'site'|'racks'`). Methods: `load()`
-  (manifest — via `window.MAP.api + 'manifest'`, the authenticated endpoint — + annotations
-  + siteplan + rackplacements + pagelayouts, **fetched in parallel** via `Promise.all` since
-  each sets an independent field; **no rackcache fetch**), `building(dir)`,
+  arrangement), `onDirty` (optional callback `'floor'|'site'|'racks'`). Methods: `loadCore()`
+  (the boot fetch — manifest, via `window.MAP.api + 'manifest'`, the authenticated endpoint,
+  + siteplan; the two documents the siteplan needs, in parallel via `Promise.all`),
+  `loadFloorData()` (the **deferred** bundle — annotations + rackplacements + pagelayouts, the
+  floor-level documents nothing needs until a building/floor opens; parallel; **no rackcache
+  fetch**), `load()` (both, still used by the import wizard's post-rebuild reload — see §10
+  *In-app import*), `building(dir)`,
   `hasContent()` (true once the manifest has a siteplan or buildings — drives the
   empty-install boot to the import wizard), `floorLayout(dir,fid)` (**the** sheet-tiling
   resolver → `{cells:[{page,col,row,image,w,h,caption}],cellW,cellH,cols,rows,W,H}`;
@@ -845,15 +848,25 @@ Owns singletons `store`, `netbox`, `grid`, and cross-view state `mode`
 on every floor entry so a prior floor's edit/racks mode never carries over), `siteEdit`,
 `siteLabels` (siteplan building-label visibility, default **false**), `highlight`
 (floor view-mode highlight: `'all'`|`'placements'`|`'none'`, default **`'all'`** — draws
-every room), plus `current` (active Editor or null).
-- `init()` → `store.load()` then `_bindGlobal()` + `router()`.
+every room), plus `current` (active Editor or null) and `_floorData` (the shared deferred
+floor-load promise; see `ensureFloorData`).
+- `init()` → `store.loadCore()` (only the siteplan's core documents; a failure still shows the
+  full-screen "Failed to load" panel) then `_bindGlobal()` + `router()`.
+- `ensureFloorData()` triggers (and caches on `_floorData`) `store.loadFloorData()` — the
+  deferred annotations/placements/layouts load. Idempotent (all callers share one promise); a
+  failed load resets the cache so the next navigation retries. `showSiteplan` **warms** it in
+  the background (standalone only — never in the embed, which only ever shows the siteplan);
+  `renderBuilding`/`showFloor` **await** it before reading those fields, toasting + degrading
+  gracefully (floors shown "unmapped"/empty) if it failed.
 - `router()` parses the hash: `#/import` → `showImport()`, `#/settings` →
   `showSettings()`, `#/b/<dir>` → `renderBuilding()`, `#/f/<dir>/<fid>` → `showFloor()`,
   `#/` → `showSiteplan()`. **With no facility imported (`!store.hasContent()`) the home
-  default is `showImport()`** instead of the siteplan.
+  default is `showImport()`** instead of the siteplan. (`renderBuilding`/`showFloor` are
+  `async` — they await `ensureFloorData` — so `router` returns their ignored promises.)
 - `showImport()` = the `ImportWizard` (no editor; `current=null`).
-- `renderBuilding(dir)` = floor-card grid (no editor; `current=null`). Building floor-card
-  thumbnails rebase their `src` onto `window.MAP.media`.
+- `renderBuilding(dir)` = floor-card grid (no editor; `current=null`), **`async`** — awaits
+  `ensureFloorData` before the per-floor room counts (which read `store.annotations`). Building
+  floor-card thumbnails rebase their `src` onto `window.MAP.media`.
 - `showSettings()` = settings view (no editor): an **Edit buildings & floors** button
   (→ `#/import`) plus a note — the single entry point to the import/edit wizard — and the
   page-wide **Show/Hide building labels** toggle (`app.siteLabels`; runtime-only, so it just
@@ -1294,10 +1307,12 @@ Nested Locations: **Site (building) → Location (floor) → Location (room)**.
 
 ## 8. Common runtime flows
 
-- **Boot:** `App.init` → `Store.load` (manifest via `api/manifest` / annotations / siteplan
-  / rackplacements / pagelayouts — all five fetched **in parallel** via `Promise.all`, so
-  boot costs one round-trip, not five) → `router`. An empty install (`!hasContent()`) lands
-  on the import wizard.
+- **Boot:** `App.init` → `Store.loadCore` (only manifest via `api/manifest` + siteplan — the
+  two documents the siteplan first paint needs, in parallel via `Promise.all`) → `router`. The
+  three floor-level documents (annotations / rackplacements / pagelayouts) are **deferred** to
+  `Store.loadFloorData`, triggered by `App.ensureFloorData`: warmed in the background after the
+  siteplan paints (standalone; **never fetched in the embed**) and awaited before the
+  building/floor views. An empty install (`!hasContent()`) lands on the import wizard.
 - **Import a facility:** wizard **Upload** (multipart POST per PDF → `api/import/upload`, or
   a whole `.zip` → `api/import/upload-zip`) →
   **Map** (POST `api/import/scan` → thumbnails + inventory; assign floors) → **Build** (POST

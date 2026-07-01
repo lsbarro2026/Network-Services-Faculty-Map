@@ -3,6 +3,22 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.42.0 — Defer floor-level data until a floor is opened
+- **Boot now fetches only the two documents the siteplan needs**, deferring the three
+  floor-level ones. First paint is always the siteplan (the standalone landing view *and*
+  the only view the dashboard-widget embed renders), which reads only the manifest + siteplan
+  hotspots — yet `Store.load()` also fetched `/api/annotations`, `/api/rackplacements` and
+  `/api/pagelayouts` on the critical path (the 1.40.0 parallel win still paid for three
+  documents nothing had painted yet). `load()` is now split: `loadCore()` fetches the manifest
+  + siteplan (boot), and `loadFloorData()` fetches the three floor-level documents off the
+  critical path. `App.ensureFloorData()` triggers the deferred load — warmed in the background
+  after the siteplan paints in standalone, **never fetched in the embed** (a building click
+  reloads the full map in the top window), and awaited before the building and floor views that
+  read those fields. A failed deferred load degrades gracefully (a toast, floors shown as
+  "unmapped"/empty) and retries on the next navigation; the boot "Failed to load" panel still
+  fires for a manifest/siteplan failure. The import wizard's post-rebuild reload keeps calling
+  the full `load()`, so its orphaned-room pruning is unaffected.
+
 ## 1.41.0 — Whole-floor Location embed drops the rack/device markers
 - **The floor-plan panel on a *floor* `dcim.Location` page no longer draws rack/device
   placement markers** — it now shows just the floor plan and its room polygons, a cleaner

@@ -23,10 +23,11 @@ class App {
     // and the keyboard handler consult `interactive`.
     this.embed = !!(window.MAP && window.MAP.embed);
     this.interactive = !this.embed || !!(window.MAP && window.MAP.interactive);
+    this._floorData = null;             // shared promise for the deferred floor-level load (ensureFloorData)
   }
 
   async init() {
-    try { await this.store.load(); }
+    try { await this.store.loadCore(); }
     catch (e) {
       document.body.innerHTML = '<div class="empty">Failed to load the facility map: '
         + e.message + '</div>';
@@ -39,6 +40,20 @@ class App {
 
   // ---- routing ----
   go(hash) { location.hash = hash; }
+
+  /** Trigger (and cache) the deferred floor-level load. Boot fetches only the siteplan's
+   *  core documents; annotations/placements/layouts load here — warmed after the siteplan
+   *  paints in standalone, awaited before the building/floor views that read them. Idempotent:
+   *  all callers share one promise. A failed load resets the cache so a later navigation retries. */
+  ensureFloorData() {
+    if (!this._floorData) {
+      this._floorData = this.store.loadFloorData().catch(e => {
+        this._floorData = null;
+        throw e;
+      });
+    }
+    return this._floorData;
+  }
 
   router() {
     const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
@@ -82,23 +97,37 @@ class App {
     ]));
   }
 
-  showSiteplan() { this.current = new SiteplanEditor(this); this.current.show(); }
+  showSiteplan() {
+    this.current = new SiteplanEditor(this); this.current.show();
+    // Warm the deferred floor data in the background so a drill-in is instant. Skipped in the
+    // embed (which only ever shows the siteplan); errors are swallowed here and resurface on an
+    // actual navigation, which awaits ensureFloorData and toasts.
+    if (!this.embed) this.ensureFloorData().catch(() => {});
+  }
 
-  showFloor(dir, fid) {
+  async showFloor(dir, fid) {
     const b = this.store.building(dir);
     if (!b) return this.showSiteplan();
     const f = b.floors.find(x => x.id === fid);
     if (!f) return this.renderBuilding(dir);
+    // FloorEditor.show reads floorLayout/floorData/placementData — ensure the deferred load
+    // landed first (usually already warm). On failure the accessors degrade to empty/default.
+    try { await this.ensureFloorData(); }
+    catch (e) { Toast.show('Could not load floor data: ' + e.message, true); }
     this.mode = 'view';   // every floor entry lands in view; reset so a prior floor's edit/racks doesn't carry over
     this.current = new FloorEditor(this, b, f);
     this.current.show();
   }
 
   /** Building view: a grid of floor cards (no editor active). */
-  renderBuilding(dir) {
+  async renderBuilding(dir) {
     this.current = null;
     const b = this.store.building(dir);
     if (!b) return this.showSiteplan();
+    // The per-floor room counts below read store.annotations, part of the deferred load; await
+    // it up front so the whole view renders in one burst (a failed load leaves floors "unmapped").
+    try { await this.ensureFloorData(); }
+    catch (e) { Toast.show('Could not load room data: ' + e.message, true); }
     this.crumbs([{ label: 'Siteplan', hash: '/' }, { label: b.name }]);
     this.setToolbar([Dom.el('span', { class: 'hint' }, b.siteSlug)]);
     const stage = Dom.$('#stage'); stage.innerHTML = '';

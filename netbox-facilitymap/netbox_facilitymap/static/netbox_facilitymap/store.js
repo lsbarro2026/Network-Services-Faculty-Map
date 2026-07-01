@@ -19,27 +19,40 @@ class Store {
     this.onDirty = null;           // optional callback(kind:'floor'|'site'|'racks')
   }
 
-  async load() {
-    // The manifest is a render artifact served by an authenticated endpoint (it lives in
-    // the working dir under MEDIA_ROOT, not the public static tree). All five boot GETs are
-    // independent (each sets its own field), so fetch them in parallel — five serial
-    // round-trips before first paint is the SPA's biggest boot cost, felt most in the
-    // dashboard-widget iframe. Promise.all rejects on the first failure, so App.init's
-    // "Failed to load" catch still fires with a useful message.
+  /** Critical-path boot fetch: only what the siteplan (the always-first paint, and the
+   *  only view the dashboard-widget embed renders) needs — the manifest + siteplan
+   *  hotspots. The manifest is a render artifact served by an authenticated endpoint (it
+   *  lives in the working dir under MEDIA_ROOT, not the public static tree). Both GETs are
+   *  independent, so fetch in parallel; Promise.all rejects on the first failure, so
+   *  App.init's "Failed to load" catch still fires with a useful message. */
+  async loadCore() {
     const manifestUrl = window.MAP ? window.MAP.api + 'manifest' : '/manifest.json';
-    const [manifest, annotations, siteplan, placements, layouts] = await Promise.all([
+    const [manifest, siteplan] = await Promise.all([
       Api.get(manifestUrl),
-      Api.get('/api/annotations'),
       Api.get('/api/siteplan'),
+    ]);
+    this.manifest = manifest;
+    this.siteHotspots = siteplan.hotspots || [];
+  }
+
+  /** Deferred, off-critical-path bundle: the floor-level documents nothing needs until a
+   *  building or floor opens. Warmed after the siteplan paints (standalone) and skipped
+   *  entirely in the embed; App.ensureFloorData awaits it before the building/floor views. */
+  async loadFloorData() {
+    const [annotations, placements, layouts] = await Promise.all([
+      Api.get('/api/annotations'),
       Api.get('/api/rackplacements'),
       Api.get('/api/pagelayouts'),
     ]);
-    this.manifest = manifest;
     this.annotations = annotations;
-    this.siteHotspots = siteplan.hotspots || [];
     this.placements = placements;
     this.layouts = layouts;
   }
+
+  /** Full boot fetch (core + floor data). Used by the import wizard's post-rebuild reload,
+   *  which then prunes orphaned floors from `annotations` and re-saves — that must run
+   *  against fully-loaded annotations, so this path stays eager. */
+  async load() { await Promise.all([this.loadCore(), this.loadFloorData()]); }
 
   building(dir) { return this.manifest.buildings.find(b => b.dir === dir); }
 
