@@ -187,7 +187,8 @@ when `window.MAP` is absent).
   (`"dir/fid"→{placements:[…]}`), `layouts` (`"dir/fid"→{grid:[[col,row]…]}`, sheet
   arrangement), `onDirty` (optional callback `'floor'|'site'|'racks'`). Methods: `load()`
   (manifest — via `window.MAP.api + 'manifest'`, the authenticated endpoint — + annotations
-  + siteplan + rackplacements + pagelayouts; **no rackcache fetch**), `building(dir)`,
+  + siteplan + rackplacements + pagelayouts, **fetched in parallel** via `Promise.all` since
+  each sets an independent field; **no rackcache fetch**), `building(dir)`,
   `hasContent()` (true once the manifest has a siteplan or buildings — drives the
   empty-install boot to the import wizard), `floorLayout(dir,fid)` (**the** sheet-tiling
   resolver → `{cells:[{page,col,row,image,w,h,caption}],cellW,cellH,cols,rows,W,H}`;
@@ -1294,8 +1295,9 @@ Nested Locations: **Site (building) → Location (floor) → Location (room)**.
 ## 8. Common runtime flows
 
 - **Boot:** `App.init` → `Store.load` (manifest via `api/manifest` / annotations / siteplan
-  / rackplacements / pagelayouts) → `router`. An empty install (`!hasContent()`) lands on
-  the import wizard.
+  / rackplacements / pagelayouts — all five fetched **in parallel** via `Promise.all`, so
+  boot costs one round-trip, not five) → `router`. An empty install (`!hasContent()`) lands
+  on the import wizard.
 - **Import a facility:** wizard **Upload** (multipart POST per PDF → `api/import/upload`, or
   a whole `.zip` → `api/import/upload-zip`) →
   **Map** (POST `api/import/scan` → thumbnails + inventory; assign floors) → **Build** (POST

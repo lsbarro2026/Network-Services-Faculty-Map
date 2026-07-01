@@ -21,12 +21,24 @@ class Store {
 
   async load() {
     // The manifest is a render artifact served by an authenticated endpoint (it lives in
-    // the working dir under MEDIA_ROOT, not the public static tree).
-    this.manifest = await Api.get((window.MAP ? window.MAP.api + 'manifest' : '/manifest.json'));
-    this.annotations = await Api.get('/api/annotations');
-    this.siteHotspots = (await Api.get('/api/siteplan')).hotspots || [];
-    this.placements = await Api.get('/api/rackplacements');
-    this.layouts = await Api.get('/api/pagelayouts');
+    // the working dir under MEDIA_ROOT, not the public static tree). All five boot GETs are
+    // independent (each sets its own field), so fetch them in parallel — five serial
+    // round-trips before first paint is the SPA's biggest boot cost, felt most in the
+    // dashboard-widget iframe. Promise.all rejects on the first failure, so App.init's
+    // "Failed to load" catch still fires with a useful message.
+    const manifestUrl = window.MAP ? window.MAP.api + 'manifest' : '/manifest.json';
+    const [manifest, annotations, siteplan, placements, layouts] = await Promise.all([
+      Api.get(manifestUrl),
+      Api.get('/api/annotations'),
+      Api.get('/api/siteplan'),
+      Api.get('/api/rackplacements'),
+      Api.get('/api/pagelayouts'),
+    ]);
+    this.manifest = manifest;
+    this.annotations = annotations;
+    this.siteHotspots = siteplan.hotspots || [];
+    this.placements = placements;
+    this.layouts = layouts;
   }
 
   building(dir) { return this.manifest.buildings.find(b => b.dir === dir); }

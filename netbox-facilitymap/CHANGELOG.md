@@ -3,6 +3,16 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.40.0 — Faster map first-load (parallel boot fetches)
+- **The SPA now fetches its five boot documents in parallel** instead of one after another.
+  `Store.load()` previously `await`ed the manifest, `/api/annotations`, `/api/siteplan`,
+  `/api/rackplacements` and `/api/pagelayouts` in sequence — five serial round-trips before the
+  map could paint, felt most in the home-dashboard "Facility Map" widget, whose iframe latency is
+  the SPA's boot latency. The five GETs are independent (each sets its own `Store` field), so they
+  now run under a single `Promise.all`, cutting first-paint to roughly one round-trip. Error
+  handling is unchanged: `Promise.all` rejects on the first failure, so `App.init`'s "Failed to
+  load" panel still shows with a useful message.
+
 ## 1.39.0 — Dashboard-widget building clicks open the full map
 - **Clicking a building in the home-dashboard "Facility Map" widget now drills in.** Previously
   `SiteplanEditor.openBuilding` returned early whenever the map was embedded (`?embed=1`), so both
