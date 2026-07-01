@@ -39,6 +39,9 @@ class ImportWizard {
     // Add-drawings flow: when true the upload step merges new PDFs into the current model
     // (re-applying the saved draft so existing assignments survive) instead of starting fresh.
     this._mergeMode = false;
+    // File ingestion + upload live in ImportUploader (needs a back-ref for progress + the
+    // post-upload routing); image zoom/pan + lightbox live in the static ImportPreview.
+    this.uploader = new ImportUploader(this);
   }
 
   // ---- helpers ----
@@ -59,14 +62,6 @@ class ImportWizard {
    *  media URL. */
   static _media(rel) {
     return (window.MAP ? window.MAP.media : '/') + encodeURI(rel);
-  }
-
-  /** On-demand high-res render URL for an uploaded PDF (`p.pdf`). The server renders it at
-   *  full scale and caches the PNG, so this stays crisp when enlarged or zoomed — unlike the
-   *  small scan thumbnail. Used by the preview popup and the lazy card upgrade. */
-  static _previewUrl(pdfRel) {
-    const api = window.MAP ? window.MAP.api : '/api/';
-    return api + 'import/preview?path=' + encodeURIComponent(pdfRel);
   }
 
   _stage(title) {
@@ -179,7 +174,7 @@ class ImportWizard {
 
     const folderInput = Dom.el('input', {
       type: 'file', class: 'imp-file', multiple: 'multiple', accept: '.pdf',
-      onchange: (e) => this._upload(this._fromInput(e.target.files)),
+      onchange: (e) => this.uploader.upload(ImportUploader.fromInput(e.target.files)),
     });
     folderInput.setAttribute('webkitdirectory', '');
 
@@ -191,8 +186,8 @@ class ImportWizard {
     drop.addEventListener('drop', async (e) => {
       e.preventDefault(); drop.classList.remove('over');
       const z = [...(e.dataTransfer.files || [])].find(f => f.name.toLowerCase().endsWith('.zip'));
-      if (z) return this._uploadZip(z);
-      this._upload(await this._fromDrop(e.dataTransfer));
+      if (z) return this.uploader.uploadZip(z);
+      this.uploader.upload(await ImportUploader.fromDrop(e.dataTransfer));
     });
     view.append(drop);
     view.append(folderInput);
@@ -205,85 +200,6 @@ class ImportWizard {
       ? Dom.el('button', { onclick: () => { this._mergeMode = false; this._stepMap(); } }, 'Cancel')
       : Dom.el('button', { onclick: () => this._reset() }, 'Start over');
     view.append(Dom.el('div', { class: 'imp-actions' }, [cont, back]));
-  }
-
-  _fromInput(fileList) {
-    return [...fileList].filter(f => f.name.toLowerCase().endsWith('.pdf'))
-      .map(f => ({ file: f, path: f.webkitRelativePath || f.name }));
-  }
-
-  async _fromDrop(dt) {
-    const roots = [...dt.items].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
-    const out = [];
-    const walk = (entry, prefix) => new Promise((res) => {
-      if (entry.isFile) return entry.file(f => { out.push({ file: f, path: prefix + entry.name }); res(); });
-      if (!entry.isDirectory) return res();
-      const reader = entry.createReader();
-      const readAll = () => reader.readEntries(async (ents) => {
-        if (!ents.length) return res();
-        for (const e of ents) await walk(e, prefix + entry.name + '/');
-        readAll();
-      });
-      readAll();
-    });
-    for (const r of roots) await walk(r, '');
-    return out.filter(x => x.file.name.toLowerCase().endsWith('.pdf'));
-  }
-
-  /** Building folder + filename from a relative path `<root>/<building>/<file>.pdf`. A PDF
-   *  sitting directly under the dropped root (`<root>/<file>.pdf`, two segments) is the
-   *  overall site map, so route it into the reserved `Site Plan` bucket — but only when the
-   *  drop also has subfoldered drawings (`hasSubfolders`), else a single flat building folder
-   *  would be mistaken for the siteplan. The `Site Plan` name reuses the existing siteplan
-   *  auto-detect/build path unchanged. */
-  static _split(relPath, hasSubfolders) {
-    const segs = relPath.split('/').filter(Boolean);
-    if (hasSubfolders && segs.length === 2) return { folder: 'Site Plan', file: segs[1] };
-    return { folder: segs.length > 1 ? segs[segs.length - 2] : 'Building', file: segs[segs.length - 1] };
-  }
-
-  async _upload(items) {
-    if (!items.length) { Toast.show('No PDFs found in that selection', true); return; }
-    this._progress.classList.remove('hidden');
-    const apiBase = window.MAP ? window.MAP.api : '/api/';
-    const hasSubfolders = items.some(it => it.path.split('/').filter(Boolean).length >= 3);
-    let done = 0;
-    for (const it of items) {
-      const { folder, file } = ImportWizard._split(it.path, hasSubfolders);
-      this._progress.textContent = `Uploading ${++done} / ${items.length}…`;
-      try {
-        // Multipart so the server streams to disk (no in-memory body cap); CSRF header so
-        // the session-auth POST isn't rejected.
-        const fd = new FormData();
-        fd.append('file', it.file, file);
-        const headers = {};
-        if (window.MAP && window.MAP.csrf) headers['X-CSRFToken'] = window.MAP.csrf;
-        const r = await fetch(apiBase + 'import/upload?path=' + encodeURIComponent(folder + '/' + file),
-          { method: 'POST', headers, body: fd });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-      } catch (e) { Toast.show('Upload failed: ' + e.message, true); return; }
-    }
-    this._progress.textContent = `Uploaded ${items.length} drawings — rendering previews…`;
-    if (this._mergeMode) this._mergeUploads(); else this._scanAndMap();
-  }
-
-  /** Upload a single `.zip`; the server extracts its PDFs (stripping any wrapper folder)
-   *  into the same `uploads/<building>/<file>` layout a folder upload produces. */
-  async _uploadZip(file) {
-    this._progress.classList.remove('hidden');
-    this._progress.textContent = `Uploading ${file.name}…`;
-    const apiBase = window.MAP ? window.MAP.api : '/api/';
-    try {
-      const fd = new FormData();
-      fd.append('file', file, file.name);
-      const headers = {};
-      if (window.MAP && window.MAP.csrf) headers['X-CSRFToken'] = window.MAP.csrf;
-      const r = await fetch(apiBase + 'import/upload-zip', { method: 'POST', headers, body: fd });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) throw new Error(j.error || 'HTTP ' + r.status);
-      this._progress.textContent = `Extracted ${j.count} drawings — rendering previews…`;
-    } catch (e) { Toast.show('Zip upload failed: ' + e.message, true); return; }
-    if (this._mergeMode) this._mergeUploads(); else this._scanAndMap();
   }
 
   // ---- step 2: map ----
@@ -549,7 +465,7 @@ class ImportWizard {
 
     // Zoom widens the canvas inside a scrollable viewport (scroll to pan); the image fills the
     // canvas and the overlay is positioned by % of it, so the box tracks the image at any zoom.
-    const img = Dom.el('img', { class: 'imp-region-img', src: ImportWizard._previewUrl(p.pdf) });
+    const img = Dom.el('img', { class: 'imp-region-img', src: ImportPreview.previewUrl(p.pdf) });
     const sel = Dom.el('div', { class: 'imp-region-sel hidden' });
     const canvas = Dom.el('div', { class: 'imp-region-canvas' }, [img, sel]);
     const viewport = Dom.el('div', { class: 'imp-region-view' }, [canvas]);
@@ -967,10 +883,10 @@ class ImportWizard {
       // card is enlarged or zoomed — keeps the initial grid light, sharpens on demand.
       let hires = false;
       const upgrade = () => { if (!hires) { hires = true;
-        img.src = ImportWizard._previewUrl(p.pdf) + (p._rev ? '&v=' + p._rev : ''); } };
+        img.src = ImportPreview.previewUrl(p.pdf) + (p._rev ? '&v=' + p._rev : ''); } };
       this._cards.push({ upgrade });
-      this._attachZoomPan(thumb, img, b.frame[p.stem],
-        { onClick: () => this._lightbox(p), onZoom: upgrade });
+      ImportPreview.attachZoomPan(thumb, img, b.frame[p.stem],
+        { onClick: () => ImportPreview.lightbox(p), onZoom: upgrade });
     } else {
       thumb = Dom.el('div', { class: 'imp-thumb imp-nothumb' }, p.file);
     }
@@ -1002,11 +918,11 @@ class ImportWizard {
    *  for an outlier whose code sits outside the marked spot. */
   _codeCropThumb(p, region) {
     const img = Dom.el('img', { class: 'imp-crop-img',
-      src: ImportWizard._previewUrl(p.pdf) + (p._rev ? '&v=' + p._rev : ''), loading: 'lazy' });
+      src: ImportPreview.previewUrl(p.pdf) + (p._rev ? '&v=' + p._rev : ''), loading: 'lazy' });
     img.style.width = (100 / region.w) + '%';
     img.style.transform = 'translate(' + (-region.x * 100) + '%,' + (-region.y * 100) + '%)';
     const box = Dom.el('div', { class: 'imp-thumb imp-codecrop', title: 'Click to see the whole drawing',
-      onclick: () => this._lightbox(p) }, [img]);
+      onclick: () => ImportPreview.lightbox(p) }, [img]);
     const fit = () => {
       const iw = img.naturalWidth, ih = img.naturalHeight;
       if (iw && ih) box.style.aspectRatio = (region.w * iw) + ' / ' + (region.h * ih);
@@ -1032,15 +948,10 @@ class ImportWizard {
    *  is fixed to the existing filename (regardless of the picked file's name) so the floor id is
    *  unchanged — id-preserving, so rooms drawn on that floor survive the next build. */
   async _replacePdf(b, p, file) {
-    const apiBase = window.MAP ? window.MAP.api : '/api/';
-    const headers = {};
-    if (window.MAP && window.MAP.csrf) headers['X-CSRFToken'] = window.MAP.csrf;
     try {
-      const fd = new FormData();
-      fd.append('file', file, p.file);
-      const r = await fetch(apiBase + 'import/upload?path=' + encodeURIComponent(b.folder + '/' + p.file),
-        { method: 'POST', headers, body: fd });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      // Fixed to the existing filename (`p.file`) regardless of the picked file's name, so the
+      // stem — and therefore the floor id — is unchanged.
+      await ImportUploader.uploadFile(b.folder + '/' + p.file, file, p.file);
       try { const inv = await Api.post('/api/import/scan', {}); if (inv.ok) this.inv = inv; }
       catch (_) { /* the existing thumbnail stays until the next scan */ }
       p._rev = (p._rev || 0) + 1;
@@ -1144,89 +1055,6 @@ class ImportWizard {
     a.token = loc.slug; a.label = loc.name; a.type = 'level';
     await this._saveDraft();
     this._stepMap();
-  }
-
-  /** Wire scroll-to-zoom (anchored at the cursor) + drag-to-pan onto a framed image box —
-   *  shared by the mapping cards and the preview popup. `frame` ({scale,x,y}) holds the view
-   *  state; for a card it lives on the wizard model so the framing survives step switches (a
-   *  viewing aid only, never sent to the build). Panning is clamped to the rendered
-   *  (object-fit contained) image so a drag can't slide into the letterbox margins.
-   *  `opts.onClick` fires when a press doesn't travel (a click, not a drag); `opts.onZoom`
-   *  fires the first time the user zooms in (used to swap in the hi-res render). Double-click
-   *  resets the view. */
-  _attachZoomPan(box, img, frame, opts = {}) {
-    const apply = () => { img.style.transform = `translate(${frame.x}px, ${frame.y}px) scale(${frame.scale})`; };
-    const clamp = () => {
-      const bw = box.clientWidth, bh = box.clientHeight;
-      const nw = img.naturalWidth || bw, nh = img.naturalHeight || bh;
-      const fit = Math.min(bw / nw, bh / nh) || 1;      // object-fit: contain ratio
-      const mx = Math.max(0, (frame.scale * nw * fit - bw) / 2);
-      const my = Math.max(0, (frame.scale * nh * fit - bh) / 2);
-      frame.x = Math.max(-mx, Math.min(mx, frame.x));
-      frame.y = Math.max(-my, Math.min(my, frame.y));
-    };
-    apply();
-    box.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const prev = frame.scale;
-      const next = Math.min(8, Math.max(1, prev * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
-      if (next === prev) return;
-      // Keep the point under the cursor fixed across the zoom (transform-origin is centre).
-      const r = box.getBoundingClientRect();
-      const cx = e.clientX - (r.left + r.width / 2), cy = e.clientY - (r.top + r.height / 2);
-      frame.x = cx - (cx - frame.x) * (next / prev);
-      frame.y = cy - (cy - frame.y) * (next / prev);
-      frame.scale = next;
-      if (frame.scale === 1) { frame.x = 0; frame.y = 0; } else clamp();
-      apply();
-      if (next > prev && opts.onZoom) opts.onZoom();
-    }, { passive: false });
-    box.addEventListener('dblclick', () => { frame.scale = 1; frame.x = 0; frame.y = 0; apply(); });
-    box.addEventListener('pointerdown', (e) => {
-      const sx = e.clientX, sy = e.clientY, ox = frame.x, oy = frame.y;
-      let moved = 0;
-      try { box.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
-      const move = (ev) => {
-        moved += Math.abs(ev.movementX) + Math.abs(ev.movementY);
-        if (frame.scale > 1) {
-          frame.x = ox + (ev.clientX - sx); frame.y = oy + (ev.clientY - sy);
-          clamp(); apply();
-        }
-      };
-      const up = () => {
-        box.removeEventListener('pointermove', move);
-        box.removeEventListener('pointerup', up);
-        if (moved < 4 && opts.onClick) opts.onClick();
-      };
-      box.addEventListener('pointermove', move);
-      box.addEventListener('pointerup', up);
-    });
-  }
-
-  /** Full-window preview of a drawing. Renders the PDF on demand at full scale (not the small
-   *  scan thumbnail), so it stays sharp under wheel-zoom + drag-pan (scroll to zoom at the
-   *  cursor, drag to pan, double-click to reset). A PNG always renders inline — no browser
-   *  "download PDFs" detour or X-Frame-Options blank. Dismissed by the backdrop, the ✕, or Esc. */
-  _lightbox(p) {
-    const onKey = (e) => { if (e.key === 'Escape') close(); };
-    const close = () => { document.removeEventListener('keydown', onKey); box.remove(); };
-    const img = Dom.el('img', { class: 'imp-lightbox-img', src: ImportWizard._previewUrl(p.pdf) });
-    const spin = Dom.el('div', { class: 'imp-lightbox-spin' }, 'Rendering preview…');
-    img.addEventListener('load', () => spin.remove());
-    img.addEventListener('error', () => { spin.remove(); Toast.show('Preview failed to render', true); });
-    const body = Dom.el('div', { class: 'imp-lightbox-body' }, [img, spin]);
-    const panel = Dom.el('div', { class: 'imp-lightbox-panel' }, [
-      Dom.el('div', { class: 'imp-lightbox-head' }, [
-        Dom.el('span', {}, p.file),
-        Dom.el('button', { class: 'imp-lightbox-x', title: 'Close', onclick: close }, '✕'),
-      ]),
-      body,
-    ]);
-    const box = Dom.el('div', { class: 'imp-lightbox' }, [panel]);
-    box.addEventListener('click', (e) => { if (e.target === box) close(); });
-    document.addEventListener('keydown', onKey);
-    document.body.append(box);
-    this._attachZoomPan(body, img, { scale: 1, x: 0, y: 0 });
   }
 
   _autoNumber(b) {

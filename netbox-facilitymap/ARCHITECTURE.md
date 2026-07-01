@@ -116,6 +116,8 @@ netbox-facilitymap/
       editor.js             # Editor (abstract base: the shared polygon engine)
       floor-editor.js       # FloorEditor extends Editor (rooms + NetBox binding)
       siteplan-editor.js    # SiteplanEditor extends Editor (building hotspots)
+      import-preview.js     # ImportPreview (static: wizard image zoom/pan + lightbox + preview URL)
+      import-uploader.js    # ImportUploader (wizard file ingestion + shared upload primitive)
       import-wizard.js      # ImportWizard (in-app PDF import: upload -> map -> build)
       app.js                # App (orchestrator + router + boot). Loaded LAST.
       manifest.json         # stub: {"siteplan":null,"buildings":[]} (real manifest is a render artifact)
@@ -543,9 +545,34 @@ Shapes are **building hotspots**. `editing()`=`app.siteEdit`.
 - `finish()` (push hotspot, open panel), `openHotspotPanel(hs)` (assign building /
   delete), `save()`.
 
+### import-preview.js — `ImportPreview` (pure static — like `Geom`/`DeviceShapes`)
+The wizard's image-viewing helpers, extracted so the concern is self-contained (no wizard
+state — operates only on passed-in DOM, a `frame` object, and callbacks). `previewUrl(pdfRel)`
+→ the on-demand hi-res render URL (`api/import/preview?path=…`, server-cached PNG).
+`attachZoomPan(box, img, frame, opts)` → cursor-anchored wheel-zoom + drag-pan on an image,
+clamped to the object-fit-contained bounds; `frame` `{scale,x,y}` holds the view state (for a
+card it lives on the wizard model so the framing survives step switches), `opts.onClick` fires
+on a non-travelling press, `opts.onZoom` on the first zoom-in (used to swap in the hi-res
+render), double-click resets. `lightbox(p)` → the full-window preview popup (renders the PDF
+inline via `previewUrl`, reuses `attachZoomPan`; dismissed by backdrop/✕/Esc).
+
+### import-uploader.js — `ImportUploader` (holds a wizard back-ref)
+The wizard's file-ingestion + upload concern. Constructed with the wizard (`new
+ImportUploader(this)`) because the upload orchestrators need its `_progress` element,
+`_mergeMode` flag, and the post-upload routing. Static helpers: `fromInput(fileList)` /
+`fromDrop(dt)` (walk a picked/dropped selection into PDF items), `split(relPath,
+hasSubfolders)` (folder+file from a relative path; a two-segment path routes to the reserved
+`Site Plan` bucket), and `uploadFile(path, file, name)` — the shared multipart+CSRF `POST
+import/upload?path=` primitive (used by both the folder upload and the wizard's per-card
+*Replace* control, replacing what was duplicated inline). Instance orchestrators: `upload(items)`
+(per-item `uploadFile`, progress, then routes to `wizard._mergeUploads()`/`_scanAndMap()`) and
+`uploadZip(file)` (`POST import/upload-zip`, server-side extraction, same routing).
+
 ### import-wizard.js — `ImportWizard` (not an Editor; a stage-takeover view)
 The in-app PDF import, in four steps rendered into `#stage` (**Upload → Map buildings to
-NetBox → Map drawings to floors → Build**). Constructor state: `inv` (scan inventory),
+NetBox → Map drawings to floors → Build**). Delegates two self-contained concerns to their own
+class-per-file: image zoom/pan + lightbox to the static **`ImportPreview`**, and file
+ingestion/upload to **`ImportUploader`** (`this.uploader`). Constructor state: `inv` (scan inventory),
 `buildings` (per-folder model), `site` (chosen siteplan), `thumbWidth` (slider value),
 `_bIdx` (index — into the floor-mapping carousel `_mappableBuildings()`, **not** raw
 `buildings` — of the building currently visible in the map step), `_autoMapDone` (the
@@ -641,16 +668,19 @@ change is needed — the binding is captured entirely by the slug.
 **Upload** (`_stepUpload`): a drag-drop zone (`imp-drop`) that is also **clickable** — the
 whole zone triggers a hidden `webkitdirectory` folder picker via `folderInput.click()` on its
 `onclick`. Drag-and-drop accepts both folders and `.zip` files (the drop handler detects a
-`.zip` and routes to `_uploadZip`; folder drops go through `_fromDrop` + `_upload`). Zip
+`.zip` and routes to `ImportUploader.uploadZip`; folder drops go through
+`ImportUploader.fromDrop` + `.upload`). Zip
 import via click is not supported (single `<input>` cannot present both a folder picker and a
-file picker in the same dialog). `_fromInput`/`_fromDrop` walk the selection; each `.pdf` is
-POSTed as a **multipart form** (`file` field) to `/api/import/upload?path=<building>/<file>`
-(folder = the file's parent dir, via `_split`). A PDF dropped **loose at the top level** of
+file picker in the same dialog). The `ImportUploader` static ingestion helpers
+`fromInput`/`fromDrop` walk the selection; each `.pdf` is
+POSTed as a **multipart form** (`file` field, via the shared `ImportUploader.uploadFile`
+primitive) to `/api/import/upload?path=<building>/<file>`
+(folder = the file's parent dir, via `ImportUploader.split`). A PDF dropped **loose at the top level** of
 the facility folder (a two-segment `<root>/<file>.pdf` path) is the overall site map, so
-`_split` routes it into the reserved `Site Plan` folder — but only when the drop also contains
-subfoldered drawings (`hasSubfolders`, computed in `_upload`), so a single flat building
+`split` routes it into the reserved `Site Plan` folder — but only when the drop also contains
+subfoldered drawings (`hasSubfolders`, computed in `upload`), so a single flat building
 folder isn't mistaken for a siteplan. A picked/dropped **`.zip`** is sent whole to
-`/api/import/upload-zip` (`_uploadZip`), where the server extracts its PDFs into the same
+`/api/import/upload-zip` (`ImportUploader.uploadZip`), where the server extracts its PDFs into the same
 `uploads/<building>/<file>` layout — stripping any wrapper folder (see `UploadZipView`/`_zip_targets` below).
 
 **Map** (`_scanAndMap`/`_stepMap`): `_scanAndMap` POSTs `/api/import/scan`, calls
@@ -683,12 +713,12 @@ is restored **clamped** to `[0, _mappableBuildings().length-1]` so the user resu
 building they last viewed even though folders can change between sessions. A global **size slider** (`_sizer`/`_applyThumbSize`,
 backed by `thumbWidth`) resizes every card at once by setting `--imp-card-w`/`--imp-thumb-h`
 CSS vars on the map view. Each PDF gets a thumbnail (its `src` rebased onto `window.MAP.media`)
-wired by `_attachZoomPan` for **cursor-anchored** scroll-to-zoom / drag-to-pan (clamped to the
+wired by `ImportPreview.attachZoomPan` for **cursor-anchored** scroll-to-zoom / drag-to-pan (clamped to the
 contained image; double-click resets) so the floor label can be framed — a viewing aid kept in
 the model (survives step switches), never sent to the build; a click (press that doesn't cross
-a small drag threshold) opens `_lightbox`, a full-window preview that uses the **same** zoom/pan
+a small drag threshold) opens `ImportPreview.lightbox`, a full-window preview that uses the **same** zoom/pan
 controller. The small `scan` thumbnails blur when enlarged, so the wizard lazily swaps in the
-PDF's **on-demand full-scale render** (`_previewUrl` → `api/import/preview`, cached server-side):
+PDF's **on-demand full-scale render** (`ImportPreview.previewUrl` → `api/import/preview`, cached server-side):
 per card the first time it's wheel-zoomed (`onZoom`) or when the size slider passes
 `HIRES_AT` (260px), and always in the popup. The popup image is therefore the full render (not a
 PDF iframe — see §10; dismiss: backdrop / ✕ / Esc), showing a brief "Rendering preview…" state
@@ -700,7 +730,7 @@ own size inside an overflow-clipped box, so the region exactly fills it. Those a
 so the crop rescales for free when the size slider changes the card width; only the box's aspect
 ratio needs the render's intrinsic size, set once on the image's `load`. The region used is the
 building's own `codeRegion` override when set, else the global `_codeRegion`. Clicking the crop
-opens the full drawing in `_lightbox` — the escape hatch for an outlier whose code sits outside the
+opens the full drawing in `ImportPreview.lightbox` — the escape hatch for an outlier whose code sits outside the
 marked spot. With **no** region (the user skipped the step), cards fall back to the scan thumbnail +
 lazy hi-res zoom/pan described above.
 Cards render **one per row** (`imp-grid` is a single column): the thumbnail sits on the left
@@ -926,7 +956,7 @@ access as the map).
   `.part` temp then `os.replace` (atomic).
 - **`UploadZipView`** (POST `api/import/upload-zip`) — extracts one uploaded `.zip` into the
   same `uploads/<folder>/<file>` layout. `_zip_targets` maps each `.pdf` member to a
-  destination, mirroring `_split` (strip a shared wrapper directory; a root-level PDF beside
+  destination, mirroring `ImportUploader.split` (strip a shared wrapper directory; a root-level PDF beside
   subfoldered drawings → `Site Plan`). Extraction only writes bytes + checks `%PDF-` magic —
   PDFs are still **parsed** only in the render subprocess. Guards: `.zip` magic + `max_zip_mb`
   size; per-member `max_pdf_mb` and cumulative `max_zip_uncompressed_mb` decompression caps
@@ -1425,7 +1455,7 @@ point at the deep treatment.
 - **Two drawings sharing a floor token = one multi-page floor** (ordered by drawing
   number) — that is how stacked sheets of one floor group. In the wizard the *“same floor
   (extra sheet)”* control reuses the previous token; in the map it's just the same token.
-- **A loose top-level PDF is the site map.** `_split` treats a two-segment
+- **A loose top-level PDF is the site map.** `ImportUploader.split` treats a two-segment
   `<root>/<file>.pdf` path (a PDF directly under the dropped facility folder, not in a
   building subfolder) as the siteplan and routes it into the reserved `Site Plan` folder,
   reusing the existing `/site\s*plan/i` auto-detect/build path. This only fires when the
@@ -1471,14 +1501,14 @@ point at the deep treatment.
   make a floor legible) and the global `thumbWidth` (the size slider) live only in the wizard
   model + CSS; neither is **ever** sent to `api/import/build` or reaches `manifest.json`, and a
   rescan resets them. Don't wire them into the import map. The zoom/pan controller
-  (`_attachZoomPan`, shared by cards and the popup) is cursor-anchored and clamps panning to the
-  contained image. A card press under the drag threshold opens the `_lightbox` preview, so don't
+  (`ImportPreview.attachZoomPan`, shared by cards and the popup) is cursor-anchored and clamps panning to the
+  contained image. A card press under the drag threshold opens the `ImportPreview.lightbox` preview, so don't
   lower that threshold or panning will swallow clicks.
 - **The popup/large-card image is the on-demand full render, not the scan thumbnail.** The small
   `scan` thumbnails (`THUMB_SCALE`) blur when enlarged, so the wizard lazily swaps in
-  `_previewUrl(p.pdf)` → `api/import/preview` (rendered at full `RENDER_SCALE`, cached at
+  `ImportPreview.previewUrl(p.pdf)` → `api/import/preview` (rendered at full `RENDER_SCALE`, cached at
   `uploads/.thumbs/<…>.full.png`): per card on first wheel-zoom or when the slider passes
-  `HIRES_AT`, and always in `_lightbox`. The preview is still a **PNG, never a PDF `<iframe>`**
+  `HIRES_AT`, and always in `ImportPreview.lightbox`. The preview is still a **PNG, never a PDF `<iframe>`**
   (an iframe went blank / triggered a download when the browser downloads PDFs or under
   `X-Frame-Options`) — keep it image-based. `PreviewView` renders a single file **without the
   import lock**, so a preview never 409s against an in-flight scan; the `.full.png` cache lives
