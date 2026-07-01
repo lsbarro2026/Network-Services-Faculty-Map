@@ -143,27 +143,29 @@ PLUGINS_CONFIG = {
 
 ## Install (into a NetBox instance)
 
-Run as the NetBox service user, **inside NetBox's virtualenv** (default `/opt/netbox/venv`).
-Installing pulls the runtime deps `pypdfium2` + `Pillow` automatically — both ship as
-self-contained wheels, so the plugin works on **any environment, including headless servers, with
-no system packages**. NetBox's `MEDIA_ROOT` must be writable by the service (it already is for
-NetBox's own uploads).
+Installing pulls the runtime deps `pypdfium2` + `Pillow` automatically (self-contained wheels, so
+it works on headless servers with no system packages) and writes under NetBox's `MEDIA_ROOT`,
+already writable by the service. The plugin's project metadata lives in the `netbox-facilitymap/`
+subdirectory of the [repo](https://github.com/lsbarro2026/Network-Services-Faculty-Map), **not** at
+the root, so installing from GitHub needs pip's `#subdirectory=netbox-facilitymap` fragment — omit
+it and pip fails (see Troubleshooting below).
 
-The plugin lives in the `netbox-facilitymap/` subdirectory of the
-[Network-Services-Faculty-Map](https://github.com/lsbarro2026/Network-Services-Faculty-Map)
-repository, so installing straight from GitHub uses pip's `#subdirectory=` syntax.
+Install into NetBox's virtualenv as the `netbox` service user (so the files stay owned by it, not
+root):
 
 ```bash
-source /opt/netbox/venv/bin/activate
-
-# Straight from GitHub (no clone needed) — note the subdirectory pin:
-pip install "git+https://github.com/lsbarro2026/Network-Services-Faculty-Map.git#subdirectory=netbox-facilitymap"
-# …or pin to a release tag — use the latest tag (currently v1.5.0):
-# pip install "git+https://github.com/lsbarro2026/Network-Services-Faculty-Map.git@v1.5.0#subdirectory=netbox-facilitymap"
-
-# …or, from a local checkout (dev): editable install from this directory
-# pip install -e /path/to/Network-Services-Faculty-Map/netbox-facilitymap
+sudo -u netbox /opt/netbox/venv/bin/pip install "git+https://github.com/lsbarro2026/Network-Services-Faculty-Map.git#subdirectory=netbox-facilitymap"
 ```
+
+> **Variants.** To pin a specific version, append `@<tag>` before the `#` fragment (e.g.
+> `…Network-Services-Faculty-Map.git@<tag>#subdirectory=netbox-facilitymap`) — see the repo's
+> tags/releases for what's available. For local development, editable-install the subdirectory:
+> `pip install -e /path/to/Network-Services-Faculty-Map/netbox-facilitymap`.
+
+> **Troubleshooting.** If pip fails with *"does not appear to be a Python project: neither
+> 'setup.py' nor 'pyproject.toml' found"*, the `#subdirectory=netbox-facilitymap` fragment is
+> missing from the URL — the project metadata lives in that subdirectory, not the repo root. Add it
+> and re-run.
 
 Enable it in `/opt/netbox/netbox/netbox/configuration.py`:
 
@@ -193,11 +195,10 @@ Open **NetBox → Plugins → Facility Map** (or `/plugins/facilitymap/`) and im
 
 ## Upgrade
 
+Re-run the same install command with `--upgrade`, then re-apply the DB/static changes:
+
 ```bash
-source /opt/netbox/venv/bin/activate
-# from GitHub:
-pip install --upgrade "git+https://github.com/lsbarro2026/Network-Services-Faculty-Map.git#subdirectory=netbox-facilitymap"
-# …or from a local checkout: git pull, then  pip install --upgrade -e /path/to/Network-Services-Faculty-Map/netbox-facilitymap
+sudo -u netbox /opt/netbox/venv/bin/pip install --upgrade "git+https://github.com/lsbarro2026/Network-Services-Faculty-Map.git#subdirectory=netbox-facilitymap"
 python /opt/netbox/netbox/manage.py migrate
 python /opt/netbox/netbox/manage.py collectstatic --no-input
 sudo systemctl restart netbox netbox-rq
