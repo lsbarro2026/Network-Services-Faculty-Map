@@ -3,6 +3,16 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.39.0 — Dashboard-widget building clicks open the full map
+- **Clicking a building in the home-dashboard "Facility Map" widget now drills in.** Previously
+  `SiteplanEditor.openBuilding` returned early whenever the map was embedded (`?embed=1`), so both
+  hotspot clicks and legend rows did nothing — the chrome-free card had no breadcrumbs to navigate
+  back through, so in-card drill-in was disabled outright. Now a building click opens the **full
+  map in the top window**, deep-linked at that building (`#/b/<dir>`), which has its own
+  breadcrumbs and "← NetBox" link. It works for hotspots and legend rows alike, is always on (not
+  gated on the `interactive`/`legend` toggles), and leaves the standalone app's in-app navigation
+  unchanged. Same-origin iframe, so `window.top` navigation needs no extra plumbing.
+
 ## 1.38.0 — Split the room embed into zoom, footprint and orientation
 - **The per-room map embed (a room's Location page) now has three independent operator settings**
   instead of one. Previously the single `room_embed_zoom` both magnified the room *and* resized

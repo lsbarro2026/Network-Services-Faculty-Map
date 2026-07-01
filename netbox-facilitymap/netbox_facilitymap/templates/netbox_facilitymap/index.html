@@ -19,7 +19,8 @@
      media  -> /plugins/facilitymap/api/media/  (authenticated floor images / thumbnails)
      static -> /static/netbox_facilitymap/  (framework-free JS/CSS/fonts)
      csrf   -> session token threaded into Api.post so saves don't 403.
-     embed  -> true in the dashboard-widget iframe (?embed=1): chrome-free, no navigation.
+     embed  -> true in the dashboard-widget iframe (?embed=1): chrome-free; a building click
+               opens the full map in the top window (no in-card breadcrumbs to return through).
      interactive -> embed pan/zoom opt-in (?interactive=1); false ⇒ App skips interaction wiring. -->
 <script>
   window.MAP = {

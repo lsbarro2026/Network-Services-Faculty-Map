@@ -16,10 +16,11 @@ class App {
     this.siteLabels = false;            // siteplan: show building name labels (hidden by default)
     this.highlight = 'all';             // floor view-mode highlight: 'all' rooms (default) | 'placements' (rooms with devices) | 'none'
     this.current = null;                // active Editor (or null on building view)
-    // Embedded in a dashboard-widget iframe (?embed=1): chrome hidden + no navigation (drill-in
-    // is gated in SiteplanEditor.openBuilding). Interactivity (pan/zoom + zoom controls +
-    // keyboard) is opt-in there and always on in the standalone app; the editors and the
-    // keyboard handler consult `interactive`.
+    // Embedded in a dashboard-widget iframe (?embed=1): chrome hidden + no in-card navigation.
+    // A building click opens the full map in the top window instead (SiteplanEditor.openBuilding),
+    // since the chrome-free card has no breadcrumbs to return through. Interactivity (pan/zoom +
+    // zoom controls + keyboard) is opt-in there and always on in the standalone app; the editors
+    // and the keyboard handler consult `interactive`.
     this.embed = !!(window.MAP && window.MAP.embed);
     this.interactive = !this.embed || !!(window.MAP && window.MAP.interactive);
   }

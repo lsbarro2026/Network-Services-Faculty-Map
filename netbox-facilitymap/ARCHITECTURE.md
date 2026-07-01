@@ -39,7 +39,7 @@ window.MAP = {
   media:  "/plugins/facilitymap/api/media/",  // authenticated floor images / thumbnails / PDFs
   static: "/static/netbox_facilitymap/",      // framework-free JS/CSS/fonts (collectstatic)
   csrf:   "<session csrf token>",              // threaded into Api.post's X-CSRFToken header
-  embed:  false,                               // true under ?embed=1 → chrome-free widget, no navigation
+  embed:  false,                               // true under ?embed=1 → chrome-free widget; a building click opens the full map in the top window
   interactive: false                           // embed pan/zoom opt-in (?interactive=1); gates Editor wiring + keyboard
 };
 ```
@@ -501,7 +501,8 @@ Shapes are **building hotspots**. `editing()`=`app.siteEdit`.
 - `render()` draws hotspots. In **view mode** they get the `.view` class (invisible
   at rest, neutral grey fill on hover or when the index row is hovered); in **edit
   mode** PDF hotspots are dashed `.ref`, user hotspots `.user`. View click →
-  `openBuilding`; edit click on a user hotspot → select + panel; edit click on a PDF
+  `openBuilding` (drills into the building in-app, or — in the dashboard-widget embed —
+  opens the full map in the top window; see §10); edit click on a user hotspot → select + panel; edit click on a PDF
   hotspot → `promoteHotspot` (see below) then select + panel. **Building labels are
   hidden by default**: a hotspot's `_drawLabel` runs only when the page-wide toggle is on
   (`app.siteLabels`) **or** the building opted in (`hs.ref.showLabel`). On top of that, the
@@ -1595,8 +1596,13 @@ point at the deep treatment.
     unconditional), and `App` short-circuits its `keydown` handler when `!interactive`. CSS
     `pointer-events:none` does **not** work here: the pan/draw `.catcher` rect sets *inline*
     `pointer-events:all` (`editor.js`), which overrides an inherited value.
-  - *Navigation* — `SiteplanEditor.openBuilding` returns early when `app.embed`. Both hotspot
-    clicks and legend-row clicks route through it, so one gate covers both regardless of toggles.
+  - *Navigation* — the chrome-free card has no breadcrumbs to return through, so drilling in
+    *inside* the iframe would strand the user. Instead `SiteplanEditor.openBuilding` opens the
+    **full map in the top window** when `app.embed`, deep-linked at the building
+    (`window.top.location = location.pathname + '#/b/<dir>'` — same-origin iframe, and
+    `location.pathname` is the `MapView` URL without the `?embed=1` query). Both hotspot clicks
+    and legend-row clicks route through it, so one path covers both regardless of toggles; the
+    standalone app (`!embed`) still navigates in-app via `app.go`.
   `App.interactive` is `!embed || window.MAP.interactive`, so the standalone app (no `?embed`) is
   fully interactive and unchanged. `?embed=1` is consumed *only* by this iframe (the Site/Location
   embeds are server-rendered SVG, not iframes of the SPA). Edits to the JS files need

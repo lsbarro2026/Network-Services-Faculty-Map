@@ -31,12 +31,20 @@ class SiteplanEditor extends Editor {
   }
 
   openBuilding(dir, name) {
-    // The dashboard-widget embed is a preview with no navigation (no breadcrumbs to return) —
-    // both hotspot clicks and legend rows route through here, so this one gate covers both.
-    if (this.app.embed) return;
+    // Both hotspot clicks and legend rows route through here, so this covers both.
     const b = this.store.building(dir);
-    (b && b.floors.length) ? this.app.go('/b/' + encodeURIComponent(dir))
-      : Toast.show('No floor maps for ' + (name || dir));
+    if (!(b && b.floors.length)) {
+      // No floor maps to open. The embed's toast is CSS-hidden, so it just does nothing there.
+      if (!this.app.embed) Toast.show('No floor maps for ' + (name || dir));
+      return;
+    }
+    const hash = '/b/' + encodeURIComponent(dir);
+    // The dashboard-widget embed is chrome-free with no in-card breadcrumbs, so drilling in
+    // there would strand the user with no way back. Open the full map in the top window instead,
+    // deep-linked at this building: location.pathname is the MapView URL (minus the ?embed=1
+    // query) and the widget iframe is same-origin, so window.top is reachable.
+    if (this.app.embed) { window.top.location.href = location.pathname + '#' + hash; return; }
+    this.app.go(hash);
   }
 
   /** PDF hotspots overridden by any user hotspot for the same building, plus all
