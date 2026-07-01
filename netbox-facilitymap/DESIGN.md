@@ -54,9 +54,10 @@ on a **floor** Location it embeds the whole floor plan — tiling every drawing 
 multi-sheet floor server-side (`previews.floor_sheets`, mirroring the editor's `Store.floorLayout`)
 — overlaid with the floor's rooms, and it renders even before any rooms are drawn. A room has no standalone plugin page —
 it is surfaced on its bound Location, so `Room.get_absolute_url()` resolves to that Location
-(or the map app when unbound). Both variants also overlay the rack/device **placement markers**
+(or the map app when unbound). The **per-room** view also overlays the rack/device **placement markers**
 (MVP styled boxes — `previews.placement_markers`; not the JS `DeviceShapes` glyphs), built
-server-side from the `placements` blob and permission-scoped to the visible room(s).
+server-side from the `placements` blob and permission-scoped to the room; the **whole-floor**
+view omits the markers, keeping the floor panel a clean plan + room-polygon overlay.
 A second extension (`template_content.SiteFloors`) embeds a **floor picker** on the `dcim.Site`
 page (here a Site = one building): a grid of floor cards mirroring the SPA's building view,
 read fresh from the manifest, each card linking to that floor's NetBox Location page.

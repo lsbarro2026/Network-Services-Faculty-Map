@@ -3,6 +3,16 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.41.0 — Whole-floor Location embed drops the rack/device markers
+- **The floor-plan panel on a *floor* `dcim.Location` page no longer draws rack/device
+  placement markers** — it now shows just the floor plan and its room polygons, a cleaner
+  wayfinding overlay at floor scale. The markers still render on a *room* Location page's
+  embed (the cropped single-room view), unchanged. `FloorRooms._panel` already distinguishes
+  the two views by its `crop_to` argument (`None` for the whole floor, the `Room` for a single
+  room), so the markers are now gated on it; the whole-floor view passes an empty list and the
+  marker partial renders nothing. Permission scoping on the room embed is unchanged. Native
+  NetBox-page embed only — the SPA/editor floor view (client-side `DeviceShapes`) is unaffected.
+
 ## 1.40.0 — Faster map first-load (parallel boot fetches)
 - **The SPA now fetches its five boot documents in parallel** instead of one after another.
   `Store.load()` previously `await`ed the manifest, `/api/annotations`, `/api/siteplan`,

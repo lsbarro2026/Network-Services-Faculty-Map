@@ -1619,13 +1619,15 @@ point at the deep treatment.
   resize. No manifest yet ⇒ a plain `width:100%;height:100%` fill. The default grid `height` is 10
   rows. (This is independent of `PanZoom.fit()`, which still letterbox-fits the map *inside*
   whatever box the iframe ends up being.)
-- **Native previews also draw rack/device markers, server-side (`previews.py`).** The panel
-  overlays `previews.placement_markers(...)` — one **MVP** box per placement (rack vs device,
-  positioned/rotated/sized from the `placements` blob, scaled by `w×h`), via the shared
-  `inc/placement_markers.html` partial. These are deliberately *not* the JS `DeviceShapes`
-  glyphs (those have no Python equivalent); re-tune them there if fidelity matters. Markers are
-  permission-scoped: the helper filters to the caller's `room_ids` (the floor panel passes its
-  `.restrict(...)`-scoped room set; the single-room panel passes the one room). Each marker also
+- **The per-room embed also draws rack/device markers, server-side (`previews.py`); the
+  whole-floor panel does not.** The single-room view overlays `previews.placement_markers(...)`
+  — one **MVP** box per placement (rack vs device, positioned/rotated/sized from the
+  `placements` blob, scaled by `w×h`), via the shared `inc/placement_markers.html` partial.
+  These are deliberately *not* the JS `DeviceShapes` glyphs (those have no Python equivalent);
+  re-tune them there if fidelity matters. Markers are gated on `crop_to`: the whole-floor view
+  (`crop_to=None`) passes `markers=[]` so the floor panel stays a plain plan + room-polygon
+  overlay, while the single-room embed builds them. They stay permission-scoped: the helper
+  filters to the caller's `room_ids` (the single-room panel passes the one room). Each marker also
   **links to its rack/device's NetBox page** (restoring the SPA's click-through): `placement_markers`
   takes the request `user` (threaded through `FloorRooms._panel`) and bulk-resolves the placements'
   stored PKs through `Rack/Device.objects.restrict(user, 'view')`, taking each object's

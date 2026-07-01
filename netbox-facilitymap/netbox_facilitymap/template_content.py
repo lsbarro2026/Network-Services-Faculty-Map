@@ -65,10 +65,11 @@ class FloorRooms(PluginTemplateExtension):
 
     def _panel(self, floor_key, rooms, crop_to, user):
         """Render the panel for `rooms` over their floor's plan image (all sheets, tiled).
-        `crop_to` (a single Room) zooms the SVG `viewBox` to that room's bounding box and
-        drops the per-room cross-links; `None` keeps the whole-floor view. `rooms` is already
-        `.restrict(...)`-scoped, so its room_ids keep the markers permission-bounded; `user`
-        further permission-scopes the markers' rack/device detail links.
+        `crop_to` (a single Room) zooms the SVG `viewBox` to that room's bounding box, drops
+        the per-room cross-links and draws the rack/device markers; `None` keeps the
+        whole-floor view and omits the markers. `rooms` is already `.restrict(...)`-scoped, so
+        its room_ids keep the markers permission-bounded; `user` further permission-scopes the
+        markers' rack/device detail links.
         Returns '' when `floor_key` has no rendered plan, so non-floor Locations show nothing."""
         geom = floor_sheets(floor_key)
         if not geom:
@@ -88,7 +89,10 @@ class FloorRooms(PluginTemplateExtension):
                 'url': '' if crop_to else (room.location.get_absolute_url() if room.location_id else ''),
             })
 
-        markers = placement_markers(floor_key, w, h, {r.room_id for r in rooms}, user)
+        # Rack/device markers only on the cropped single-room embed; the whole-floor view
+        # (crop_to=None) omits them so the floor panel stays a clean plan + room-polygon
+        # overlay. `inc/placement_markers.html` is a bare loop, so [] renders nothing.
+        markers = placement_markers(floor_key, w, h, {r.room_id for r in rooms}, user) if crop_to else []
 
         # On the cropped single-room embed, dim the floor outside the room's own polygon
         # (a spotlight mask, drawn in the template) so the room reads unambiguously even
