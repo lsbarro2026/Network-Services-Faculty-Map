@@ -27,7 +27,9 @@ from dcim.models import Location
 from netbox.plugins import PluginTemplateExtension
 
 from .models import Room
-from .previews import floor_sheets, placement_markers, room_embed_zoom, room_viewbox
+from .previews import (
+    floor_sheets, placement_markers, room_arrows, room_embed_zoom, room_viewbox,
+)
 from .storage import MANIFEST_NAME, media_url, work_dir
 
 
@@ -105,16 +107,28 @@ class FloorRooms(PluginTemplateExtension):
             map_url = (reverse('plugins:netbox_facilitymap:map')
                        + f'#/f/{quote(dir_part, safe="")}/{quote(fid_part, safe="")}')
 
+        # The cropped room embed honours the configurable zoom; the whole-floor view
+        # (crop_to=None) passes no viewBox, so the setting never affects floor views.
+        viewbox = room_viewbox(crop_to.polygon, w, h, zoom=room_embed_zoom()) if crop_to else None
+
+        # Draw the wayfinding arrows whose destination is *this* room, on the per-room embed
+        # only. The editor's fixed head size reads magnified under the zoomed crop, so size
+        # the head at ~6% of the viewBox width — a stable on-screen size across zoom levels.
+        # (`crop_to.room_id` is already permission-scoped via the `.restrict(...)` query.)
+        arrows = []
+        if crop_to and viewbox:
+            head_px = float(viewbox.split()[2]) * 0.06
+            arrows = room_arrows(floor_key, crop_to.room_id, w, h, head_px=head_px)
+
         return self.render('netbox_facilitymap/floor_rooms.html', extra_context={
             'vw': w,
             'vh': h,
             'sheets': geom['sheets'],
             'shapes': shapes,
             'markers': markers,
-            # The cropped room embed honours the configurable zoom; the whole-floor view
-            # (crop_to=None) passes no viewBox, so the setting never affects floor views.
-            'viewbox': room_viewbox(crop_to.polygon, w, h, zoom=room_embed_zoom()) if crop_to else None,
+            'viewbox': viewbox,
             'spotlight': spotlight,
+            'arrows': arrows,
             'map_url': map_url,
         })
 

@@ -14,11 +14,19 @@ floor's *combined* canvas (the tiled grid of sheets); callers scale them by the 
 """
 
 import json
+import math
 
 from dcim.models import Device, Rack
 
 from .models import FacilityMapBlob
 from .storage import MANIFEST_NAME, media_url, work_dir
+
+# Wayfinding-arrow defaults, mirrored from the editor's JS constants (`lib.js`): the head
+# size (`ARROW_HEAD_PX`, lib.js:27) and the first palette colour used when an arrow has no
+# `color` (`ARROW_COLORS[0]`, lib.js:23). Server-side rendering of the room-page embed
+# (`room_arrows`) reproduces that geometry, so keep these in step with the JS source.
+ARROW_HEAD_PX = 15
+ARROW_DEFAULT_COLOR = '#066fd1'
 
 # Default marker footprint (display px) when a placement has no user-set w/h. We don't
 # resolve the per-type glyph server-side, so two defaults suffice — a tall rack cabinet vs a
@@ -206,3 +214,57 @@ def room_viewbox(polygon, w, h, pad=0.08, zoom=ZOOM_DEFAULT):
     bx = min(max(cx - bw / 2, 0), w - bw)
     by = min(max(cy - bh / 2, 0), h - bh)
     return f'{bx:.1f} {by:.1f} {bw:.1f} {bh:.1f}'
+
+
+def room_arrows(floor_key, room_id, w, h, head_px=ARROW_HEAD_PX):
+    """Render-ready geometry for the wayfinding arrows whose destination is `room_id`.
+
+    Reads the `kind='annotations'` blob's `data[floor_key]['arrows']` and keeps only the
+    arrows the editor auto-bound to this room (`a['room'] == room_id`, the frontend room id
+    persisted verbatim as `Room.room_id`). For the per-room embed only — the caller passes
+    `crop_to.room_id`, so the result is already permission-scoped to a room the user may view.
+
+    Each returned dict — `{'line', 'head', 'color'}` — mirrors `FloorEditor._drawArrows`
+    (`static/.../floor-editor.js`) over the combined-canvas `w`×`h` (so it lines up with the
+    rooms/spotlight): the visible polyline is pulled back `head_px` from the last point toward
+    the previous one (round cap can't poke past the tip), and the head is the same triangle as
+    `Geom.arrowHead` (`lib.js:127`, base centre behind the tip, half-width `head_px*0.55`).
+
+    `head_px` is a size in the *combined-canvas* units the coords scale to. The editor's fixed
+    `ARROW_HEAD_PX` reads magnified under the zoomed room crop, so the caller sizes the head
+    relative to the crop's viewBox to keep it a stable on-screen size across `room_embed_zoom`.
+    Arrows with fewer than 2 points are skipped (matches `_drawArrows`).
+    """
+    blob = FacilityMapBlob.objects.filter(kind='annotations', key='').first()
+    floor = ((blob.data or {}).get(floor_key) if blob else None) or {}
+    arrows = []
+    for a in (floor.get('arrows') or []):
+        if a.get('room') != room_id:
+            continue
+        pts = a.get('points') or []
+        if len(pts) < 2:
+            continue
+        scaled = [(x * w, y * h) for x, y in pts]
+        (p0x, p0y), (p1x, p1y) = scaled[-2], scaled[-1]
+        dx, dy = p1x - p0x, p1y - p0y
+        length = math.hypot(dx, dy) or 1
+        ux, uy = dx / length, dy / length
+
+        # Line ends at the head's base centre (pulled back along the final segment, clamped
+        # so a short last hop can't flip the end past the previous point).
+        pull = min(head_px, length)
+        end = (p1x - ux * pull, p1y - uy * pull)
+        line_pts = scaled[:-1] + [end]
+
+        # Arrowhead triangle: tip at the last point, base centre `head_px` behind it.
+        bcx, bcy = p1x - ux * head_px, p1y - uy * head_px
+        px, py = -uy, ux
+        half = head_px * 0.55
+        head = [(p1x, p1y), (bcx + px * half, bcy + py * half), (bcx - px * half, bcy - py * half)]
+
+        arrows.append({
+            'line': ' '.join(f'{x:.1f},{y:.1f}' for x, y in line_pts),
+            'head': ' '.join(f'{x:.1f},{y:.1f}' for x, y in head),
+            'color': a.get('color') or ARROW_DEFAULT_COLOR,
+        })
+    return arrows

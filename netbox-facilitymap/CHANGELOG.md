@@ -3,6 +3,23 @@
 All notable changes to `netbox-facilitymap`. Versions are git tags; keep
 `pyproject.toml` `version` and `PluginConfig.version` in lockstep.
 
+## 1.36.0 — Route arrows on the room-page embed
+- **A room's Location page now draws the wayfinding arrows that end in that room.** When a
+  route arrow's arrowhead lands inside the room (the editor's auto-bound destination), the
+  cropped per-room embed (`FloorRooms`, `crop_to` set) overlays that arrow — coloured polyline
+  plus arrowhead — on top of the floor plan, mirroring how it looks in the map editor. Routes
+  that start elsewhere on the floor are clipped by the room crop; the visible tail and head
+  still read cleanly.
+- New `previews.room_arrows(floor_key, room_id, w, h, head_px=…)` reads the `annotations` blob's
+  per-floor `arrows`, filters to `arrow['room'] == room_id`, and returns render-ready
+  `{line, head, color}` geometry over the combined-canvas `w×h` — reproducing
+  `FloorEditor._drawArrows` (line pulled back from the tip, `Geom.arrowHead` triangle). It runs
+  **only on the per-room embed** (whole-floor view unchanged) and inherits the room's
+  `.restrict(...)` permission scope. The arrowhead is sized at ~6% of the crop's viewBox width so
+  it stays a stable on-screen size across the configurable `room_embed_zoom`.
+- Backend + template + docs only (`previews.py`, `template_content.py`, `floor_rooms.html`,
+  `ARCHITECTURE.md`): no new endpoint, write path, or coordinate convention; ORM reads only.
+
 ## 1.35.0 — Bind step returns to the edit hub when re-editing
 - **The "Map buildings to NetBox" step now offers hub-aware actions in edit mode.** When the bind
   step is reached from the non-linear edit hub (re-editing an already-built facility — the

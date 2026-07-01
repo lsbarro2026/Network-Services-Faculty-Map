@@ -88,7 +88,7 @@ netbox-facilitymap/
     models.py               # FacilityMapBlob (editor JSON) + Room (NetBoxModel: room polygon → Location)
     template_content.py     # PluginTemplateExtensions: FloorRooms (rooms panel on the Location page) + SiteFloors (floor-picker grid on the Site page)
     dashboard.py            # FacilityMapWidget: home-dashboard widget that iframes the SPA (registered in __init__.ready())
-    previews.py             # Location preview helpers: floor_sheets() (sheet tiling) + placement_markers() + room_viewbox() + room_embed_zoom() (settings read)
+    previews.py             # Location preview helpers: floor_sheets() (sheet tiling) + placement_markers() + room_viewbox() + room_arrows() (per-room route arrows) + room_embed_zoom() (settings read)
     navigation.py           # plugin menu items (Facility Map, Settings)
     filtersets.py           # RoomFilterSet (used by the DRF REST API)
     api/                    # DRF REST API for Room (serializers.py / views.py / urls.py)
@@ -1612,6 +1612,20 @@ point at the deep treatment.
   you're on. The mask is drawn over the sheets but under the green highlight polygon + markers, so
   those stay crisp. Only the cropped single-room view dims — the whole-floor panel passes an empty
   `spotlight`, so it never masks.
+- **The cropped room view also draws the wayfinding arrows that *end* in it** (`previews.room_arrows`).
+  Routes are stored per floor in the `annotations` blob (`data[floor_key]['arrows']`), each
+  `{points, room, color, …}` with `room` = the destination's frontend room id (`Room.room_id`).
+  `room_arrows(floor_key, room_id, w, h, head_px=…)` keeps the arrows whose `room` matches and
+  returns `{line, head, color}` per arrow, reproducing `FloorEditor._drawArrows`
+  (`static/.../floor-editor.js`) over the combined `w×h`: the polyline is pulled back from the last
+  point and the head is the `Geom.arrowHead` triangle (half-width `head_px*0.55`). `_panel` calls it
+  **only when `crop_to` is set** (per-room embed only; the whole-floor view passes `arrows=[]`), and
+  permission-scoping is inherited from `crop_to.room_id` (the `.restrict(...)`-scoped room). The
+  editor's fixed `ARROW_HEAD_PX` (=15) is a *display-px* size that would render magnified under the
+  zoomed crop, so `_panel` sizes the head at **~6% of the viewBox width** — a stable on-screen size
+  across `room_embed_zoom` settings. Most routes start outside the crop, so the viewBox clips the
+  tail; that's expected. `floor_rooms.html` renders each as an inline-styled polyline (non-scaling
+  stroke) + filled polygon head, drawn last so arrows sit above the sheets/spotlight/rooms/markers.
 
 ### Node editing (`Editor.drawVertices`)
 

@@ -42,6 +42,20 @@
         {% if s.url %}</a>{% endif %}
       {% endfor %}
       {% include 'netbox_facilitymap/inc/placement_markers.html' %}
+      {% comment %}
+        Wayfinding route arrows that *end* in this room (set only on the cropped per-room
+        embed). Mirrors the editor's arrow: a coloured polyline (non-scaling stroke so width
+        survives the zoom crop) plus a filled arrowhead at the destination. Inline-styled from
+        the arrow's own colour — the plugin's `.arrow`/`.arrow-head` CSS isn't loaded here.
+        Most routes start outside the crop and are clipped by the viewBox; the visible tail +
+        head still read cleanly. Drawn last so arrows sit above the sheets/spotlight/rooms.
+      {% endcomment %}
+      {% for a in arrows %}
+        <polyline points="{{ a.line }}" fill="none" stroke="{{ a.color }}"
+                  stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
+                  vector-effect="non-scaling-stroke"/>
+        <polygon points="{{ a.head }}" style="fill:{{ a.color }};stroke:none"/>
+      {% endfor %}
     </svg>
   </div>
 </div>
